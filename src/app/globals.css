@@ -1,0 +1,416 @@
+@import "tailwindcss";
+
+@theme {
+  --color-whyte-blue: #1B3C73;
+  --color-whyte-light: #2D6BE4;
+  --color-whyte-dark: #0D1B2A;
+  --color-accent: #D46A8C;
+  --color-accent-hover: #C25678;
+  --color-accent-light: #FDF2F5;
+  --color-accent-muted: #F9E4EC;
+  --color-accent-border: #F1BDCE;
+  --color-accent-foreground: #8A2B4D;
+
+  /* Admin Semantic Tokens (Black + White + Grey + Rose/Pink) */
+  --color-admin-primary: #D85B83;
+  --color-admin-primary-hover: #B83E68;
+  --color-admin-primary-dark: #B83E68;
+  --color-admin-primary-soft: #FCEAF0;
+  --color-admin-primary-subtle: #FFF6F8;
+  --color-admin-primary-border: #F1B8C8;
+  --color-admin-primary-foreground: #B83E68;
+  --color-admin-black: #111111;
+  --color-admin-charcoal: #1E1E22;
+  --color-admin-white: #FFFFFF;
+  --color-admin-grey: #8A8A93;
+  --color-admin-grey-light: #F6F6F7;
+  --color-admin-grey-border: #E5E5E7;
+  --color-admin-grey-dark: #1E1E22;
+  --color-admin-surface: #FFFFFF;
+  --color-admin-surface-muted: #F6F6F7;
+  --color-admin-background: #F6F6F7;
+  --color-admin-sidebar: #111111;
+  --font-sans: var(--font-raleway), "Raleway", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-raleway: var(--font-raleway), "Raleway", sans-serif;
+  --font-poppins: var(--font-poppins), "Poppins", sans-serif;
+}
+
+:root {
+  --accent: #ef4370;
+  --accent-hover: #B83E68;
+  --accent-light: #FCEAF0;
+  --accent-muted: #FFF6F8;
+  --accent-border: #F1B8C8;
+  --accent-foreground: #B83E68;
+
+  --admin-primary: #ef4370;
+  --admin-primary-hover: #B83E68;
+  --admin-primary-dark: #B83E68;
+  --admin-primary-soft: #FCEAF0;
+  --admin-primary-subtle: #FFF6F8;
+  --admin-primary-border: #F1B8C8;
+  --admin-primary-foreground: #B83E68;
+  --admin-black: #111111;
+  --admin-charcoal: #1E1E22;
+  --admin-white: #FFFFFF;
+  --admin-grey: #8A8A93;
+  --admin-grey-light: #F6F6F7;
+  --admin-grey-border: #E5E5E7;
+  --admin-grey-dark: #1E1E22;
+  --admin-surface: #FFFFFF;
+  --admin-surface-muted: #F6F6F7;
+  --admin-background: #F6F6F7;
+  --admin-border: #E5E5E7;
+  --admin-sidebar: #111111;
+
+  /* Layering tokens — never use arbitrary z-index values in components */
+  --z-dropdown: 40;
+  --z-modal: 50;
+  --z-confirm: 100;
+  --z-toast: 1000;
+}
+
+.admin-theme {
+  --color-accent: #ef4370;
+  --color-accent-hover: #B83E68;
+  --color-accent-light: #FCEAF0;
+  --color-accent-muted: #FFF6F8;
+  --color-accent-border: #F1B8C8;
+  --color-accent-foreground: #B83E68;
+  --accent: #D85B83;
+  --accent-hover: #B83E68;
+  --accent-light: #FCEAF0;
+  --accent-muted: #FFF6F8;
+  --accent-border: #F1B8C8;
+  --accent-foreground: #B83E68;
+}
+
+.admin-theme input:focus,
+.admin-theme textarea:focus,
+.admin-theme select:focus {
+  border-color: #ef4370 !important;
+  box-shadow: 0 0 0 3px rgba(216, 91, 131, 0.15) !important;
+  outline: none !important;
+}
+
+.admin-theme tbody tr:hover {
+  background-color: #FFF6F8 !important;
+}
+
+.admin-theme tbody tr.selected,
+.admin-theme tbody tr[data-selected="true"] {
+  background-color: #FCEAF0 !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  font-family: var(--font-raleway), "Raleway", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: lining-nums tabular-nums;
+  -webkit-font-feature-settings: "lnum" 1, "tnum" 1;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+  background: #f9fafb;
+  color: #111827;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+input,
+button,
+select,
+textarea,
+table {
+  font-variant-numeric: lining-nums tabular-nums;
+  -webkit-font-feature-settings: "lnum" 1, "tnum" 1;
+  font-feature-settings: "lnum" 1, "tnum" 1;
+}
+
+/* Smooth scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Line clamp utility */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ── Responsive layout helpers ── */
+
+/* Prevent all images from exceeding their container */
+img,
+video,
+svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Ensure tables don't break layout */
+table {
+  border-collapse: collapse;
+}
+
+/* Touch-friendly tap targets — 44×44 px minimum */
+@media (pointer: coarse) {
+
+  button,
+  a,
+  select,
+  input[type="checkbox"],
+  input[type="radio"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  /* Exceptions for inline/icon buttons that have explicit sizing */
+  .touch-target-sm {
+    min-height: 36px;
+    min-width: 36px;
+  }
+}
+
+/* Prevent content from pushing beyond viewport */
+.safe-max-w {
+  max-width: 100vw;
+}
+
+/* ── Animations ── */
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.2s ease-out forwards;
+}
+
+/* ── Whyte Logo Left-to-Right Reveal Keyframes ── */
+@keyframes whyteLogoWipe {
+  0% {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.15;
+  }
+
+  48% {
+    clip-path: inset(0 0% 0 0);
+    opacity: 1;
+  }
+
+  80% {
+    clip-path: inset(0 0% 0 0);
+    opacity: 1;
+  }
+
+  100% {
+    clip-path: inset(0 0 0 100%);
+    opacity: 0.15;
+  }
+}
+
+@keyframes whyteGlowSweep {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes whyteTrackPulse {
+
+  0%,
+  100% {
+    opacity: 0.3;
+    transform: scaleX(0.8);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+}
+
+.animate-whyte-reveal {
+  animation: whyteLogoWipe 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-whyte-glow {
+  animation: whyteGlowSweep 2.5s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+.animate-whyte-track {
+  animation: whyteTrackPulse 2.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+  .animate-whyte-reveal,
+  .animate-whyte-glow,
+  .animate-whyte-track {
+    animation: none !important;
+    clip-path: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Hide scrollbar for mobile room list */
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ── Whyte Toast Progress Keyframes ── */
+@keyframes whyteToastProgress {
+  from {
+    width: 100%;
+  }
+
+  to {
+    width: 0%;
+  }
+}
+
+
+/* ── Admin Sidebar Glass Hover Effect (HOVER ONLY) ── */
+.glass-nav-hover {
+  position: relative;
+  transition: background-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 150ms ease-out;
+}
+
+.glass-nav-hover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(180deg,
+      rgba(255, 255, 255, 0.45) 0%,
+      rgba(255, 255, 255, 0.12) 45%,
+      rgba(255, 255, 255, 0.25) 100%);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 200ms ease-out;
+  pointer-events: none;
+}
+
+.glass-nav-hover:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border-color: rgba(255, 255, 255, 0.28) !important;
+  box-shadow:
+    0 0 20px 1px rgba(255, 255, 255, 0.12),
+    0 4px 20px -2px rgba(0, 0, 0, 0.6),
+    inset 0 1.5px 1.5px 0 rgba(255, 255, 255, 0.40),
+    inset 0 -1px 1px 0 rgba(255, 255, 255, 0.12) !important;
+}
+
+.glass-nav-hover:hover::before {
+  opacity: 1;
+}
+
+.glass-nav-hover:active {
+  transform: scale(0.985);
+}
+
+/* ── Print Media Styles for Step 5 Proposal ── */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  .print\:hidden {
+    display: none !important;
+  }
+
+  .proposal-page {
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    min-height: auto !important;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .proposal-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}
+
+/* ── Global Confirmation Dialog animation ─────────────────────────────────── */
+@keyframes whyte-confirm-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}

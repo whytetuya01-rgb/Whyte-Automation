@@ -1,0 +1,1415 @@
+[
+  {
+    "_id": 1,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "5799.00"
+    },
+    "productId": 44,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 2,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "6599.00"
+    },
+    "productId": 44,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 3,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8599.00"
+    },
+    "productId": 44,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 4,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "9399.00"
+    },
+    "productId": 44,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 5,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "10699.00"
+    },
+    "productId": 44,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 6,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "11599.00"
+    },
+    "productId": 44,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 7,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "5799.00"
+    },
+    "productId": 45,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 8,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "6599.00"
+    },
+    "productId": 45,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 9,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8599.00"
+    },
+    "productId": 45,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 10,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "9399.00"
+    },
+    "productId": 45,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 11,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "10699.00"
+    },
+    "productId": 45,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 12,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "11599.00"
+    },
+    "productId": 45,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 13,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "7499.00"
+    },
+    "productId": 46,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 14,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8399.00"
+    },
+    "productId": 46,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 15,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "10299.00"
+    },
+    "productId": 46,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 16,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "11199.00"
+    },
+    "productId": 46,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 17,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "12399.00"
+    },
+    "productId": 46,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 18,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "13399.00"
+    },
+    "productId": 46,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 19,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "9099.00"
+    },
+    "productId": 47,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 20,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "10199.00"
+    },
+    "productId": 47,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 21,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "11899.00"
+    },
+    "productId": 47,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 22,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "12999.00"
+    },
+    "productId": 47,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 23,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "13999.00"
+    },
+    "productId": 47,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 24,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "15199.00"
+    },
+    "productId": 47,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 25,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "9599.00"
+    },
+    "productId": 48,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 26,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "10699.00"
+    },
+    "productId": 48,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 27,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "12899.00"
+    },
+    "productId": 48,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 28,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "13999.00"
+    },
+    "productId": 48,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 29,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "15199.00"
+    },
+    "productId": 48,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 30,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "16399.00"
+    },
+    "productId": 48,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 31,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "11399.00"
+    },
+    "productId": 49,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 32,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "12699.00"
+    },
+    "productId": 49,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 33,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "14599.00"
+    },
+    "productId": 49,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 34,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "15899.00"
+    },
+    "productId": 49,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 35,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "17099.00"
+    },
+    "productId": 49,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 36,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "18499.00"
+    },
+    "productId": 49,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 37,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "13499.00"
+    },
+    "productId": 50,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 38,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "15099.00"
+    },
+    "productId": 50,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 39,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "17099.00"
+    },
+    "productId": 50,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 40,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "18699.00"
+    },
+    "productId": 50,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 41,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "20099.00"
+    },
+    "productId": 50,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 42,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "21799.00"
+    },
+    "productId": 50,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 43,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "12599.00"
+    },
+    "productId": 51,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 44,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "14099.00"
+    },
+    "productId": 51,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 45,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "16399.00"
+    },
+    "productId": 51,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 46,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "17899.00"
+    },
+    "productId": 51,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 47,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "19199.00"
+    },
+    "productId": 51,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 48,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "20899.00"
+    },
+    "productId": 51,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 49,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "20599.00"
+    },
+    "productId": 52,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 50,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "23099.00"
+    },
+    "productId": 52,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 51,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "26199.00"
+    },
+    "productId": 52,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 52,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "28699.00"
+    },
+    "productId": 52,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 53,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "30299.00"
+    },
+    "productId": 52,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 54,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "32899.00"
+    },
+    "productId": 52,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 55,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "22599.00"
+    },
+    "productId": 53,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 56,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "25099.00"
+    },
+    "productId": 53,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 57,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "28199.00"
+    },
+    "productId": 53,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 58,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "30699.00"
+    },
+    "productId": 53,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 59,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "32499.00"
+    },
+    "productId": 53,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 60,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "34999.00"
+    },
+    "productId": 53,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 61,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "4299.00"
+    },
+    "productId": 54,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 62,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "4999.00"
+    },
+    "productId": 54,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 63,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "6699.00"
+    },
+    "productId": 54,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 64,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "7399.00"
+    },
+    "productId": 54,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 65,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8199.00"
+    },
+    "productId": 54,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 66,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8999.00"
+    },
+    "productId": 54,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 67,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "5499.00"
+    },
+    "productId": 55,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 68,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "6299.00"
+    },
+    "productId": 55,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 69,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "7999.00"
+    },
+    "productId": 55,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 70,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8799.00"
+    },
+    "productId": 55,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 71,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "9599.00"
+    },
+    "productId": 55,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 72,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "10499.00"
+    },
+    "productId": 55,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 73,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "5299.00"
+    },
+    "productId": 56,
+    "sortOrder": 0,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 74,
+    "automationTier": "remote",
+    "config": {
+      "series": "remote",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "5999.00"
+    },
+    "productId": 56,
+    "sortOrder": 1,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 75,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "7799.00"
+    },
+    "productId": 56,
+    "sortOrder": 2,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 76,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8499.00"
+    },
+    "productId": 56,
+    "sortOrder": 3,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 77,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "acrylic"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "9199.00"
+    },
+    "productId": 56,
+    "sortOrder": 4,
+    "surfaceFinish": "acrylic"
+  },
+  {
+    "_id": 78,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee",
+      "finish": "glass"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "9999.00"
+    },
+    "productId": 56,
+    "sortOrder": 5,
+    "surfaceFinish": "glass"
+  },
+  {
+    "_id": 79,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "2500.00"
+    },
+    "productId": 15,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 80,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "1800.00"
+    },
+    "productId": 16,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 81,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "4500.00"
+    },
+    "productId": 17,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 82,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "3500.00"
+    },
+    "productId": 18,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 83,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "1200.00"
+    },
+    "productId": 11,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 84,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8500.00"
+    },
+    "productId": 10,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 85,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "25000.00"
+    },
+    "productId": 57,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 86,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "35000.00"
+    },
+    "productId": 58,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 87,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "15000.00"
+    },
+    "productId": 13,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 88,
+    "automationTier": null,
+    "config": {},
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "8000.00"
+    },
+    "productId": 59,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 89,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "1999.00"
+    },
+    "productId": 60,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 90,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "2499.00"
+    },
+    "productId": 60,
+    "sortOrder": 1,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 91,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "2499.00"
+    },
+    "productId": 61,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 92,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "2999.00"
+    },
+    "productId": 61,
+    "sortOrder": 1,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 93,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "3499.00"
+    },
+    "productId": 62,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 94,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "3999.00"
+    },
+    "productId": 62,
+    "sortOrder": 1,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 95,
+    "automationTier": "wifi",
+    "config": {
+      "series": "wifi"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "4499.00"
+    },
+    "productId": 63,
+    "sortOrder": 0,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 96,
+    "automationTier": "zigbee",
+    "config": {
+      "series": "zigbee"
+    },
+    "isActive": true,
+    "price": {
+      "$numberDecimal": "4999.00"
+    },
+    "productId": 63,
+    "sortOrder": 1,
+    "surfaceFinish": null
+  },
+  {
+    "_id": 112,
+    "productId": 69,
+    "automationTier": "wifi",
+    "surfaceFinish": "glass",
+    "price": {
+      "$numberDecimal": "50.00"
+    },
+    "isActive": true,
+    "sortOrder": 0
+  }
+]

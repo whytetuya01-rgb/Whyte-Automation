@@ -1,0 +1,1725 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Database Architecture — Current State | Whyte Quotation</title>
+
+<!-- Mermaid -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+
+<!-- Google Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0d1117;
+    --surface:   #161b22;
+    --surface2:  #1c2330;
+    --border:    #30363d;
+    --text:      #e6edf3;
+    --text-muted:#8b949e;
+    --accent:    #58a6ff;
+    --accent2:   #79c0ff;
+    --green:     #3fb950;
+    --red:       #f85149;
+    --orange:    #d29922;
+    --purple:    #bc8cff;
+    --teal:      #39d353;
+    --sidebar-w: 280px;
+    --header-h:  60px;
+  }
+
+  html { scroll-behavior: smooth; font-size: 15px; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── Sidebar ──────────────────────────────────────────────── */
+  #sidebar {
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    z-index: 100;
+    padding: 0 0 2rem;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  #sidebar-header {
+    position: sticky;
+    top: 0;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.2rem;
+    z-index: 1;
+  }
+
+  #sidebar-header .logo {
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.3rem;
+  }
+
+  #sidebar-header .logo svg { flex-shrink: 0; }
+
+  #sidebar-header p {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.4;
+  }
+
+  .toc-section { padding: 0.6rem 0; }
+
+  .toc-section-label {
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 0.5rem 1.2rem 0.25rem;
+  }
+
+  .toc-link {
+    display: block;
+    padding: 0.32rem 1.2rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    text-decoration: none;
+    transition: color 0.15s, background 0.15s;
+    border-left: 2px solid transparent;
+  }
+
+  .toc-link:hover { color: var(--text); background: var(--surface2); }
+  .toc-link.active { color: var(--accent); border-left-color: var(--accent); background: rgba(88,166,255,0.07); }
+
+  .toc-link.sub { padding-left: 2rem; font-size: 0.74rem; }
+  .toc-link.sub2 { padding-left: 2.8rem; font-size: 0.72rem; }
+
+  /* ── Main Content ─────────────────────────────────────────── */
+  #main {
+    margin-left: var(--sidebar-w);
+    flex: 1;
+    max-width: 1000px;
+    padding: 3rem 3.5rem 6rem;
+  }
+
+  /* ── Header Banner ────────────────────────────────────────── */
+  .doc-header {
+    background: linear-gradient(135deg, #0d1f3c 0%, #1a2744 50%, #0d1f3c 100%);
+    border: 1px solid rgba(88,166,255,0.25);
+    border-radius: 12px;
+    padding: 2rem 2.5rem;
+    margin-bottom: 3rem;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .doc-header::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -10%;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(88,166,255,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .doc-header .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(63,185,80,0.15);
+    border: 1px solid rgba(63,185,80,0.35);
+    color: var(--green);
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.25rem 0.7rem;
+    border-radius: 999px;
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .doc-header h1 {
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 0.4rem;
+    line-height: 1.2;
+  }
+
+  .doc-header .subtitle {
+    font-size: 1rem;
+    color: var(--accent2);
+    margin-bottom: 1.2rem;
+  }
+
+  .doc-meta {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+
+  .doc-meta span {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .doc-meta span strong { color: var(--text); }
+
+  /* ── Section Headings ─────────────────────────────────────── */
+  h2 {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #fff;
+    margin: 3rem 0 1.2rem;
+    padding-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  h2 .section-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--accent);
+    color: #000;
+    font-size: 0.7rem;
+    font-weight: 700;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--accent2);
+    margin: 2.2rem 0 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  h3::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 1em;
+    background: var(--accent);
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
+  h4 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    margin: 1.5rem 0 0.6rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+  }
+
+  /* ── Paragraphs & Text ────────────────────────────────────── */
+  p { margin-bottom: 0.9rem; color: var(--text); }
+
+  strong { color: #fff; font-weight: 600; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  .divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2.5rem 0;
+  }
+
+  /* ── Tables ───────────────────────────────────────────────── */
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    margin: 1.2rem 0 1.8rem;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.82rem;
+  }
+
+  thead { background: var(--surface2); }
+
+  thead th {
+    padding: 0.65rem 1rem;
+    text-align: left;
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+  }
+
+  tbody tr { border-bottom: 1px solid rgba(48,54,61,0.5); transition: background 0.1s; }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: rgba(88,166,255,0.04); }
+
+  td {
+    padding: 0.55rem 1rem;
+    vertical-align: top;
+    line-height: 1.5;
+  }
+
+  td:first-child { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; color: var(--purple); }
+
+  .yes-badge, .no-badge, .pk-badge {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 700;
+    padding: 0.1rem 0.45rem;
+    border-radius: 4px;
+    letter-spacing: 0.05em;
+  }
+
+  .yes-badge { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
+  .no-badge  { background: rgba(139,148,158,0.1); color: var(--text-muted); border: 1px solid rgba(139,148,158,0.2); }
+  .pk-badge  { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
+  .unique-badge { background: rgba(210,153,34,0.15); color: var(--orange); border: 1px solid rgba(210,153,34,0.3); display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 4px; letter-spacing: 0.05em; }
+  .cuid-badge { background: rgba(57,211,83,0.12); color: #39d353; border: 1px solid rgba(57,211,83,0.3); display: inline-block; font-size: 0.68rem; font-weight: 700; padding: 0.1rem 0.45rem; border-radius: 4px; letter-spacing: 0.05em; }
+
+  /* ── Code Blocks ──────────────────────────────────────────── */
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.83em;
+    background: rgba(88,166,255,0.1);
+    color: var(--accent2);
+    padding: 0.1em 0.4em;
+    border-radius: 4px;
+    border: 1px solid rgba(88,166,255,0.15);
+  }
+
+  pre {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    overflow-x: auto;
+    margin: 1rem 0 1.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 1.65;
+    color: #cdd9e5;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    color: inherit;
+    font-size: inherit;
+  }
+
+  .pre-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 0.4rem;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+
+  .pre-label .lang-tag {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 0.1rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.65rem;
+    color: var(--accent);
+  }
+
+  /* Flowchart / cascade text pre */
+  pre.flow {
+    background: #0a1628;
+    border-color: rgba(88,166,255,0.2);
+    color: #cdd9e5;
+  }
+
+  /* ── Callout Boxes ────────────────────────────────────────── */
+  .callout {
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin: 1.2rem 0;
+    display: flex;
+    gap: 0.8rem;
+    font-size: 0.88rem;
+    line-height: 1.6;
+  }
+
+  .callout-icon { font-size: 1.1rem; flex-shrink: 0; margin-top: 0.05rem; }
+
+  .callout.info    { background: rgba(88,166,255,0.08); border: 1px solid rgba(88,166,255,0.25); }
+  .callout.warning { background: rgba(210,153,34,0.08);  border: 1px solid rgba(210,153,34,0.3); }
+  .callout.success { background: rgba(63,185,80,0.08);   border: 1px solid rgba(63,185,80,0.3); }
+  .callout.danger  { background: rgba(248,81,73,0.08);   border: 1px solid rgba(248,81,73,0.3); }
+
+  /* ── Model Card ───────────────────────────────────────────── */
+  .model-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.4rem 1.6rem;
+    margin: 1.5rem 0;
+  }
+
+  .model-card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.8rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .model-card-header .model-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--purple);
+  }
+
+  .model-meta {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+    font-size: 0.8rem;
+  }
+
+  .model-meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .model-meta-item .label {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    font-weight: 600;
+  }
+
+  .model-meta-item .value {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--accent2);
+    font-size: 0.8rem;
+  }
+
+  /* ── Enum Cards ───────────────────────────────────────────── */
+  .enum-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
+    margin: 1.2rem 0;
+  }
+
+  .enum-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.1rem 1.3rem;
+  }
+
+  .enum-card h4 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--orange);
+    margin-bottom: 0.8rem;
+    text-transform: none;
+    letter-spacing: 0;
+  }
+
+  .enum-values { list-style: none; }
+
+  .enum-values li {
+    display: flex;
+    gap: 0.7rem;
+    padding: 0.3rem 0;
+    border-bottom: 1px solid rgba(48,54,61,0.5);
+    font-size: 0.8rem;
+    align-items: baseline;
+  }
+
+  .enum-values li:last-child { border-bottom: none; }
+
+  .enum-val {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--teal);
+    font-size: 0.78rem;
+    min-width: 90px;
+    flex-shrink: 0;
+  }
+
+  .enum-desc { color: var(--text-muted); line-height: 1.4; }
+
+  /* ── Relationship Chain ───────────────────────────────────── */
+  .rel-chain {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.5rem;
+    margin: 1rem 0;
+  }
+
+  .chain-item {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.25rem 0;
+  }
+
+  .chain-table {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.83rem;
+    background: rgba(88,166,255,0.1);
+    color: var(--accent2);
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    border: 1px solid rgba(88,166,255,0.2);
+  }
+
+  .chain-arrow { color: var(--text-muted); font-size: 0.9rem; }
+  .chain-label { font-size: 0.72rem; color: var(--text-muted); font-style: italic; }
+
+  /* ── Mermaid wrapper ──────────────────────────────────────── */
+  .mermaid-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+    text-align: center;
+  }
+
+  .mermaid-wrap .mermaid { display: inline-block; text-align: left; }
+
+  /* ── Command Table ────────────────────────────────────────── */
+  .cmd-list { list-style: none; }
+
+  .cmd-list li {
+    display: flex;
+    gap: 1rem;
+    align-items: baseline;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(48,54,61,0.4);
+    font-size: 0.85rem;
+  }
+
+  .cmd-list li:last-child { border-bottom: none; }
+
+  .cmd-step {
+    min-width: 28px;
+    height: 24px;
+    width: 24px;
+    background: rgba(88,166,255,0.15);
+    color: var(--accent);
+    font-size: 0.7rem;
+    font-weight: 700;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+
+  .cmd-desc { color: var(--text-muted); font-size: 0.78rem; }
+
+  /* ── Back to top ──────────────────────────────────────────── */
+  #back-to-top {
+    position: fixed;
+    bottom: 2rem;
+    right: 2rem;
+    width: 40px;
+    height: 40px;
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 50%;
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.3s;
+    z-index: 200;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  }
+
+  #back-to-top.visible { opacity: 1; }
+  #back-to-top:hover { background: var(--accent2); }
+
+  /* ── Scrollbar ────────────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── Responsive ───────────────────────────────────────────── */
+  @media (max-width: 768px) {
+    :root { --sidebar-w: 0px; }
+    #sidebar { display: none; }
+    #main { padding: 1.5rem; }
+  }
+
+  /* ── Print ────────────────────────────────────────────────── */
+  @media print {
+    #sidebar, #back-to-top { display: none !important; }
+    #main { margin: 0; max-width: 100%; padding: 1rem; }
+    body { background: #fff; color: #000; }
+  }
+
+  /* ── Highlight colors in code ────────────────────────────── */
+  .kw { color: #ff7b72; }
+  .str { color: #a5d6ff; }
+  .num { color: #79c0ff; }
+  .cm { color: #8b949e; font-style: italic; }
+  .fn { color: #d2a8ff; }
+
+</style>
+</head>
+
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════
+     SIDEBAR
+═══════════════════════════════════════════════════════════════ -->
+<nav id="sidebar">
+  <div id="sidebar-header">
+    <div class="logo">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="5" height="5" rx="1" fill="#58a6ff"/><rect x="9" y="2" width="5" height="5" rx="1" fill="#58a6ff" opacity=".6"/><rect x="2" y="9" width="5" height="5" rx="1" fill="#58a6ff" opacity=".6"/><rect x="9" y="9" width="5" height="5" rx="1" fill="#58a6ff" opacity=".3"/></svg>
+      DB Architecture
+    </div>
+    <p>Whyte Quotation · PostgreSQL<br/>Pre-migration reference · 2026-09-28</p>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-label">Overview</div>
+    <a href="#tech-stack" class="toc-link">1. Technology Stack</a>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-label">Schema (11 Tables)</div>
+    <a href="#schema" class="toc-link">2. Database Schema</a>
+    <a href="#company" class="toc-link sub">2.1 Company</a>
+    <a href="#category" class="toc-link sub">2.2 Category</a>
+    <a href="#product" class="toc-link sub">2.3 Product</a>
+    <a href="#product-variant" class="toc-link sub">2.4 ProductVariant</a>
+    <a href="#house-type" class="toc-link sub">2.5 HouseType</a>
+    <a href="#room-type" class="toc-link sub">2.6 RoomType</a>
+    <a href="#htrt" class="toc-link sub">2.7 HouseTypeRoomTemplate</a>
+    <a href="#quotation" class="toc-link sub">2.8 Quotation</a>
+    <a href="#quotation-room" class="toc-link sub">2.9 QuotationRoom</a>
+    <a href="#quotation-item" class="toc-link sub">2.10 QuotationItem</a>
+    <a href="#admin-user" class="toc-link sub">2.11 AdminUser</a>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-label">Enums & Relations</div>
+    <a href="#enums" class="toc-link">3. Enums</a>
+    <a href="#relationships" class="toc-link">4. Relationships</a>
+    <a href="#er-diagram" class="toc-link">5. ER Diagram</a>
+  </div>
+
+  <div class="toc-section">
+    <div class="toc-section-label">Runtime / Docker</div>
+    <a href="#docker" class="toc-link">6. Runtime Architecture</a>
+    <a href="#docker-services" class="toc-link sub">28.1 Docker Services</a>
+    <a href="#startup-flow" class="toc-link sub">28.2 Startup Flow</a>
+    <a href="#no-docker" class="toc-link sub">28.3 When DB Is Down</a>
+    <a href="#conn-string" class="toc-link sub">28.4 Connection String</a>
+    <a href="#network" class="toc-link sub">28.5 Network Arch.</a>
+    <a href="#ports" class="toc-link sub">28.6 Port Mapping</a>
+    <a href="#volumes" class="toc-link sub">28.7 Data Persistence</a>
+    <a href="#init" class="toc-link sub">28.8 DB Initialization</a>
+    <a href="#prisma-flow" class="toc-link sub">28.9 Prisma Flow</a>
+    <a href="#commands" class="toc-link sub">28.10 Dev Commands</a>
+    <a href="#dep-summary" class="toc-link sub">28.11 Dependency Summary</a>
+    <a href="#mongo-impact" class="toc-link sub">28.12 MongoDB Impact</a>
+    <a href="#final-diagram" class="toc-link sub">28.13 Final Diagram</a>
+  </div>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════════════
+     MAIN CONTENT
+═══════════════════════════════════════════════════════════════ -->
+<main id="main">
+
+  <!-- Header -->
+  <div class="doc-header">
+    <div class="badge">
+      <svg width="8" height="8" viewBox="0 0 8 8"><circle cx="4" cy="4" r="4" fill="currentColor"/></svg>
+      Read-only Analysis · No Code Modified
+    </div>
+    <h1>Database Architecture — Current State</h1>
+    <div class="subtitle">Whyte Quotation Application</div>
+    <div class="doc-meta">
+      <span>📅 <strong>Generated:</strong> 2026-09-28</span>
+      <span>🗄️ <strong>Database:</strong> PostgreSQL</span>
+      <span>🔷 <strong>ORM:</strong> Prisma 7</span>
+      <span>📦 <strong>Tables:</strong> 11</span>
+      <span>🔗 <strong>Foreign Keys:</strong> 11</span>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════
+       SECTION 1 — TECHNOLOGY STACK
+  ═══════════════════════════════════════════════ -->
+  <h2 id="tech-stack"><span class="section-num">1</span> Technology Stack</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Layer</th><th>Technology</th><th>Version / Detail</th></tr></thead>
+      <tbody>
+        <tr><td>Framework</td><td>Next.js</td><td><code>16.2.3</code> (App Router)</td></tr>
+        <tr><td>Runtime</td><td>React</td><td><code>19.2.4</code></td></tr>
+        <tr><td>Language</td><td>TypeScript</td><td><code>^5</code></td></tr>
+        <tr><td>Node.js requirement</td><td colspan="2"><span style="color:var(--text-muted)">Not found / Could not determine — not declared in <code>package.json</code> or <code>.nvmrc</code></span></td></tr>
+        <tr><td>Backend architecture</td><td colspan="2">Next.js API Routes (co-located in <code>src/app/api/</code>) — <strong>no separate backend process</strong></td></tr>
+        <tr><td>Database</td><td>PostgreSQL</td><td>Version not pinned; accessed via <code>pg ^8.20.0</code></td></tr>
+        <tr><td>ORM</td><td><strong>Prisma</strong></td><td><code>^7.7.0</code> (client) / <code>^7.8.0</code> (CLI)</td></tr>
+        <tr><td>Prisma adapter</td><td><code>@prisma/adapter-pg</code></td><td><code>^7.7.0</code> — bridges Prisma to a native <code>pg</code> pool</td></tr>
+        <tr><td>Raw PG driver</td><td><code>pg</code></td><td><code>^8.20.0</code> (used inside adapter)</td></tr>
+        <tr><td>Authentication</td><td><code>next-auth</code></td><td><code>^4.24.13</code> — JWT sessions, CredentialsProvider → AdminUser table</td></tr>
+        <tr><td>Password hashing</td><td><code>bcryptjs</code></td><td><code>^3.0.3</code></td></tr>
+        <tr><td>Image hosting</td><td>Cloudinary</td><td><code>^2.10.0</code> (optional — product &amp; company images)</td></tr>
+        <tr><td>Deployment</td><td>Vercel</td><td><code>vercel.json</code> — build: <code>prisma generate &amp;&amp; next build</code></td></tr>
+        <tr><td>Schema file</td><td><code>prisma/schema.prisma</code></td><td>Single-file, <code>provider = "postgresql"</code></td></tr>
+        <tr><td>Migrations</td><td><code>prisma/migrations/</code></td><td>Prisma Migrate — 1 migration: <code>20260611122353_init</code></td></tr>
+        <tr><td>Seed script</td><td><code>prisma/seed.ts</code></td><td>Run via <code>ts-node</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Database-related packages</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Package</th><th>Type</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>@prisma/client ^7.7.0</td><td><span class="yes-badge">dep</span></td><td>Generated Prisma Client used throughout API routes</td></tr>
+        <tr><td>@prisma/adapter-pg ^7.7.0</td><td><span class="yes-badge">dep</span></td><td>Bridges Prisma to a <code>node-postgres</code> pool</td></tr>
+        <tr><td>pg ^8.20.0</td><td><span class="yes-badge">dep</span></td><td>PostgreSQL connection pool (<code>Pool</code>)</td></tr>
+        <tr><td>prisma ^7.8.0</td><td><span class="no-badge">dev</span></td><td>Prisma CLI — migrate, generate, studio, seed</td></tr>
+        <tr><td>@types/pg ^8.20.0</td><td><span class="no-badge">dev</span></td><td>TypeScript types for <code>pg</code></td></tr>
+        <tr><td>next-auth ^4.24.13</td><td><span class="yes-badge">dep</span></td><td>Auth layer; reads <code>AdminUser</code> table on login</td></tr>
+        <tr><td>bcryptjs ^3.0.3</td><td><span class="yes-badge">dep</span></td><td>Hashes &amp; verifies passwords in <code>AdminUser.passwordHash</code></td></tr>
+        <tr><td>dotenv ^17.4.1</td><td><span class="no-badge">dev</span></td><td>Loads <code>.env</code> for seed/migration scripts outside Next.js</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════════
+       SECTION 2 — DATABASE SCHEMA
+  ═══════════════════════════════════════════════ -->
+  <h2 id="schema"><span class="section-num">2</span> Database Schema</h2>
+
+  <div class="callout info">
+    <span class="callout-icon">ℹ️</span>
+    <div><strong>Source of truth:</strong> <code>prisma/schema.prisma</code> + <code>prisma/migrations/20260611122353_init/migration.sql</code><br/>
+    <strong>Naming convention:</strong> Prisma PascalCase model names map to quoted PascalCase PostgreSQL table names (e.g. <code>"Company"</code>, <code>"AdminUser"</code>).</div>
+  </div>
+
+  <!-- ── 2.1 Company ── -->
+  <div class="model-card" id="company">
+    <div class="model-card-header">
+      <div class="model-name">Company</div>
+      <span class="no-badge">1 expected row</span>
+    </div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">updatedAt only</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">None</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Stores the single seller/vendor company profile (name, contact, branding). Used on generated quotation PDFs.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>name</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Company display name</td></tr>
+          <tr><td>gstNumber</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>GST registration number</td></tr>
+          <tr><td>phone</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Primary contact phone</td></tr>
+          <tr><td>email</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Contact email address</td></tr>
+          <tr><td>address</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Full postal address</td></tr>
+          <tr><td>logoUrl</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Cloudinary URL for company logo</td></tr>
+          <tr><td>tagline</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Marketing tagline shown on PDFs</td></tr>
+          <tr><td>updatedAt</td><td>TIMESTAMP(3)</td><td>DateTime</td><td><span class="yes-badge">YES</span></td><td>@updatedAt</td><td><span class="no-badge">No</span></td><td>Last modification timestamp (auto-managed)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 2.2 Category ── -->
+  <div class="model-card" id="category">
+    <div class="model-card-header">
+      <div class="model-name">Category</div>
+      <span class="no-badge">Self-referential tree</span>
+    </div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">createdAt only</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">isActive boolean</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Hierarchical product categories (Tactus, Accessories, etc.). Self-referential via <code>parentId</code>. Stores variant metadata as JSONB.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>name</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Series name (e.g. "Tactus")</td></tr>
+          <tr><td>level</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Tree depth (1 = root)</td></tr>
+          <tr><td>parentId</td><td>INTEGER</td><td>Int?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>FK → Category.id; NULL for root (SET NULL on delete)</td></tr>
+          <tr><td>sortOrder</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Display ordering weight</td></tr>
+          <tr><td>isActive</td><td>BOOLEAN</td><td>Boolean</td><td><span class="yes-badge">YES</span></td><td>true</td><td><span class="no-badge">No</span></td><td>Soft-disable flag</td></tr>
+          <tr><td>createdAt</td><td>TIMESTAMP(3)</td><td>DateTime</td><td><span class="yes-badge">YES</span></td><td>CURRENT_TIMESTAMP</td><td><span class="no-badge">No</span></td><td>Record creation timestamp</td></tr>
+          <tr><td>variantTiers</td><td>JSONB</td><td>Json?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Array of {value,label} for automation tier options</td></tr>
+          <tr><td>variantFinishes</td><td>JSONB</td><td>Json?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Array of {value,label} for surface finish options</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pre-label" style="margin-top:1rem"><span class="lang-tag">json</span>JSONB structure examples</div>
+    <pre><code><span class="cm">// variantTiers</span>
+[{ <span class="str">"value"</span>: <span class="str">"remote"</span>, <span class="str">"label"</span>: <span class="str">"Remote Control"</span> }, { <span class="str">"value"</span>: <span class="str">"wifi"</span>, <span class="str">"label"</span>: <span class="str">"WiFi Smart"</span> }]
+
+<span class="cm">// variantFinishes</span>
+[{ <span class="str">"value"</span>: <span class="str">"acrylic"</span>, <span class="str">"label"</span>: <span class="str">"Acrylic Panel"</span> }, { <span class="str">"value"</span>: <span class="str">"glass"</span>, <span class="str">"label"</span>: <span class="str">"Glass Panel"</span> }]</code></pre>
+  </div>
+
+  <!-- ── 2.3 Product ── -->
+  <div class="model-card" id="product">
+    <div class="model-card-header">
+      <div class="model-name">Product</div>
+      <span class="no-badge">Master catalogue</span>
+    </div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">createdAt + updatedAt</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">isActive boolean</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Master product catalogue. Supports flat-price and matrix (multi-dimension) pricing. <code>price</code> = base/min display price; actual variant prices live in <code>ProductVariant</code>.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>name</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Product display name</td></tr>
+          <tr><td>code</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Internal SKU (e.g. "T4S-2M")</td></tr>
+          <tr><td>description</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Optional description</td></tr>
+          <tr><td>type</td><td>"ProductType" enum</td><td>ProductType</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Product category type (see Enums)</td></tr>
+          <tr><td>categoryId</td><td>INTEGER</td><td>Int?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>FK → Category.id (SET NULL on delete)</td></tr>
+          <tr><td>price</td><td>DECIMAL(10,2)</td><td>Decimal</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Base/min price for display ("From ₹X")</td></tr>
+          <tr><td>unit</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>'pcs'</td><td><span class="no-badge">No</span></td><td>Unit of measure ("pcs", "set")</td></tr>
+          <tr><td>imageUrl</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Cloudinary product image URL</td></tr>
+          <tr><td>moduleSize</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Physical module size ("2M","4M","6M","8M","12M")</td></tr>
+          <tr><td>notes</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Internal product notes</td></tr>
+          <tr><td>isActive</td><td>BOOLEAN</td><td>Boolean</td><td><span class="yes-badge">YES</span></td><td>true</td><td><span class="no-badge">No</span></td><td>Soft-disable flag</td></tr>
+          <tr><td>sortOrder</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Display ordering weight</td></tr>
+          <tr><td>createdAt</td><td>TIMESTAMP(3)</td><td>DateTime</td><td><span class="yes-badge">YES</span></td><td>CURRENT_TIMESTAMP</td><td><span class="no-badge">No</span></td><td>Creation timestamp</td></tr>
+          <tr><td>updatedAt</td><td>TIMESTAMP(3)</td><td>DateTime</td><td><span class="yes-badge">YES</span></td><td>@updatedAt</td><td><span class="no-badge">No</span></td><td>Last update timestamp (auto-managed)</td></tr>
+          <tr><td>isMatrix</td><td>BOOLEAN</td><td>Boolean</td><td><span class="yes-badge">YES</span></td><td>false</td><td><span class="no-badge">No</span></td><td>true = multi-dimension matrix pricing</td></tr>
+          <tr><td>matrixDimensions</td><td>JSONB</td><td>Json?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Dimension definitions when isMatrix=true</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="pre-label" style="margin-top:1rem"><span class="lang-tag">json</span>matrixDimensions structure</div>
+    <pre><code>[
+  { <span class="str">"key"</span>: <span class="str">"series"</span>, <span class="str">"label"</span>: <span class="str">"Series"</span>, <span class="str">"options"</span>: [<span class="str">"remote"</span>, <span class="str">"wifi"</span>, <span class="str">"zigbee"</span>] },
+  { <span class="str">"key"</span>: <span class="str">"finish"</span>, <span class="str">"label"</span>: <span class="str">"Finish"</span>,  <span class="str">"options"</span>: [<span class="str">"acrylic"</span>, <span class="str">"glass"</span>] }
+]</code></pre>
+  </div>
+
+  <!-- ── 2.4 ProductVariant ── -->
+  <div class="model-card" id="product-variant">
+    <div class="model-card-header">
+      <div class="model-name">ProductVariant</div>
+      <span class="no-badge">CASCADE from Product</span>
+    </div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">None</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">isActive boolean</span></div>
+      <div class="model-meta-item"><span class="label">On Parent Delete</span><span class="value" style="color:var(--red)">CASCADE</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Per-dimension price points for a product. Flat products = 1 row (null tier/finish, empty config). Matrix products = one row per tier×finish combination.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>productId</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>FK → Product.id (CASCADE delete)</td></tr>
+          <tr><td>automationTier</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Legacy tier ("remote","wifi","zigbee"); NULL for flat</td></tr>
+          <tr><td>surfaceFinish</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Legacy finish ("acrylic","glass"); NULL for flat</td></tr>
+          <tr><td>config</td><td>JSONB</td><td>Json</td><td><span class="yes-badge">YES</span></td><td>{}</td><td><span class="no-badge">No</span></td><td>Generic N-dim config snapshot (e.g. {"series":"wifi","finish":"glass"})</td></tr>
+          <tr><td>price</td><td>DECIMAL(10,2)</td><td>Decimal</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Exact price for this variant combination</td></tr>
+          <tr><td>isActive</td><td>BOOLEAN</td><td>Boolean</td><td><span class="yes-badge">YES</span></td><td>true</td><td><span class="no-badge">No</span></td><td>Soft-disable flag</td></tr>
+          <tr><td>sortOrder</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Display ordering within a product's variants</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 2.5 HouseType ── -->
+  <div class="model-card" id="house-type">
+    <div class="model-card-header"><div class="model-name">HouseType</div><span class="no-badge">Lookup / 7 seeded rows</span></div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">None</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">isActive boolean</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Residential property types: 1 BHK, 2 BHK, 3 BHK, 4 BHK, Duplex, Villa, Penthouse. Used to auto-populate room lists on quotation creation.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>name</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Label (e.g. "3 BHK")</td></tr>
+          <tr><td>description</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>e.g. "3 Bedrooms, Hall, Kitchen"</td></tr>
+          <tr><td>isActive</td><td>BOOLEAN</td><td>Boolean</td><td><span class="yes-badge">YES</span></td><td>true</td><td><span class="no-badge">No</span></td><td>Soft-disable flag</td></tr>
+          <tr><td>sortOrder</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Display ordering</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 2.6 RoomType ── -->
+  <div class="model-card" id="room-type">
+    <div class="model-card-header"><div class="model-name">RoomType</div><span class="no-badge">Lookup / 28 seeded rows</span></div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">None</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">isActive boolean</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Master list of room types. Seeded with 28 rooms: Living Room, Master Bedroom, Bedrooms 2–4, Kids Room, Guest Room, Kitchen, Dining, Study, Home Office, Puja Room, Home Theatre, Gym, Balconies, Terrace, Garden, Foyer, Corridor, Staircase, Powder Room, Laundry, Store Room, Garage, Servant Room, Driver Room, Common Area.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>name</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Room name (e.g. "Living Room")</td></tr>
+          <tr><td>icon</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Icon identifier (NULL in seed; previously emoji)</td></tr>
+          <tr><td>isActive</td><td>BOOLEAN</td><td>Boolean</td><td><span class="yes-badge">YES</span></td><td>true</td><td><span class="no-badge">No</span></td><td>Soft-disable flag</td></tr>
+          <tr><td>sortOrder</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Display ordering</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 2.7 HouseTypeRoomTemplate ── -->
+  <div class="model-card" id="htrt">
+    <div class="model-card-header"><div class="model-name">HouseTypeRoomTemplate</div><span class="no-badge">Join table</span></div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">None</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">None</span></div>
+      <div class="model-meta-item"><span class="label">FK Delete</span><span class="value" style="color:var(--orange)">RESTRICT (both sides)</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Bridge table: which room types belong to a house type and in what default count. Template for auto-populating QuotationRoom on new quotation creation.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>houseTypeId</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>FK → HouseType.id (RESTRICT delete)</td></tr>
+          <tr><td>roomTypeId</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>FK → RoomType.id (RESTRICT delete)</td></tr>
+          <tr><td>defaultCount</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>1</td><td><span class="no-badge">No</span></td><td>Number of instances of this room in the house type</td></tr>
+          <tr><td>sortOrder</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Display ordering within the house type</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 2.8 Quotation ── -->
+  <div class="model-card" id="quotation">
+    <div class="model-card-header"><div class="model-name">Quotation</div><span class="yes-badge">Core business entity</span></div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — TEXT (CUID)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">createdAt + updatedAt</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">None (status enum)</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Represents a sales quotation issued to a client. Primary key is a CUID string for URL-safety. Contains all client info, discount, validity, and status lifecycle.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>cuid()</td><td><span class="cuid-badge">PK·CUID</span></td><td>CUID string primary key</td></tr>
+          <tr><td>quotationNumber</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="unique-badge">UNIQUE</span></td><td>Human-readable number (e.g. "Q-2026-0001")</td></tr>
+          <tr><td>clientName</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Full name of the client</td></tr>
+          <tr><td>clientGstNumber</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Client's GST registration number</td></tr>
+          <tr><td>clientPhone</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Client phone number</td></tr>
+          <tr><td>clientEmail</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Client email address</td></tr>
+          <tr><td>clientAddress</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Client's site/delivery address</td></tr>
+          <tr><td>houseTypeId</td><td>INTEGER</td><td>Int?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>FK → HouseType.id (SET NULL on delete)</td></tr>
+          <tr><td>status</td><td>"QuotationStatus" enum</td><td>QuotationStatus</td><td><span class="yes-badge">YES</span></td><td>'draft'</td><td><span class="no-badge">No</span></td><td>Lifecycle status (see Enums)</td></tr>
+          <tr><td>notes</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Internal/visible quotation notes</td></tr>
+          <tr><td>discountType</td><td>"DiscountType" enum</td><td>DiscountType?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Discount strategy (see Enums)</td></tr>
+          <tr><td>discountValue</td><td>DECIMAL(10,2)</td><td>Decimal?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Discount amount (% or fixed ₹)</td></tr>
+          <tr><td>terms</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>T&amp;C text shown on PDF</td></tr>
+          <tr><td>validUntil</td><td>TIMESTAMP(3)</td><td>DateTime?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Quotation expiry date</td></tr>
+          <tr><td>defaultTier</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Default automation tier for new items</td></tr>
+          <tr><td>defaultFinish</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Default surface finish for new items</td></tr>
+          <tr><td>createdAt</td><td>TIMESTAMP(3)</td><td>DateTime</td><td><span class="yes-badge">YES</span></td><td>CURRENT_TIMESTAMP</td><td><span class="no-badge">No</span></td><td>Creation timestamp</td></tr>
+          <tr><td>updatedAt</td><td>TIMESTAMP(3)</td><td>DateTime</td><td><span class="yes-badge">YES</span></td><td>@updatedAt</td><td><span class="no-badge">No</span></td><td>Last update timestamp (auto-managed)</td></tr>
+          <tr><td>createdBy</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Admin user identifier (not a FK)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 2.9 QuotationRoom ── -->
+  <div class="model-card" id="quotation-room">
+    <div class="model-card-header"><div class="model-name">QuotationRoom</div><span class="no-badge">CASCADE from Quotation</span></div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">None</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">None</span></div>
+      <div class="model-meta-item"><span class="label">On Quotation Delete</span><span class="value" style="color:var(--red)">CASCADE</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">A physical room within a quotation. Either typed (linked to RoomType) or custom-named. Contains QuotationItem line entries.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>quotationId</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>FK → Quotation.id (CASCADE delete)</td></tr>
+          <tr><td>roomTypeId</td><td>INTEGER</td><td>Int?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>FK → RoomType.id (SET NULL on delete)</td></tr>
+          <tr><td>customName</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Free-text name when no standard room type applies</td></tr>
+          <tr><td>subArea</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Sub-area label (e.g. "Attached Bathroom")</td></tr>
+          <tr><td>notes</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Room-level notes</td></tr>
+          <tr><td>sortOrder</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Display ordering within the quotation</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 2.10 QuotationItem ── -->
+  <div class="model-card" id="quotation-item">
+    <div class="model-card-header"><div class="model-name">QuotationItem</div><span class="no-badge">CASCADE from QuotationRoom</span></div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">None</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">None</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">A single line item in a room. Records product, variant, quantity, and a <strong>price snapshot</strong>. <code>variantConfig</code> JSONB is an immutable snapshot of dimensions at time of creation.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>quotationRoomId</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>FK → QuotationRoom.id (CASCADE delete)</td></tr>
+          <tr><td>productId</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>FK → Product.id (RESTRICT delete)</td></tr>
+          <tr><td>productVariantId</td><td>INTEGER</td><td>Int?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>FK → ProductVariant.id (SET NULL on delete)</td></tr>
+          <tr><td>variantLabel</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Human-readable label ("WiFi + Glass")</td></tr>
+          <tr><td>variantConfig</td><td>JSONB</td><td>Json?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Immutable snapshot of dimension values at add time</td></tr>
+          <tr><td>sbNumber</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Switch board reference label</td></tr>
+          <tr><td>quantity</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>1</td><td><span class="no-badge">No</span></td><td>Quantity of units</td></tr>
+          <tr><td>unitPrice</td><td>DECIMAL(10,2)</td><td>Decimal</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>Price per unit (snapshot — not live from product)</td></tr>
+          <tr><td>notes</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Line item notes</td></tr>
+          <tr><td>sortOrder</td><td>INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>0</td><td><span class="no-badge">No</span></td><td>Display ordering within the room</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── 2.11 AdminUser ── -->
+  <div class="model-card" id="admin-user">
+    <div class="model-card-header"><div class="model-name">AdminUser</div><span class="no-badge">Auth accounts</span></div>
+    <div class="model-meta">
+      <div class="model-meta-item"><span class="label">Primary Key</span><span class="value">id — SERIAL (int)</span></div>
+      <div class="model-meta-item"><span class="label">Timestamps</span><span class="value">createdAt only</span></div>
+      <div class="model-meta-item"><span class="label">Soft-delete</span><span class="value">isActive boolean</span></div>
+    </div>
+    <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Admin panel user accounts. next-auth CredentialsProvider queries this table. Passwords stored as bcrypt hashes. Roles control access levels.</p>
+    <div class="table-wrap" style="margin:0">
+      <table>
+        <thead><tr><th>Column</th><th>PG Type</th><th>Prisma Type</th><th>Required</th><th>Default</th><th>Unique</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>id</td><td>SERIAL / INTEGER</td><td>Int</td><td><span class="yes-badge">YES</span></td><td>auto-increment</td><td><span class="pk-badge">PK</span></td><td>Primary key</td></tr>
+          <tr><td>email</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="unique-badge">UNIQUE</span></td><td>Login email — unique index AdminUser_email_key</td></tr>
+          <tr><td>passwordHash</td><td>TEXT</td><td>String</td><td><span class="yes-badge">YES</span></td><td>—</td><td><span class="no-badge">No</span></td><td>bcrypt hash of password</td></tr>
+          <tr><td>name</td><td>TEXT</td><td>String?</td><td><span class="no-badge">NO</span></td><td>NULL</td><td><span class="no-badge">No</span></td><td>Display name</td></tr>
+          <tr><td>role</td><td>"AdminRole" enum</td><td>AdminRole</td><td><span class="yes-badge">YES</span></td><td>'sales'</td><td><span class="no-badge">No</span></td><td>Access role (see Enums)</td></tr>
+          <tr><td>isActive</td><td>BOOLEAN</td><td>Boolean</td><td><span class="yes-badge">YES</span></td><td>true</td><td><span class="no-badge">No</span></td><td>Account enabled flag — checked on every login</td></tr>
+          <tr><td>createdAt</td><td>TIMESTAMP(3)</td><td>DateTime</td><td><span class="yes-badge">YES</span></td><td>CURRENT_TIMESTAMP</td><td><span class="no-badge">No</span></td><td>Account creation timestamp</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════════
+       SECTION 3 — ENUMS
+  ═══════════════════════════════════════════════ -->
+  <h2 id="enums"><span class="section-num">3</span> Enums</h2>
+  <p>All enums are <strong>PostgreSQL native ENUM types</strong> created in the initial migration.</p>
+
+  <div class="enum-grid">
+    <div class="enum-card">
+      <h4>ProductType</h4>
+      <ul class="enum-values">
+        <li><span class="enum-val">switch_board</span><span class="enum-desc">Touch switch panels (Tactus series)</span></li>
+        <li><span class="enum-val">accessory</span><span class="enum-desc">IR blasters, sensors, gateways, remotes</span></li>
+        <li><span class="enum-val">retrofit</span><span class="enum-desc">Retrofit in-wall switch modules</span></li>
+        <li><span class="enum-val">curtain</span><span class="enum-desc">Smart curtain motors/controllers</span></li>
+        <li><span class="enum-val">smart_lock</span><span class="enum-desc">Smart door locks</span></li>
+        <li><span class="enum-val">vdp</span><span class="enum-desc">Video Door Phone units</span></li>
+        <li><span class="enum-val">other</span><span class="enum-desc">Catch-all for uncategorized</span></li>
+      </ul>
+    </div>
+    <div class="enum-card">
+      <h4>QuotationStatus</h4>
+      <ul class="enum-values">
+        <li><span class="enum-val">draft</span><span class="enum-desc">Being prepared; not yet sent (default)</span></li>
+        <li><span class="enum-val">sent</span><span class="enum-desc">Sent to client for review</span></li>
+        <li><span class="enum-val">approved</span><span class="enum-desc">Client has accepted</span></li>
+        <li><span class="enum-val">rejected</span><span class="enum-desc">Client has declined</span></li>
+      </ul>
+    </div>
+    <div class="enum-card">
+      <h4>DiscountType</h4>
+      <ul class="enum-values">
+        <li><span class="enum-val">percentage</span><span class="enum-desc">discountValue is a % of total</span></li>
+        <li><span class="enum-val">fixed</span><span class="enum-desc">discountValue is a fixed ₹ amount</span></li>
+        <li><span class="enum-val">none</span><span class="enum-desc">No discount applied</span></li>
+      </ul>
+    </div>
+    <div class="enum-card">
+      <h4>AdminRole</h4>
+      <ul class="enum-values">
+        <li><span class="enum-val">super_admin</span><span class="enum-desc">Full access incl. user management</span></li>
+        <li><span class="enum-val">admin</span><span class="enum-desc">Standard admin access</span></li>
+        <li><span class="enum-val">sales</span><span class="enum-desc">Quotation management only (default)</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════════
+       SECTION 4 — RELATIONSHIPS
+  ═══════════════════════════════════════════════ -->
+  <h2 id="relationships"><span class="section-num">4</span> Relationships</h2>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Source Table</th><th>Source Field</th><th>Target Table</th><th>Target Field</th><th>Type</th><th>On Delete</th><th>On Update</th></tr></thead>
+      <tbody>
+        <tr><td>Category</td><td>parentId</td><td>Category</td><td>id</td><td>Many-to-One (self-tree)</td><td style="color:var(--text-muted)">SET NULL</td><td>CASCADE</td></tr>
+        <tr><td>Product</td><td>categoryId</td><td>Category</td><td>id</td><td>Many-to-One</td><td style="color:var(--text-muted)">SET NULL</td><td>CASCADE</td></tr>
+        <tr><td>ProductVariant</td><td>productId</td><td>Product</td><td>id</td><td>Many-to-One</td><td style="color:var(--red)">CASCADE</td><td>CASCADE</td></tr>
+        <tr><td>HouseTypeRoomTemplate</td><td>houseTypeId</td><td>HouseType</td><td>id</td><td>Many-to-One</td><td style="color:var(--orange)">RESTRICT</td><td>CASCADE</td></tr>
+        <tr><td>HouseTypeRoomTemplate</td><td>roomTypeId</td><td>RoomType</td><td>id</td><td>Many-to-One</td><td style="color:var(--orange)">RESTRICT</td><td>CASCADE</td></tr>
+        <tr><td>Quotation</td><td>houseTypeId</td><td>HouseType</td><td>id</td><td>Many-to-One</td><td style="color:var(--text-muted)">SET NULL</td><td>CASCADE</td></tr>
+        <tr><td>QuotationRoom</td><td>quotationId</td><td>Quotation</td><td>id</td><td>Many-to-One</td><td style="color:var(--red)">CASCADE</td><td>CASCADE</td></tr>
+        <tr><td>QuotationRoom</td><td>roomTypeId</td><td>RoomType</td><td>id</td><td>Many-to-One</td><td style="color:var(--text-muted)">SET NULL</td><td>CASCADE</td></tr>
+        <tr><td>QuotationItem</td><td>quotationRoomId</td><td>QuotationRoom</td><td>id</td><td>Many-to-One</td><td style="color:var(--red)">CASCADE</td><td>CASCADE</td></tr>
+        <tr><td>QuotationItem</td><td>productId</td><td>Product</td><td>id</td><td>Many-to-One</td><td style="color:var(--orange)">RESTRICT</td><td>CASCADE</td></tr>
+        <tr><td>QuotationItem</td><td>productVariantId</td><td>ProductVariant</td><td>id</td><td>Many-to-One</td><td style="color:var(--text-muted)">SET NULL</td><td>CASCADE</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>Cascade Delete Chains</h3>
+
+  <div class="rel-chain">
+    <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.8rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Deleting a Quotation</p>
+    <div class="chain-item">
+      <span class="chain-table">Quotation</span>
+      <span class="chain-arrow">──CASCADE──▶</span>
+      <span class="chain-table">QuotationRoom</span>
+      <span class="chain-arrow">──CASCADE──▶</span>
+      <span class="chain-table">QuotationItem</span>
+    </div>
+  </div>
+
+  <div class="rel-chain" style="margin-top:0.8rem">
+    <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.8rem;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;">Deleting a Product</p>
+    <div class="chain-item">
+      <span class="chain-table">Product</span>
+      <span class="chain-arrow">──CASCADE──▶</span>
+      <span class="chain-table">ProductVariant</span>
+    </div>
+    <div class="chain-item" style="margin-top:0.5rem">
+      <span class="chain-table">Product</span>
+      <span class="chain-arrow" style="color:var(--orange)">──RESTRICT──</span>
+      <span class="chain-table">QuotationItem</span>
+      <span class="chain-label">(BLOCKED if items exist)</span>
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════════
+       SECTION 5 — ER DIAGRAM
+  ═══════════════════════════════════════════════ -->
+  <h2 id="er-diagram"><span class="section-num">5</span> Relationship Diagram (ER)</h2>
+
+  <div class="mermaid-wrap">
+    <div class="mermaid">
+erDiagram
+    CATEGORY {
+        int id PK
+        string name
+        int level
+        int parentId FK
+        boolean isActive
+        json variantTiers
+        json variantFinishes
+    }
+    CATEGORY ||--o{ CATEGORY : "parent to children"
+
+    PRODUCT {
+        int id PK
+        string name
+        string code
+        enum type
+        int categoryId FK
+        decimal price
+        boolean isMatrix
+        json matrixDimensions
+    }
+    CATEGORY ||--o{ PRODUCT : "has products"
+
+    PRODUCT_VARIANT {
+        int id PK
+        int productId FK
+        string automationTier
+        string surfaceFinish
+        json config
+        decimal price
+    }
+    PRODUCT ||--o{ PRODUCT_VARIANT : "has variants CASCADE"
+
+    HOUSE_TYPE {
+        int id PK
+        string name
+        boolean isActive
+    }
+
+    ROOM_TYPE {
+        int id PK
+        string name
+        boolean isActive
+    }
+
+    HOUSE_TYPE_ROOM_TEMPLATE {
+        int id PK
+        int houseTypeId FK
+        int roomTypeId FK
+        int defaultCount
+    }
+    HOUSE_TYPE ||--o{ HOUSE_TYPE_ROOM_TEMPLATE : "RESTRICT"
+    ROOM_TYPE ||--o{ HOUSE_TYPE_ROOM_TEMPLATE : "RESTRICT"
+
+    QUOTATION {
+        string id PK
+        string quotationNumber
+        string clientName
+        int houseTypeId FK
+        enum status
+        enum discountType
+        decimal discountValue
+    }
+    HOUSE_TYPE ||--o{ QUOTATION : "SET NULL"
+
+    QUOTATION_ROOM {
+        int id PK
+        string quotationId FK
+        int roomTypeId FK
+        string customName
+    }
+    QUOTATION ||--o{ QUOTATION_ROOM : "CASCADE"
+    ROOM_TYPE ||--o{ QUOTATION_ROOM : "SET NULL"
+
+    QUOTATION_ITEM {
+        int id PK
+        int quotationRoomId FK
+        int productId FK
+        int productVariantId FK
+        int quantity
+        decimal unitPrice
+        json variantConfig
+    }
+    QUOTATION_ROOM ||--o{ QUOTATION_ITEM : "CASCADE"
+    PRODUCT ||--o{ QUOTATION_ITEM : "RESTRICT"
+    PRODUCT_VARIANT ||--o{ QUOTATION_ITEM : "SET NULL"
+
+    ADMIN_USER {
+        int id PK
+        string email
+        string passwordHash
+        enum role
+        boolean isActive
+    }
+    </div>
+  </div>
+
+  <hr class="divider" />
+
+  <!-- ═══════════════════════════════════════════════
+       SECTION 6 — DOCKER / RUNTIME
+  ═══════════════════════════════════════════════ -->
+  <h2 id="docker"><span class="section-num">6</span> Docker / Database Runtime Architecture</h2>
+
+  <!-- 28.1 -->
+  <h3 id="docker-services">28.1 Docker Services</h3>
+
+  <div class="callout warning">
+    <span class="callout-icon">⚠️</span>
+    <div><strong>Finding:</strong> After a full scan of the project root and all subdirectories, <strong>no Docker-related files were found.</strong> This project does <strong>not</strong> use Docker for the database.</div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>File searched</th><th>Found?</th></tr></thead>
+      <tbody>
+        <tr><td>docker-compose.yml</td><td style="color:var(--red)">❌ Not found</td></tr>
+        <tr><td>docker-compose.yaml</td><td style="color:var(--red)">❌ Not found</td></tr>
+        <tr><td>Dockerfile</td><td style="color:var(--red)">❌ Not found</td></tr>
+        <tr><td>.dockerignore</td><td style="color:var(--red)">❌ Not found</td></tr>
+        <tr><td>Makefile</td><td style="color:var(--red)">❌ Not found</td></tr>
+        <tr><td>.env.local</td><td style="color:var(--red)">❌ Not found</td></tr>
+        <tr><td>.env.development</td><td style="color:var(--red)">❌ Not found</td></tr>
+        <tr><td>.env.production</td><td style="color:var(--red)">❌ Not found</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 28.2 -->
+  <h3 id="startup-flow">28.2 Current Database Startup Flow</h3>
+  <pre class="flow"><code>Developer manually starts local PostgreSQL
+  (native OS service or service manager)
+           │
+           ▼
+PostgreSQL listens on localhost:5432
+           │
+           ▼
+Developer creates the database: whyte_quotation
+           │
+           ▼
+  npm run db:migrate
+  (prisma migrate dev)
+           │
+           ▼
+Prisma reads DATABASE_URL from .env
+           │
+           ▼
+Prisma connects → localhost:5432/whyte_quotation
+           │
+           ▼
+Migration 20260611122353_init applied
+  ├─ Creates enums
+  ├─ Creates 11 tables
+  ├─ Creates indexes
+  └─ Adds FK constraints
+           │
+           ▼
+  npm run db:seed
+  (ts-node prisma/seed.ts)
+  ├─ 1 Company
+  ├─ 1 AdminUser (super_admin)
+  ├─ 28 RoomTypes
+  ├─ 7 HouseTypes + templates
+  ├─ 9 Categories
+  └─ 30+ Products · 100+ Variants
+           │
+           ▼
+  npm run dev
+           │
+           ▼
+Next.js on localhost:3000
+  API routes → Prisma → pg Pool → localhost:5432</code></pre>
+
+  <!-- 28.3 -->
+  <h3 id="no-docker">28.3 What Happens When the Database Is Down</h3>
+
+  <div class="callout danger">
+    <span class="callout-icon">🛑</span>
+    <div>Docker is not used. If the <strong>native PostgreSQL service stops</strong>, the following occurs:</div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Question</th><th>Answer</th></tr></thead>
+      <tbody>
+        <tr><td>Can Next.js start?</td><td><span class="yes-badge">YES</span> — Next.js itself starts successfully</td></tr>
+        <tr><td>Can static pages load?</td><td><span class="yes-badge">YES</span> — cached/static pages may render</td></tr>
+        <tr><td>Can API routes execute?</td><td><span class="no-badge">NO</span> — any route calling <code>prisma.*</code> will fail</td></tr>
+        <tr><td>Error produced</td><td><code>connect ECONNREFUSED 127.0.0.1:5432</code></td></tr>
+        <tr><td>Direct DB dependency</td><td><code>src/lib/prisma.ts</code> — pg.Pool creation</td></tr>
+        <tr><td>Authentication affected?</td><td><span class="no-badge">YES</span> — next-auth login calls <code>prisma.adminUser.findUnique()</code></td></tr>
+        <tr><td>Connection timeout</td><td>5 000 ms — <code>connectionTimeoutMillis: 5000</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 28.4 -->
+  <h3 id="conn-string">28.4 Database Connection String</h3>
+
+  <div class="pre-label"><span class="lang-tag">url</span>Structure (credentials not exposed)</div>
+  <pre><code>postgresql://<span class="kw">[user]</span>:<span class="kw">[password]</span>@<span class="str">localhost</span>:<span class="num">5432</span>/whyte_quotation?schema=public</code></pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Property</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>Protocol</td><td><code>postgresql://</code></td></tr>
+        <tr><td>Host</td><td><strong><code>localhost</code></strong></td></tr>
+        <tr><td>Port</td><td><code>5432</code> (standard PostgreSQL)</td></tr>
+        <tr><td>Database name</td><td><code>whyte_quotation</code></td></tr>
+        <tr><td>Schema</td><td><code>public</code> (via <code>?schema=public</code>)</td></tr>
+        <tr><td>Credentials</td><td>Stored in <code>.env</code> — not exposed in this document</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout info">
+    <span class="callout-icon">💡</span>
+    <div><strong>Important for MongoDB migration:</strong> The host is <code>localhost</code> — PostgreSQL runs on the same machine as Next.js, <strong>not inside a Docker container</strong>. There is no Docker service hostname to replace. Any future MongoDB URI will similarly use <code>localhost</code> or a cloud URI (MongoDB Atlas).</div>
+  </div>
+
+  <!-- 28.5 -->
+  <h3 id="network">28.5 Network Architecture</h3>
+  <pre class="flow"><code>Browser (localhost:3000)
+         │ HTTP
+         ▼
+Next.js App Router (localhost:3000)
+  ├─ src/app/(app)/*  → frontend pages
+  └─ src/app/api/*    → server API routes
+         │ TCP via pg.Pool
+         ▼
+PostgreSQL (localhost:5432)
+  └─ database: whyte_quotation
+  └─ schema: public</code></pre>
+
+  <!-- 28.6 -->
+  <h3 id="ports">28.6 Port Mapping</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Service</th><th>Host Port</th><th>Note</th></tr></thead>
+      <tbody>
+        <tr><td>Next.js (dev)</td><td><code>3000</code></td><td><code>npm run dev</code> — <code>--webpack</code> flag used</td></tr>
+        <tr><td>PostgreSQL</td><td><code>5432</code></td><td>Native OS service</td></tr>
+        <tr><td>Prisma Studio</td><td><code>5555</code></td><td><code>npm run db:studio</code> (optional GUI)</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 28.7 -->
+  <h3 id="volumes">28.7 Volumes / Data Persistence</h3>
+  <p>No Docker volumes exist. PostgreSQL data persistence is entirely managed by the native OS PostgreSQL installation.</p>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Aspect</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Data location</td><td>OS PostgreSQL data dir (e.g. <code>C:\Program Files\PostgreSQL\{ver}\data\</code>)</td></tr>
+        <tr><td>Survives process restart</td><td><span class="yes-badge">YES</span></td></tr>
+        <tr><td>Survives machine reboot</td><td><span class="yes-badge">YES</span></td></tr>
+        <tr><td>Survives PG uninstall</td><td><span class="no-badge">NO</span> — data directory may be deleted</td></tr>
+        <tr><td>Backup strategy</td><td>Not found / Could not determine — no backup scripts in project</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout warning">
+    <span class="callout-icon">📦</span>
+    <div><strong>Migration note:</strong> No Docker volume to export. Migrating data to MongoDB will require a <code>pg_dump</code> from the live PostgreSQL database and a custom ETL script.</div>
+  </div>
+
+  <!-- 28.8 -->
+  <h3 id="init">28.8 Database Initialization</h3>
+  <p>Initialized through <strong>Prisma Migrate</strong>, not Docker init scripts.</p>
+  <pre class="flow"><code>Developer installs PostgreSQL natively + creates DB manually
+          │
+          ▼
+  npm run db:migrate  (prisma migrate dev)
+          │
+          ▼
+  Applies: 20260611122353_init
+    ├─ CREATE TYPE ProductType, QuotationStatus, DiscountType, AdminRole
+    ├─ CREATE TABLE Company, Category, Product, ProductVariant,
+    │              HouseType, RoomType, HouseTypeRoomTemplate,
+    │              Quotation, QuotationRoom, QuotationItem, AdminUser
+    ├─ CREATE UNIQUE INDEX Quotation_quotationNumber_key
+    ├─ CREATE UNIQUE INDEX AdminUser_email_key
+    └─ ADD FOREIGN KEY constraints (CASCADE / SET NULL / RESTRICT)
+          │
+          ▼
+  npm run db:seed  (ts-node prisma/seed.ts)
+    ├─ Company (1 row)
+    ├─ AdminUser super_admin
+    ├─ 28 RoomTypes
+    ├─ 7 HouseTypes + HouseTypeRoomTemplate entries
+    ├─ 9 Categories (with JSONB variantTiers/variantFinishes)
+    └─ 30+ Products with 100+ ProductVariants</code></pre>
+
+  <!-- 28.9 -->
+  <h3 id="prisma-flow">28.9 Prisma Flow</h3>
+  <pre class="flow"><code>Developer Machine (.env → DATABASE_URL)
+       │
+       ▼
+  pg.Pool (node-postgres)
+  ├─ host: localhost
+  ├─ port: 5432
+  ├─ max: 10 connections
+  └─ connectionTimeoutMillis: 5000
+       │
+       ▼
+  PrismaPg adapter (@prisma/adapter-pg)
+       │
+       ▼
+  PrismaClient
+  (generated from prisma/schema.prisma via prisma generate)
+       │
+       ├─ src/lib/prisma.ts   ← singleton export
+       ├─ src/app/api/**      ← all API routes
+       └─ src/lib/auth.ts     ← next-auth CredentialsProvider
+       │
+       ▼
+  Next.js API Routes → React Frontend → Browser</code></pre>
+
+  <!-- 28.10 -->
+  <h3 id="commands">28.10 Development Startup Commands</h3>
+  <ul class="cmd-list">
+    <li><span class="cmd-step">1</span><div><code>— (manual)</code><br/><span class="cmd-desc">Start PostgreSQL service natively on the OS</span></div></li>
+    <li><span class="cmd-step">2</span><div><code>npm run db:migrate</code><br/><span class="cmd-desc">Apply Prisma migrations (<code>prisma migrate dev</code>)</span></div></li>
+    <li><span class="cmd-step">3</span><div><code>npm run db:seed</code><br/><span class="cmd-desc">Seed database with initial data (<code>prisma db seed</code>)</span></div></li>
+    <li><span class="cmd-step">4</span><div><code>npm run dev</code><br/><span class="cmd-desc">Start Next.js dev server on localhost:3000 (--webpack)</span></div></li>
+    <li><span class="cmd-step">—</span><div><code>npm run db:studio</code><br/><span class="cmd-desc">Open Prisma Studio GUI at localhost:5555 (optional)</span></div></li>
+    <li><span class="cmd-step" style="color:var(--red)">!</span><div><code>npm run db:reset</code><br/><span class="cmd-desc" style="color:var(--red)">⚠️ DESTRUCTIVE — resets DB and re-runs all migrations + seed</span></div></li>
+    <li><span class="cmd-step">—</span><div><code>npx tsx prisma/migrate-to-matrix.ts</code><br/><span class="cmd-desc">One-time data migration for matrix pricing backfill</span></div></li>
+  </ul>
+
+  <!-- 28.11 -->
+  <h3 id="dep-summary">28.11 Docker Dependency Summary</h3>
+
+  <div class="callout success">
+    <span class="callout-icon">✅</span>
+    <div><strong>This application does NOT require Docker.</strong> PostgreSQL runs as a native OS service on localhost:5432.</div>
+  </div>
+
+  <pre class="flow"><code>Browser
+   │
+   ▼
+Next.js (npm run dev → localhost:3000)
+   │
+   ▼
+Prisma Client + @prisma/adapter-pg
+   │
+   ▼
+pg.Pool (node-postgres)
+   │
+   ▼
+PostgreSQL (native OS service → localhost:5432)
+   │
+   ▼
+Database: whyte_quotation</code></pre>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Service</th><th>Required?</th><th>How it runs</th></tr></thead>
+      <tbody>
+        <tr><td>PostgreSQL</td><td><span class="yes-badge">YES</span></td><td>Native OS service (NOT Docker)</td></tr>
+        <tr><td>Next.js</td><td><span class="yes-badge">YES</span></td><td><code>npm run dev</code></td></tr>
+        <tr><td>Any Docker service</td><td><span class="no-badge">NO</span></td><td>Not used</td></tr>
+        <tr><td>Redis / cache</td><td><span class="no-badge">NO</span></td><td>Not used</td></tr>
+        <tr><td>Message queue</td><td><span class="no-badge">NO</span></td><td>Not used</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 28.12 -->
+  <h3 id="mongo-impact">28.12 Future MongoDB Migration Impact</h3>
+
+  <div class="callout warning">
+    <span class="callout-icon">📋</span>
+    <div><strong>Analysis only.</strong> No changes are made in this section.</div>
+  </div>
+
+  <h4>Files that would need modification</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>File</th><th>Current state</th><th>What would change</th></tr></thead>
+      <tbody>
+        <tr><td>prisma/schema.prisma</td><td><code>provider = "postgresql"</code></td><td>Change to <code>provider = "mongodb"</code> OR replace Prisma entirely</td></tr>
+        <tr><td>src/lib/prisma.ts</td><td>Uses <code>pg.Pool</code> + PrismaPg adapter</td><td>Remove pg adapter; use MongoDB adapter or Mongoose</td></tr>
+        <tr><td>.env</td><td><code>DATABASE_URL=postgresql://...</code></td><td>Replace with <code>MONGODB_URI=mongodb://...</code></td></tr>
+        <tr><td>prisma.config.ts</td><td>References DATABASE_URL</td><td>Update for MongoDB URL</td></tr>
+        <tr><td>package.json</td><td><code>@prisma/adapter-pg</code>, <code>pg</code>, <code>@types/pg</code></td><td>Remove pg packages; add MongoDB driver or Mongoose</td></tr>
+        <tr><td>next.config.ts</td><td><code>serverExternalPackages: ["@prisma/adapter-pg","pg"]</code></td><td>Remove pg entries; add MongoDB packages</td></tr>
+        <tr><td>vercel.json</td><td><code>prisma generate &amp;&amp; next build</code></td><td>Adjust if Prisma is removed</td></tr>
+        <tr><td>src/app/api/**</td><td>Prisma Client query API</td><td>Rewrite queries to MongoDB syntax</td></tr>
+        <tr><td>src/lib/auth.ts</td><td><code>prisma.adminUser.findUnique()</code></td><td>Rewrite to MongoDB query</td></tr>
+        <tr><td>prisma/migrations/**</td><td>PostgreSQL DDL SQL</td><td>Not applicable in MongoDB</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4>Schema design considerations</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>PostgreSQL Pattern</th><th>MongoDB Consideration</th></tr></thead>
+      <tbody>
+        <tr><td><code>Quotation.id</code> is already CUID string</td><td>✅ Natural fit for MongoDB <code>_id</code></td></tr>
+        <tr><td>Integer SERIAL PKs (Product, Category etc.)</td><td>⚠️ MongoDB uses <code>ObjectId</code> — integer IDs need explicit handling</td></tr>
+        <tr><td>JSONB columns (config, variantConfig, matrixDimensions)</td><td>✅ Direct native fit for MongoDB document model</td></tr>
+        <tr><td>PostgreSQL native ENUMs</td><td>❌ No native enums — must enforce via Zod/Mongoose at app level</td></tr>
+        <tr><td><code>DECIMAL(10,2)</code> for prices</td><td>⚠️ Float precision — careful handling needed (Decimal128)</td></tr>
+        <tr><td>FK constraints (CASCADE/RESTRICT)</td><td>❌ No FK enforcement in MongoDB — app-level only</td></tr>
+        <tr><td>HouseTypeRoomTemplate (join table)</td><td>✅ Embed as array inside HouseType document</td></tr>
+        <tr><td>QuotationRoom + QuotationItem hierarchy</td><td>✅ Strong candidate for embedding rooms with nested items in Quotation</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- 28.13 -->
+  <h3 id="final-diagram">28.13 Final Architecture Diagram</h3>
+
+  <div class="mermaid-wrap">
+    <div class="mermaid">
+flowchart TD
+    Browser["🌐 Browser\nlocalhost:3000"]
+    NextJS["⚡ Next.js 16\nnpm run dev\nlocalhost:3000"]
+    API["📡 API Routes\nsrc/app/api/**"]
+    Auth["🔐 next-auth\nCredentialsProvider"]
+    PrismaClient["🔷 Prisma Client v7"]
+    PrismaPg["🔌 @prisma/adapter-pg"]
+    PgPool["🏊 pg.Pool\nmax:10 · timeout:5s"]
+    PostgreSQL["🐘 PostgreSQL\nnative OS service\nlocalhost:5432\nDB: whyte_quotation"]
+    DotEnv[("📄 .env\nDATABASE_URL")]
+    Schema["📋 prisma/schema.prisma\n11 models · 4 enums"]
+    Migration["📦 migrations/\n20260611122353_init"]
+    Seed["🌱 prisma/seed.ts"]
+    Cloudinary["☁️ Cloudinary\nexternal CDN\noptional"]
+
+    Browser -->|HTTP| NextJS
+    NextJS --> API
+    NextJS --> Auth
+    API --> PrismaClient
+    Auth -->|findUnique AdminUser| PrismaClient
+    PrismaClient --> PrismaPg
+    PrismaPg --> PgPool
+    PgPool -->|TCP| PostgreSQL
+    DotEnv -->|DATABASE_URL| PgPool
+    Schema -->|prisma generate| PrismaClient
+    Migration -->|migrate dev| PostgreSQL
+    Seed -->|db:seed| PostgreSQL
+    NextJS -->|imageUrl uploads| Cloudinary
+    </div>
+  </div>
+
+  <div style="text-align:center;margin-top:3rem;padding-top:2rem;border-top:1px solid var(--border)">
+    <p style="font-size:0.78rem;color:var(--text-muted)">
+      End of document · No application code was modified during this analysis.<br/>
+      Generated: 2026-09-28 · Whyte Quotation — PostgreSQL Pre-migration Reference
+    </p>
+  </div>
+
+</main>
+
+<!-- Back to top -->
+<button id="back-to-top" title="Back to top">↑</button>
+
+<script>
+  // Mermaid init
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      primaryColor: '#1c2330',
+      primaryTextColor: '#e6edf3',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#161b22',
+      tertiaryColor: '#0d1117',
+      edgeLabelBackground: '#1c2330',
+      fontFamily: 'Inter, sans-serif',
+    },
+    er: { layoutDirection: 'TB', entityPadding: 15 },
+    flowchart: { curve: 'basis', padding: 20 },
+  });
+
+  // Active TOC link on scroll
+  const tocLinks = document.querySelectorAll('.toc-link');
+  const sections = [];
+  tocLinks.forEach(l => {
+    const id = l.getAttribute('href')?.replace('#','');
+    if (id) {
+      const el = document.getElementById(id);
+      if (el) sections.push({ id, el, link: l });
+    }
+  });
+
+  function updateTOC() {
+    let current = '';
+    sections.forEach(s => {
+      if (window.scrollY >= s.el.offsetTop - 100) current = s.id;
+    });
+    tocLinks.forEach(l => l.classList.remove('active'));
+    const activeSection = sections.find(s => s.id === current);
+    if (activeSection) activeSection.link.classList.add('active');
+  }
+
+  // Back to top button
+  const btn = document.getElementById('back-to-top');
+  window.addEventListener('scroll', () => {
+    updateTOC();
+    btn.classList.toggle('visible', window.scrollY > 400);
+  }, { passive: true });
+
+  btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+
+  updateTOC();
+</script>
+</body>
+</html>

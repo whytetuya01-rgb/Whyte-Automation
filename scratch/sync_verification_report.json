@@ -1,0 +1,26 @@
+{
+  "catalogRows": 287,
+  "totalExpandedVariantRows": 1571,
+  "baseProductsIdentified": 287,
+  "totalProductVariantsImported": 1571,
+  "existingProductsMatched": 28,
+  "newProductsCreated": 259,
+  "existingProductsDeleted": 29,
+  "existingProductsUpdated": 28,
+  "existingVariantsReused": 61,
+  "newVariantsCreated": 1510,
+  "variantsRemovedWithNonCatalog": 36,
+  "duplicateProducts": 0,
+  "duplicateVariants": 0,
+  "brokenReferences": 0,
+  "unmappedCatalogRows": 0,
+  "invalidPrices": 0,
+  "mongoDbBefore": {
+    "products": 57,
+    "variants": 97
+  },
+  "mongoDbAfter": {
+    "products": 287,
+    "variants": 1571
+  }
+}

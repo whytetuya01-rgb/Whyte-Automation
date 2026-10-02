@@ -1,0 +1,22 @@
+﻿Section,Product ID,Product Code,Product Name,Description,Module Size,Min Price INR,Verification Source,Status,Notes
+Confirmed Product,44,T4S-2M,Touch 4 Switch (All 6A),Touch 4 Switch (All 6A Switch) - 2 Module,2M,5799,Item 4 in Tactus PDF,Confirmed,Existing product; enrich/verify
+Confirmed Product,46,T6S-4M,Touch 6 Switch,Touch 6 Switch - 4 Module,4M,7499,Item 16 in Tactus PDF,Confirmed,Existing product; enrich/verify
+Confirmed Product,47,T4S1F-4M,Touch 4 Switch 1 Fan Regulator,Touch 4 Switch 1 Fan Regulator - 4 Module,4M,9099,Item 15 in Tactus PDF,Confirmed,Existing product; enrich/verify
+Confirmed Product,48,T8S-6M,Touch 8 Switch,Touch 8 Switch - 6 Module,6M,9599,Item 24 in Tactus PDF,Confirmed,Existing product; enrich/verify
+Confirmed Product,49,T6S1F-6M,Touch 6 Switch 1 Fan,Touch 6 Switch 1 Fan - 6 Module,6M,11399,Item 30 in Tactus PDF,Confirmed,Existing product; enrich/verify
+Confirmed Product,50,T8S1F-8M,Touch 8 Switch 1 Fan,Touch 8 Switch 1 Fan - 8 Module,8M,13499,Item 52 in Tactus PDF,Confirmed,Existing product; enrich/verify
+Confirmed Product,51,T10S-8M,Touch 10 Switch,Touch 10 Switch - 8 Module,8M,12599,Item 50 in Tactus PDF,Confirmed,Existing product; enrich/verify
+Confirmed Product,53,T12S2F-12M,Touch 12 Switch 2 Fan,Touch 12 Switch 2 Fan - 12 Module,12M,22599,Item 62 in Tactus PDF,Confirmed,Existing product; enrich/verify
+Product Variant Summary,,,,,,,,18 Confirmed Matches,Already matching; no price update required
+Product Variant Summary,,,,,,,,30 Price Mismatches,Preserve current DB prices under Option A; do not overwrite
+Product Variant Summary,,,,,,,,49 Unverified / Non-PDF Variants,Keep unchanged
+Existing Product Summary,,,,,,,,44 Non-PDF Products,Keep unchanged
+Existing Product Summary,,,,,,,,5 Ambiguous Products,Keep unchanged; needs review
+Database Safety Summary,,,,,,,,Products: 57,Final expected count
+Database Safety Summary,,,,,,,,ProductVariants: 97,Final expected count
+Database Safety Summary,,,,,,,,Products Created: 0,Do not create PDF-only products
+Database Safety Summary,,,,,,,,Products Deleted: 0,Do not delete existing products
+Database Safety Summary,,,,,,,,Variants Created: 0,Do not create new variants
+Database Safety Summary,,,,,,,,Variants Deleted: 0,Do not delete existing variants
+Database Safety Summary,,,,,,,,Duplicates: 0,Must remain zero
+Database Safety Summary,,,,,,,,Broken References: 0,Product → ProductVariant references must remain valid
