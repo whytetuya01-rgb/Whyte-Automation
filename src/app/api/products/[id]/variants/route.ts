@@ -34,7 +34,7 @@ export async function GET(_req: Request, context: RouteContext) {
     }
 
     const variants = await ProductVariant.find({ productId }).sort({ sortOrder: 1, _id: 1 });
-    return NextResponse.json(variants);
+    return NextResponse.json(variants.map((v) => serializeVariant(v.toObject())));
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products/[id]/variants" });
   }
@@ -63,14 +63,29 @@ export async function POST(req: Request, context: RouteContext) {
     const parsed = addVariantSchema.safeParse(await readJsonBody(req));
     if (!parsed.success) throw parsed.error;
 
-    const { automationTier, surfaceFinish, variantCode, price } = parsed.data;
+    const {
+      automationTier,
+      surfaceFinish,
+      variantCode,
+      name,
+      price,
+      priceWithoutTax,
+      taxPercent,
+      cost,
+      purchaseTaxPercent,
+    } = parsed.data;
 
     const created = await addVariantToProduct({
       productId,
       automationTier,
       surfaceFinish,
       variantCode,
+      name,
       price,
+      priceWithoutTax,
+      taxPercent,
+      cost,
+      purchaseTaxPercent,
     });
 
     return apiSuccess(
@@ -159,41 +174,48 @@ export async function PATCH(req: Request, context: RouteContext) {
       );
     }
 
-    const bulkOps = incoming.map((variant) => ({
-      updateOne: {
-        filter: { _id: variant.id, productId },
-        update: {
-          $set: {
-            variantCode: variant.variantCode,
-            code: variant.variantCode, // kept in sync for legacy readers
-            "config.variantCode": variant.variantCode,
-            price: mongoose.Types.Decimal128.fromString(variant.price.toFixed(2)),
-            updatedAt: new Date(),
-          },
+    const bulkOps = incoming.map((variant) => {
+      const updateFields: Record<string, unknown> = {
+        variantCode: variant.variantCode,
+        code: variant.variantCode, // kept in sync for legacy readers
+        "config.variantCode": variant.variantCode,
+        price: mongoose.Types.Decimal128.fromString(variant.price.toFixed(2)),
+        priceWithoutTax: mongoose.Types.Decimal128.fromString(variant.priceWithoutTax.toFixed(2)),
+        taxPercent: mongoose.Types.Decimal128.fromString(variant.taxPercent.toFixed(2)),
+        cost: mongoose.Types.Decimal128.fromString(variant.cost.toFixed(2)),
+        purchaseTaxPercent: mongoose.Types.Decimal128.fromString(variant.purchaseTaxPercent.toFixed(2)),
+        updatedAt: new Date(),
+      };
+      if (variant.name !== undefined) {
+        updateFields.name = variant.name;
+      }
+      if (variant.automationTier !== undefined) {
+        updateFields.automationTier = variant.automationTier;
+      }
+      if (variant.surfaceFinish !== undefined) {
+        updateFields.surfaceFinish = variant.surfaceFinish;
+      }
+      if (variant.isActive !== undefined) {
+        updateFields.isActive = variant.isActive;
+      }
+      if (variant.sortOrder !== undefined) {
+        updateFields.sortOrder = variant.sortOrder;
+      }
+      return {
+        updateOne: {
+          filter: { _id: variant.id, productId },
+          update: { $set: updateFields },
         },
-      },
-    }));
+      };
+    });
 
     await ProductVariant.bulkWrite(bulkOps);
-
-    // Keep the derived Product.price in step with the cheapest active variant
-    const cheapest = await ProductVariant.find({ productId, isActive: true })
-      .sort({ price: 1 })
-      .select("price")
-      .lean();
-    const firstPrice = (cheapest[0] as { price?: unknown } | undefined)?.price;
-    if (firstPrice !== undefined && firstPrice !== null) {
-      await Product.updateOne(
-        { _id: productId },
-        { $set: { price: mongoose.Types.Decimal128.fromString(String(firstPrice)), updatedAt: new Date() } }
-      );
-    }
 
     const updatedVariants = await ProductVariant.find({ productId }).sort({ sortOrder: 1, _id: 1 });
 
     return apiSuccess({
       message: `Updated ${incoming.length} variant${incoming.length === 1 ? "" : "s"} successfully.`,
-      variants: updatedVariants,
+      variants: updatedVariants.map((v) => serializeVariant(v.toObject())),
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/products/[id]/variants" });

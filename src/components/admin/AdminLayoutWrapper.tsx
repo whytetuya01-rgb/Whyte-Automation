@@ -53,9 +53,8 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
             <WhyteLogo
               theme="dark"
               alt="Whyte logo"
-              width={140}
+              size="header"
               preload
-              className="h-5 sm:h-6"
             />
           </Link>
         </div>

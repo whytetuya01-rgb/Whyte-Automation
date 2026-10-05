@@ -5,6 +5,13 @@ import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { ProposalStep } from "@/components/proposal-builder/StepIndicator";
+import {
+  normalizeQuotation,
+  normalizeCategories,
+  normalizeRoomTypes,
+  normalizeHouseTypes,
+  normalizeProducts,
+} from "@/lib/quotationNormalization";
 
 export const dynamic = "force-dynamic";
 
@@ -96,21 +103,11 @@ export default async function QuotationPage(props: PageProps) {
   }
 
   // Fast plain JSON normalization for client component hydration
-  const quotation = JSON.parse(JSON.stringify({ ...qDoc, id: (qDoc as any).id ?? (qDoc as any)._id }));
-  const houseTypes = JSON.parse(JSON.stringify(htDocs));
-  const products = (pDocs as any[]).map((p) => ({
-    ...p,
-    id: p.id ?? p._id,
-    variants: Array.isArray(p.variants)
-      ? p.variants.map((v: any) => ({
-          ...v,
-          id: v.id ?? v._id,
-          price: v.price ? v.price.toString() : "0.00",
-        }))
-      : [],
-  }));
-  const categories = JSON.parse(JSON.stringify(cDocs));
-  const roomTypes = JSON.parse(JSON.stringify(rtDocs));
+  const quotation = normalizeQuotation(JSON.parse(JSON.stringify(qDoc)));
+  const houseTypes = normalizeHouseTypes(JSON.parse(JSON.stringify(htDocs)));
+  const products = normalizeProducts(pDocs);
+  const categories = normalizeCategories(JSON.parse(JSON.stringify(cDocs)));
+  const roomTypes = normalizeRoomTypes(JSON.parse(JSON.stringify(rtDocs)));
   const company = compDoc ? JSON.parse(JSON.stringify(compDoc)) : null;
 
   // Determine initial step: query param > rooms exist (Step 3) > Step 1

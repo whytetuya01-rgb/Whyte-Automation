@@ -17,8 +17,10 @@ import { createProductSchema } from "@/lib/validation/product";
 import {
   findDuplicateVariantCode,
   normalizeVariantRows,
+  serializeVariant,
   validateFinalVariantMatrix,
 } from "@/lib/productVariantService";
+import { normalizeProduct, normalizeProducts } from "@/lib/quotationNormalization";
 
 export const dynamic = "force-dynamic";
 
@@ -115,21 +117,8 @@ export async function GET(req: Request) {
 
       // Variant must match BOTH tier and finish within the exact same variant
       const variantCondition: Record<string, unknown> = {
-        $and: [
-          {
-            $or: [
-              { automationTier: { $regex: tierRegex } },
-              { "config.series": { $regex: tierRegex } },
-              { "config.tier": { $regex: tierRegex } },
-            ],
-          },
-          {
-            $or: [
-              { surfaceFinish: { $regex: finishRegex } },
-              { "config.finish": { $regex: finishRegex } },
-            ],
-          },
-        ],
+        automationTier: { $regex: tierRegex },
+        surfaceFinish: { $regex: finishRegex },
       };
       if (!showAll) {
         variantCondition.isActive = true;
@@ -149,11 +138,7 @@ export async function GET(req: Request) {
     } else if (hasTier) {
       const tierRegex = new RegExp(`^${escapeRegex(automationTierParam!)}$`, "i");
       const variantCondition: Record<string, unknown> = {
-        $or: [
-          { automationTier: { $regex: tierRegex } },
-          { "config.series": { $regex: tierRegex } },
-          { "config.tier": { $regex: tierRegex } },
-        ],
+        automationTier: { $regex: tierRegex },
       };
       if (!showAll) {
         variantCondition.isActive = true;
@@ -170,10 +155,7 @@ export async function GET(req: Request) {
     } else if (hasFinish) {
       const finishRegex = new RegExp(`^${escapeRegex(surfaceFinishParam!)}$`, "i");
       const variantCondition: Record<string, unknown> = {
-        $or: [
-          { surfaceFinish: { $regex: finishRegex } },
-          { "config.finish": { $regex: finishRegex } },
-        ],
+        surfaceFinish: { $regex: finishRegex },
       };
       if (!showAll) {
         variantCondition.isActive = true;
@@ -281,17 +263,7 @@ export async function GET(req: Request) {
         Category.countDocuments({ isActive: true }),
       ]);
 
-      const products = (rawProducts as any[]).map((p) => ({
-        ...p,
-        id: p.id ?? p._id,
-        variants: Array.isArray(p.variants)
-          ? p.variants.map((v: any) => ({
-              ...v,
-              id: v.id ?? v._id,
-              price: v.price ? v.price.toString() : "0.00",
-            }))
-          : [],
-      }));
+      const products = normalizeProducts(rawProducts);
 
       const paginatedRes = createPaginatedResponse(products, total, paginationParams);
       return NextResponse.json({
@@ -310,17 +282,7 @@ export async function GET(req: Request) {
       .populate(populateOptions)
       .lean({ virtuals: true, getters: true });
 
-    const products = (rawProducts as any[]).map((p) => ({
-      ...p,
-      id: p.id ?? p._id,
-      variants: Array.isArray(p.variants)
-        ? p.variants.map((v: any) => ({
-            ...v,
-            id: v.id ?? v._id,
-            price: v.price ? v.price.toString() : "0.00",
-          }))
-        : [],
-    }));
+    const products = normalizeProducts(rawProducts);
 
     return NextResponse.json(products);
   } catch (error) {
@@ -402,7 +364,6 @@ export async function POST(req: Request) {
     }
 
     const matrix = getCategoryVariantMatrix(category);
-    const minPrice = Math.min(...finalVariants.map((v) => v.price));
 
     const matrixDimensions = matrix.hasMatrix
       ? [
@@ -445,7 +406,6 @@ export async function POST(req: Request) {
         // Legacy product-level tier/finish stay null: the matrix lives on the variants.
         automationTier: null,
         surfaceFinish: null,
-        price: mongoose.Types.Decimal128.fromString(minPrice.toFixed(2)),
         unit: productData.unit ?? "pcs",
         imageUrl: productData.imageUrl,
         moduleSize: productData.moduleSize,
@@ -476,6 +436,10 @@ export async function POST(req: Request) {
           variantCode: row.variantCode,
         },
         price: mongoose.Types.Decimal128.fromString(row.price.toFixed(2)),
+        priceWithoutTax: mongoose.Types.Decimal128.fromString(row.priceWithoutTax.toFixed(2)),
+        taxPercent: mongoose.Types.Decimal128.fromString(row.taxPercent.toFixed(2)),
+        cost: mongoose.Types.Decimal128.fromString(row.cost.toFixed(2)),
+        purchaseTaxPercent: mongoose.Types.Decimal128.fromString(row.purchaseTaxPercent.toFixed(2)),
         sortOrder: index,
         isActive: true,
       }));
@@ -506,7 +470,10 @@ export async function POST(req: Request) {
       });
     });
 
-    return apiSuccess(createdProduct, { status: 201 });
+    return apiSuccess(
+      normalizeProduct(createdProduct?.toObject ? createdProduct.toObject() : createdProduct),
+      { status: 201 }
+    );
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/products" });
   }

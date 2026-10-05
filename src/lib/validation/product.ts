@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { VARIANT_CODE_RULE } from "@/lib/productVariantService";
+import { resolveVariantPricing } from "@/lib/pricing";
 
 /**
  * Shared Zod schemas for product / variant mutations.
@@ -79,6 +80,26 @@ export const priceFieldSchema = z.union([z.number(), z.string()]).transform((val
   return Math.round(parsed * 100) / 100;
 });
 
+/** Optional price/tax accepts numbers, numeric strings, or null/undefined. */
+export const optionalPriceFieldSchema = z
+  .union([z.number(), z.string(), z.null()])
+  .optional()
+  .transform((value, ctx) => {
+    if (value === undefined || value === null) return undefined;
+    const raw = typeof value === "number" ? value : value.trim();
+    if (raw === "") return undefined;
+    const parsed = typeof raw === "string" ? Number(raw) : raw;
+    if (Number.isNaN(parsed) || !Number.isFinite(parsed)) {
+      ctx.addIssue({ code: "custom", message: "Must be a valid number." });
+      return z.NEVER;
+    }
+    if (parsed < 0) {
+      ctx.addIssue({ code: "custom", message: "Cannot be negative." });
+      return z.NEVER;
+    }
+    return Math.round(parsed * 100) / 100;
+  });
+
 export const variantCodeField = z
   .string()
   .transform((value) => value.trim())
@@ -123,7 +144,6 @@ const intField = (message = "Must be a whole number.") =>
 export const productTypeEnum = z.enum([
   "switch_board",
   "accessory",
-  "retrofit",
   "curtain",
   "smart_lock",
   "vdp",
@@ -152,11 +172,37 @@ export const createVariantSchema = z
     variantCode: variantCodeField,
     name: optionalText(),
     code: optionalText(),
-    price: priceFieldSchema,
+    price: optionalPriceFieldSchema,
+    priceWithoutTax: optionalPriceFieldSchema,
+    taxPercent: optionalPriceFieldSchema,
+    cost: optionalPriceFieldSchema,
+    purchaseTaxPercent: optionalPriceFieldSchema,
     isActive: booleanField,
     config: z.record(z.string(), z.unknown()).optional(),
   })
-  .strict();
+  .strict()
+  .refine((v) => v.price !== undefined || v.priceWithoutTax !== undefined, {
+    message: "Either Price or Price Without Tax is required.",
+    path: ["price"],
+  })
+  .transform((v) => {
+    const resolved = resolveVariantPricing({
+      price: v.price,
+      priceWithoutTax: v.priceWithoutTax,
+      taxPercent: v.taxPercent,
+      cost: v.cost,
+      purchaseTaxPercent: v.purchaseTaxPercent,
+    });
+    return {
+      ...v,
+      price: resolved.price,
+      priceWithoutTax: resolved.priceWithoutTax,
+      taxPercent: resolved.taxPercent,
+      taxAmount: resolved.taxAmount,
+      cost: resolved.cost,
+      purchaseTaxPercent: resolved.purchaseTaxPercent,
+    };
+  });
 
 export const createProductSchema = z
   .object({
@@ -196,40 +242,8 @@ export const updateProductSchema = z
   })
   .strict();
 
-/** Bulk variant edit (Edit Variants modal): code + price only. */
-export const bulkVariantUpdateSchema = z
-  .object({
-    variants: z
-      .array(
-        z
-          .object({
-            id: numericIdSchema,
-            variantCode: variantCodeField,
-            price: priceFieldSchema,
-          })
-          .strict()
-      )
-      .min(1, "At least one variant must be provided."),
-  })
-  .strict();
-
 /**
- * Single-variant PATCH. automationTier / surfaceFinish are intentionally NOT
- * editable: the category master matrix defines them and they can only change
- * through a full matrix resync.
- */
-export const updateVariantSchema = z
-  .object({
-    variantCode: variantCodeField.optional(),
-    name: optionalText(),
-    price: priceFieldSchema.optional(),
-    isActive: booleanField,
-    sortOrder: intField(),
-  })
-  .strict();
-
-/**
- * Axis value for an Add request. `null` and "" both mean "this category has no
+ * Axis value for variant requests. `null` and "" both mean "this category has no
  * such axis", which is a legal state for a one-axis matrix.
  */
 const axisField = z
@@ -241,6 +255,74 @@ const axisField = z
     return trimmed === "" ? null : trimmed;
   });
 
+/** Bulk variant edit (Edit Variants modal): code + full pricing suite. */
+export const bulkVariantUpdateSchema = z
+  .object({
+    variants: z
+      .array(
+        z
+          .object({
+            id: numericIdSchema,
+            variantCode: variantCodeField,
+            name: optionalText(),
+            price: optionalPriceFieldSchema,
+            priceWithoutTax: optionalPriceFieldSchema,
+            taxPercent: optionalPriceFieldSchema,
+            cost: optionalPriceFieldSchema,
+            purchaseTaxPercent: optionalPriceFieldSchema,
+            automationTier: axisField,
+            surfaceFinish: axisField,
+            isActive: booleanField,
+            sortOrder: intField(),
+          })
+          .strict()
+          .refine((v) => v.price !== undefined || v.priceWithoutTax !== undefined, {
+            message: "Either Price or Price Without Tax is required.",
+            path: ["price"],
+          })
+          .transform((v) => {
+            const resolved = resolveVariantPricing({
+              price: v.price,
+              priceWithoutTax: v.priceWithoutTax,
+              taxPercent: v.taxPercent,
+              cost: v.cost,
+              purchaseTaxPercent: v.purchaseTaxPercent,
+            });
+            return {
+              ...v,
+              price: resolved.price,
+              priceWithoutTax: resolved.priceWithoutTax,
+              taxPercent: resolved.taxPercent,
+              taxAmount: resolved.taxAmount,
+              cost: resolved.cost,
+              purchaseTaxPercent: resolved.purchaseTaxPercent,
+            };
+          })
+      )
+      .min(1, "At least one variant must be provided."),
+  })
+  .strict();
+
+/**
+ * Single-variant PATCH. Accepts variantCode, name, pricing fields, isActive, sortOrder,
+ * and optional automationTier / surfaceFinish.
+ */
+export const updateVariantSchema = z
+  .object({
+    variantCode: variantCodeField.optional(),
+    name: optionalText(),
+    automationTier: axisField,
+    surfaceFinish: axisField,
+    price: optionalPriceFieldSchema,
+    priceWithoutTax: optionalPriceFieldSchema,
+    taxPercent: optionalPriceFieldSchema,
+    cost: optionalPriceFieldSchema,
+    purchaseTaxPercent: optionalPriceFieldSchema,
+    isActive: booleanField,
+    sortOrder: intField(),
+  })
+  .strict();
+
 /**
  * Add a combination that is valid in the category matrix but was never added to
  * this Product. The server re-validates the combination against the matrix and
@@ -251,23 +333,73 @@ export const addVariantSchema = z
     automationTier: axisField,
     surfaceFinish: axisField,
     variantCode: variantCodeField,
-    price: priceFieldSchema,
+    name: optionalText(),
+    price: optionalPriceFieldSchema,
+    priceWithoutTax: optionalPriceFieldSchema,
+    taxPercent: optionalPriceFieldSchema,
+    cost: optionalPriceFieldSchema,
+    purchaseTaxPercent: optionalPriceFieldSchema,
   })
-  .strict();
+  .strict()
+  .refine((v) => v.price !== undefined || v.priceWithoutTax !== undefined, {
+    message: "Either Price or Price Without Tax is required.",
+    path: ["price"],
+  })
+  .transform((v) => {
+    const resolved = resolveVariantPricing({
+      price: v.price,
+      priceWithoutTax: v.priceWithoutTax,
+      taxPercent: v.taxPercent,
+      cost: v.cost,
+      purchaseTaxPercent: v.purchaseTaxPercent,
+    });
+    return {
+      ...v,
+      price: resolved.price,
+      priceWithoutTax: resolved.priceWithoutTax,
+      taxPercent: resolved.taxPercent,
+      taxAmount: resolved.taxAmount,
+      cost: resolved.cost,
+      purchaseTaxPercent: resolved.purchaseTaxPercent,
+    };
+  });
 
 /**
- * Restore a hard-deleted variant from ProductVariantHistory. The combination
- * comes from the history row (not the client) and is re-validated against the
- * current category matrix; the code and price are sent by the client so the
- * user can adjust the prefilled history values before committing.
+ * Restore a hard-deleted variant from ProductVariantHistory.
  */
 export const restoreVariantSchema = z
   .object({
     historyId: numericIdSchema,
     variantCode: variantCodeField,
-    price: priceFieldSchema,
+    price: optionalPriceFieldSchema,
+    priceWithoutTax: optionalPriceFieldSchema,
+    taxPercent: optionalPriceFieldSchema,
+    cost: optionalPriceFieldSchema,
+    purchaseTaxPercent: optionalPriceFieldSchema,
   })
-  .strict();
+  .strict()
+  .refine((v) => v.price !== undefined || v.priceWithoutTax !== undefined, {
+    message: "Either Price or Price Without Tax is required.",
+    path: ["price"],
+  })
+  .transform((v) => {
+    const resolved = resolveVariantPricing({
+      price: v.price,
+      priceWithoutTax: v.priceWithoutTax,
+      taxPercent: v.taxPercent,
+      cost: v.cost,
+      purchaseTaxPercent: v.purchaseTaxPercent,
+    });
+    return {
+      ...v,
+      price: resolved.price,
+      priceWithoutTax: resolved.priceWithoutTax,
+      taxPercent: resolved.taxPercent,
+      taxAmount: resolved.taxAmount,
+      cost: resolved.cost,
+      purchaseTaxPercent: resolved.purchaseTaxPercent,
+    };
+  });
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;

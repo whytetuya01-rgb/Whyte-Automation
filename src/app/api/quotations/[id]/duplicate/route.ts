@@ -144,6 +144,9 @@ export async function POST(req: Request, context: RouteContext) {
             sbNumber: item.sbNumber ?? null,
             quantity: item.quantity ?? 1,
             unitPrice: item.unitPrice,
+            priceWithoutTax: item.priceWithoutTax ?? null,
+            taxPercent: item.taxPercent ?? null,
+            taxAmount: item.taxAmount ?? null,
             notes: item.notes ?? null,
             sortOrder: item.sortOrder ?? 0,
           });

@@ -12,6 +12,9 @@ export interface IQuotationItem {
   sbNumber: string | null;
   quantity: number;
   unitPrice: mongoose.Types.Decimal128 | string;
+  priceWithoutTax?: mongoose.Types.Decimal128 | string | null;
+  taxPercent?: mongoose.Types.Decimal128 | string | null;
+  taxAmount?: mongoose.Types.Decimal128 | string | null;
   notes: string | null;
   sortOrder: number;
 }
@@ -30,7 +33,10 @@ const QuotationItemSchema = new Schema<IQuotationItemDocument>(
     variantConfig: { type: mongoose.Schema.Types.Mixed, default: null },
     sbNumber: { type: String, default: null },
     quantity: { type: Number, default: 1 },
-    unitPrice: createDecimalField({ required: true }),
+    unitPrice: createDecimalField({ required: true, min: 0 }),
+    priceWithoutTax: createDecimalField({ default: null, min: 0 }),
+    taxPercent: createDecimalField({ default: null, min: 0 }),
+    taxAmount: createDecimalField({ default: null, min: 0 }),
     notes: { type: String, default: null },
     sortOrder: { type: Number, default: 0, index: true },
   },
@@ -90,8 +96,28 @@ QuotationItemSchema.virtual("productVariant", {
 QuotationItemSchema.index({ quotationRoomId: 1, sortOrder: 1 });
 QuotationItemSchema.index({ productId: 1, productVariantId: 1 });
 
+const existingQuotationItemModel = mongoose.models.QuotationItem as Model<IQuotationItemDocument> | undefined;
+
+if (existingQuotationItemModel) {
+  if (!existingQuotationItemModel.schema.path("priceWithoutTax")) {
+    existingQuotationItemModel.schema.add({
+      priceWithoutTax: createDecimalField({ default: null, min: 0 }),
+    });
+  }
+  if (!existingQuotationItemModel.schema.path("taxPercent")) {
+    existingQuotationItemModel.schema.add({
+      taxPercent: createDecimalField({ default: null, min: 0 }),
+    });
+  }
+  if (!existingQuotationItemModel.schema.path("taxAmount")) {
+    existingQuotationItemModel.schema.add({
+      taxAmount: createDecimalField({ default: null, min: 0 }),
+    });
+  }
+}
+
 export const QuotationItem: Model<IQuotationItemDocument> =
-  mongoose.models.QuotationItem ||
+  existingQuotationItemModel ??
   mongoose.model<IQuotationItemDocument>("QuotationItem", QuotationItemSchema);
 
 export default QuotationItem;

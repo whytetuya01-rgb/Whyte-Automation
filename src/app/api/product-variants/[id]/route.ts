@@ -11,7 +11,8 @@ import {
   readJsonBody,
 } from "@/lib/api-response";
 import { updateVariantSchema } from "@/lib/validation/product";
-import { findDuplicateVariantCode } from "@/lib/productVariantService";
+import { findDuplicateVariantCode, serializeVariant } from "@/lib/productVariantService";
+import { resolveVariantPricing } from "@/lib/pricing";
 import { hardDeleteVariant, syncProductPriceFromVariants } from "@/lib/variantDeletion";
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -30,7 +31,7 @@ export async function GET(_req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Variant not found.");
     }
 
-    return NextResponse.json(variant);
+    return NextResponse.json(serializeVariant(variant.toObject()));
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/product-variants/[id]" });
   }
@@ -105,8 +106,26 @@ export async function PATCH(req: Request, context: RouteContext) {
       data.code = data.variantCode;
     }
 
-    if (typeof data.price === "number") {
-      data.price = mongoose.Types.Decimal128.fromString(data.price.toFixed(2));
+    if (
+      body.price !== undefined ||
+      body.priceWithoutTax !== undefined ||
+      body.taxPercent !== undefined ||
+      body.cost !== undefined ||
+      body.purchaseTaxPercent !== undefined
+    ) {
+      const resolved = resolveVariantPricing({
+        price: body.price ?? (existingVariant.price ? Number(String(existingVariant.price)) : undefined),
+        priceWithoutTax: body.priceWithoutTax ?? (existingVariant.priceWithoutTax ? Number(String(existingVariant.priceWithoutTax)) : undefined),
+        taxPercent: body.taxPercent ?? (existingVariant.taxPercent ? Number(String(existingVariant.taxPercent)) : undefined),
+        cost: body.cost ?? (existingVariant.cost ? Number(String(existingVariant.cost)) : undefined),
+        purchaseTaxPercent: body.purchaseTaxPercent ?? (existingVariant.purchaseTaxPercent ? Number(String(existingVariant.purchaseTaxPercent)) : undefined),
+      });
+
+      data.price = mongoose.Types.Decimal128.fromString(resolved.price.toFixed(2));
+      data.priceWithoutTax = mongoose.Types.Decimal128.fromString(resolved.priceWithoutTax.toFixed(2));
+      data.taxPercent = mongoose.Types.Decimal128.fromString(resolved.taxPercent.toFixed(2));
+      data.cost = mongoose.Types.Decimal128.fromString(resolved.cost.toFixed(2));
+      data.purchaseTaxPercent = mongoose.Types.Decimal128.fromString(resolved.purchaseTaxPercent.toFixed(2));
     }
 
     if (typeof data.variantCode === "string") {
@@ -129,11 +148,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Product variant not found.", { field: "id" });
     }
 
-    if (data.price !== undefined) {
-      await syncProductPriceFromVariants(existingVariant.productId);
-    }
-
-    return apiSuccess(updated);
+    return apiSuccess(serializeVariant(updated.toObject()));
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/product-variants/[id]" });
   }

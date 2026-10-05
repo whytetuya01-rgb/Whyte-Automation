@@ -1,5 +1,5 @@
-import mongoose from "mongoose";
 import { Product, ProductVariant, ProductVariantHistory } from "@/models";
+import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { getVariantDependencies } from "@/lib/dependencies";
@@ -34,14 +34,12 @@ function buildVariantLabel(variant: {
   automationTier?: string | null;
   surfaceFinish?: string | null;
   variantCode?: string | null;
-  config?: unknown;
 }): string {
-  const config = (variant.config ?? {}) as { series?: string; finish?: string };
-  const tier = variant.automationTier || config.series || "";
-  const finish = variant.surfaceFinish || config.finish || "";
+  const tier = formatTierLabel(variant.automationTier);
+  const finish = formatFinishLabel(variant.surfaceFinish);
   const parts: string[] = [];
-  if (tier) parts.push(tier.charAt(0).toUpperCase() + tier.slice(1));
-  if (finish) parts.push(finish.charAt(0).toUpperCase() + finish.slice(1));
+  if (tier) parts.push(tier);
+  if (finish) parts.push(finish);
   if (parts.length > 0) return parts.join(" · ");
   return variant.variantCode || "Variant";
 }
@@ -69,7 +67,6 @@ export async function hardDeleteVariant(params: {
     automationTier: variant.automationTier,
     surfaceFinish: variant.surfaceFinish,
     variantCode: variant.variantCode,
-    config: variant.config,
   });
 
   // 2. Dependency check before anything is removed
@@ -142,6 +139,10 @@ export async function hardDeleteVariant(params: {
         surfaceFinish: live.surfaceFinish ?? null,
         config: live.config ?? {},
         price: live.price ?? null,
+        priceWithoutTax: live.priceWithoutTax ?? null,
+        taxPercent: live.taxPercent ?? null,
+        cost: live.cost ?? null,
+        purchaseTaxPercent: live.purchaseTaxPercent ?? null,
         isActive: live.isActive ?? true,
         sortOrder: live.sortOrder ?? 0,
         reason: "hard_delete",
@@ -186,18 +187,10 @@ export async function hardDeleteVariant(params: {
 }
 
 /**
- * Re-derives Product.price from the cheapest active variant. Called after a
- * delete so the product listing never shows a stale minimum price.
+ * Kept for backward compatibility. Pricing belongs strictly to ProductVariant,
+ * not the parent Product, so Product.price is no longer synced.
  */
-export async function syncProductPriceFromVariants(productId: number): Promise<void> {
-  const cheapest = await ProductVariant.find({ productId, isActive: true })
-    .sort({ price: 1 })
-    .select("price")
-    .lean();
-
-  const first = cheapest[0] as { price?: unknown } | undefined;
-  if (!first || first.price === undefined || first.price === null) return;
-
-  const price = mongoose.Types.Decimal128.fromString(String(first.price));
-  await Product.updateOne({ _id: productId }, { $set: { price, updatedAt: new Date() } });
+export async function syncProductPriceFromVariants(_productId: number): Promise<void> {
+  // No-op: ProductVariant is the sole source of truth for pricing.
 }
+

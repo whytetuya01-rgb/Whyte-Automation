@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Modal from "@/components/shared/Modal";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
@@ -32,7 +33,6 @@ import { Button, Switch } from "@/components/ui";
 const TYPE_CONFIG: Record<string, { label: string; badge: string }> = {
   switch_board: { label: "Switch Board", badge: "bg-blue-50 text-blue-700 border-blue-200" },
   accessory: { label: "Accessory", badge: "bg-neutral-100 text-neutral-700 border-neutral-200" },
-  retrofit: { label: "Retrofit", badge: "bg-amber-50 text-amber-700 border-amber-200" },
   curtain: { label: "Curtain", badge: "bg-purple-50 text-purple-700 border-purple-200" },
   smart_lock: { label: "Smart Lock", badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   vdp: { label: "VDP", badge: "bg-cyan-50 text-cyan-700 border-cyan-200" },
@@ -464,39 +464,61 @@ export default function ProductDetailPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="border-b border-neutral-200/80 bg-neutral-50/70 text-neutral-500 font-semibold uppercase tracking-wider text-[11px]">
-                  <th className="py-3 px-4">Automation</th>
-                  <th className="py-3 px-4">Finish</th>
-                  <th className="py-3 px-4">Variant Code / SKU</th>
-                  <th className="py-3 px-4 text-right">Price</th>
-                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-3.5">Automation</th>
+                  <th className="py-3 px-3.5">Finish</th>
+                  <th className="py-3 px-3.5">Variant Code / SKU</th>
+                  <th className="py-3 px-3 text-right">Price Excl. Tax</th>
+                  <th className="py-3 px-3 text-right">Tax %</th>
+                  <th className="py-3 px-3 text-right">Tax Amount</th>
+                  <th className="py-3 px-3.5 text-right font-bold text-neutral-900">Price Incl. Tax</th>
+                  <th className="py-3 px-3.5 text-center">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 text-neutral-700">
                 {variants.map((v) => {
-                  const autoTier = v.automationTier || (v.config as any)?.series || "standard";
-                  const finish = v.surfaceFinish || (v.config as any)?.finish || "standard";
+                  const autoTier = v.automationTier || "";
+                  const finish = v.surfaceFinish || "";
+                  const tierLabel = formatTierLabel(autoTier);
+                  const finishLabel = formatFinishLabel(finish);
                   const vCode = v.variantCode || v.code || (v.config as any)?.variantCode || (v.config as any)?.code;
+
+                  const numPrice = Number(v.price) || 0;
+                  const taxPct = v.taxPercent !== undefined && v.taxPercent !== null ? Number(v.taxPercent) : 18;
+                  const priceWithoutTax = v.priceWithoutTax !== undefined && v.priceWithoutTax !== null
+                    ? Number(v.priceWithoutTax)
+                    : Math.round((numPrice / (1 + taxPct / 100)) * 100) / 100;
+                  const taxAmount = v.taxAmount !== undefined && v.taxAmount !== null
+                    ? Number(v.taxAmount)
+                    : Math.round((numPrice - priceWithoutTax) * 100) / 100;
 
                   return (
                     <tr key={v.id} className="hover:bg-neutral-50/60 transition-colors">
                       {/* Automation Tier */}
-                      <td className="py-3.5 px-4 font-medium">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200/80 capitalize">
-                          <Cpu className="h-3 w-3 text-blue-500" />
-                          {autoTier}
-                        </span>
+                      <td className="py-3.5 px-3.5 font-medium">
+                        {tierLabel ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200/80">
+                            <Cpu className="h-3 w-3 text-blue-500" />
+                            {tierLabel}
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400 italic">Not applicable</span>
+                        )}
                       </td>
 
                       {/* Surface Finish */}
-                      <td className="py-3.5 px-4 font-medium">
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-neutral-100 text-neutral-800 border border-neutral-200 capitalize">
-                          <Layers className="h-3 w-3 text-neutral-500" />
-                          {finish}
-                        </span>
+                      <td className="py-3.5 px-3.5 font-medium">
+                        {finishLabel ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-neutral-100 text-neutral-800 border border-neutral-200">
+                            <Layers className="h-3 w-3 text-neutral-500" />
+                            {finishLabel}
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400 italic">Not applicable</span>
+                        )}
                       </td>
 
                       {/* Variant Code */}
-                      <td className="py-3.5 px-4 font-mono font-medium text-neutral-900">
+                      <td className="py-3.5 px-3.5 font-mono font-medium text-neutral-900">
                         {vCode ? (
                           <span className="bg-neutral-100 px-2 py-0.5 rounded text-neutral-800 border border-neutral-200">
                             {vCode}
@@ -506,13 +528,28 @@ export default function ProductDetailPage() {
                         )}
                       </td>
 
-                      {/* Price */}
-                      <td className="py-3.5 px-4 text-right font-semibold text-sm text-neutral-900">
-                        {formatCurrency(v.price)}
+                      {/* Price Without Tax */}
+                      <td className="py-3.5 px-3 text-right font-medium text-neutral-600">
+                        {formatCurrency(priceWithoutTax)}
+                      </td>
+
+                      {/* Tax % */}
+                      <td className="py-3.5 px-3 text-right font-medium text-neutral-600">
+                        {taxPct}%
+                      </td>
+
+                      {/* Tax Amount */}
+                      <td className="py-3.5 px-3 text-right font-medium text-neutral-600">
+                        {formatCurrency(taxAmount)}
+                      </td>
+
+                      {/* Price With Tax */}
+                      <td className="py-3.5 px-3.5 text-right font-bold text-sm text-neutral-900">
+                        {formatCurrency(numPrice)}
                       </td>
 
                       {/* Status */}
-                      <td className="py-3.5 px-4 text-center">
+                      <td className="py-3.5 px-3.5 text-center">
                         <span
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium border ${
                             v.isActive

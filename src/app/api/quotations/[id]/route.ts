@@ -8,7 +8,40 @@ import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationSchema } from "@/lib/validation/quotation";
 
+import { normalizeQuotation } from "@/lib/quotationNormalization";
+
 type RouteContext = { params: Promise<{ id: string }> };
+
+async function fetchPopulatedQuotation(quotationId: string) {
+  return Quotation.findById(quotationId)
+    .populate({ path: "houseType" })
+    .populate({ path: "dealer", select: "id name email firstName lastName contactNumber gstNumber" })
+    .populate({
+      path: "rooms",
+      options: { sort: { sortOrder: 1 } },
+      populate: [
+        { path: "roomType" },
+        {
+          path: "items",
+          options: { sort: { sortOrder: 1 } },
+          populate: [
+            {
+              path: "product",
+              populate: {
+                path: "variants",
+                match: { isActive: true },
+                options: { sort: { sortOrder: 1 } },
+              },
+            },
+            {
+              path: "productVariant",
+            },
+          ],
+        },
+      ],
+    })
+    .lean({ virtuals: true });
+}
 
 /**
  * Session required for read, update and delete. Quotations are business data,
@@ -26,22 +59,7 @@ export async function GET(_req: Request, context: RouteContext) {
     const quotationId = parseQuotationId(id);
 
     await connectMongoDB();
-    const quotation = await Quotation.findById(quotationId)
-      .populate({ path: "houseType" })
-      .populate({ path: "dealer", select: "id name email firstName lastName contactNumber gstNumber" })
-      .populate({
-        path: "rooms",
-        options: { sort: { sortOrder: 1 } },
-        populate: [
-          { path: "roomType" },
-          {
-            path: "items",
-            options: { sort: { sortOrder: 1 } },
-            populate: { path: "product" },
-          },
-        ],
-      })
-      .lean({ virtuals: true });
+    const quotation = await fetchPopulatedQuotation(quotationId);
 
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
@@ -52,51 +70,19 @@ export async function GET(_req: Request, context: RouteContext) {
       throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
     }
 
-    const qJson = {
+    // Filter out bathroom-like rooms per business rule
+    const rawRooms = Array.isArray((quotation as any).rooms) ? (quotation as any).rooms : [];
+    const filteredRooms = rawRooms.filter(
+      (room: any) => !isBathroomLikeRoomName(room.roomType?.name)
+    );
+
+    const normalized = normalizeQuotation({
       ...quotation,
-      id: (quotation as any).id ?? (quotation as any)._id,
-    } as unknown as {
-      rooms?: Array<{ roomType?: { name?: string } | null; notes?: string | null; items?: Array<{ quantity: number; unitPrice: unknown }> }>;
-    } & Record<string, unknown>;
-    const rawRooms = Array.isArray(qJson.rooms) ? qJson.rooms : [];
-
-    const subtotal = rawRooms.reduce(
-      (sum, r) =>
-        sum +
-        (Array.isArray(r.items)
-          ? r.items.reduce((s, i) => s + (i.quantity || 1) * Number(i.unitPrice || 0), 0)
-          : 0),
-      0
-    );
-
-    const allocatedPct = Number(quotation.allocatedDiscountPercent || 0);
-    const customerPct = Number(
-      quotation.customerDiscountPercent !== undefined && quotation.customerDiscountPercent !== null
-        ? quotation.customerDiscountPercent
-        : quotation.discountType === "percentage"
-        ? quotation.discountValue || 0
-        : 0
-    );
-    const earningPct = Math.max(0, allocatedPct - customerPct);
-    const earningAmount = Math.round(((subtotal * earningPct) / 100) * 100) / 100;
-
-    const cleanedQuotation = {
-      ...qJson,
-      subtotal,
-      allocatedDiscountPercent: allocatedPct,
-      customerDiscountPercent: customerPct,
-      estimatedEarningPercent: earningPct,
-      estimatedEarningAmount: earningAmount,
-      rooms: rawRooms
-        .filter((room) => !isBathroomLikeRoomName(room.roomType?.name))
-        .map((room) => ({
-          ...room,
-          notes: room.notes ?? null,
-        })),
-    };
+      rooms: filteredRooms,
+    });
 
     // GET responses stay unwrapped for existing consumers.
-    return NextResponse.json(cleanedQuotation);
+    return NextResponse.json(normalized);
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/quotations/[id]" });
   }
@@ -224,7 +210,18 @@ export async function PATCH(req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
 
-    return apiSuccess(quotation);
+    const populated = await fetchPopulatedQuotation(quotationId);
+    const rawRooms = Array.isArray((populated as any)?.rooms) ? (populated as any).rooms : [];
+    const filteredRooms = rawRooms.filter(
+      (room: any) => !isBathroomLikeRoomName(room.roomType?.name)
+    );
+
+    const normalized = normalizeQuotation({
+      ...populated,
+      rooms: filteredRooms,
+    });
+
+    return apiSuccess(normalized);
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/quotations/[id]" });
   }

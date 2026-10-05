@@ -9,6 +9,7 @@ import mongoose from "mongoose";
 export function createDecimalField(options: {
   required?: boolean;
   default?: string | number | null;
+  min?: number;
 } = {}): any {
   const definition: Record<string, unknown> = {
     type: mongoose.Schema.Types.Decimal128,
@@ -25,6 +26,17 @@ export function createDecimalField(options: {
       return v;
     },
   };
+
+  if (options.min !== undefined) {
+    definition.validate = {
+      validator: (v: mongoose.Types.Decimal128 | null | undefined) => {
+        if (v === null || v === undefined) return true;
+        const num = Number(v.toString());
+        return Number.isFinite(num) && num >= options.min!;
+      },
+      message: () => `Value cannot be less than ${options.min}.`,
+    };
+  }
 
   if (options.default !== undefined) {
     definition.default =

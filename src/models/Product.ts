@@ -1,5 +1,4 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
-import { createDecimalField } from "./helpers";
 import type { ProductType } from "@/types";
 
 export interface IProduct {
@@ -12,7 +11,6 @@ export interface IProduct {
   categoryId: number | null;
   automationTier: string | null;
   surfaceFinish: string | null;
-  price: mongoose.Types.Decimal128 | string;
   unit: string;
   imageUrl: string | null;
   moduleSize: string | null;
@@ -37,14 +35,13 @@ const ProductSchema = new Schema<IProductDocument>(
     description: { type: String, default: null },
     type: {
       type: String,
-      enum: ["switch_board", "accessory", "retrofit", "curtain", "smart_lock", "vdp", "other"],
+      enum: ["switch_board", "accessory", "curtain", "smart_lock", "vdp", "other"],
       required: true,
       index: true,
     },
     categoryId: { type: Number, ref: "Category", default: null, index: true },
     automationTier: { type: String, default: null, trim: true, index: true },
     surfaceFinish: { type: String, default: null, trim: true, index: true },
-    price: createDecimalField({ default: "0.00" }),
     unit: { type: String, default: "pcs", trim: true },
     imageUrl: { type: String, default: null },
     moduleSize: { type: String, default: null },

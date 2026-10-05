@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Product, Category } from "@/types";
-import { normalizeVariantOptions } from "@/lib/categoryConfig";
+import { normalizeVariantOptions, formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { FolderTree } from "lucide-react";
 
 interface Props {
@@ -28,7 +28,7 @@ function getTierLabel(category: Category | null, value: string | null | undefine
   const tiers = normalizeVariantOptions(category?.variantTiers);
   const found = tiers.find((t) => t.value.toLowerCase() === trimmed.toLowerCase());
   if (found) return found.label;
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  return formatTierLabel(trimmed);
 }
 
 function getFinishLabel(category: Category | null, value: string | null | undefined): string | null {
@@ -37,7 +37,7 @@ function getFinishLabel(category: Category | null, value: string | null | undefi
   const finishes = normalizeVariantOptions(category?.variantFinishes);
   const found = finishes.find((f) => f.value.toLowerCase() === trimmed.toLowerCase());
   if (found) return found.label;
-  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+  return formatFinishLabel(trimmed);
 }
 
 export default function ProductCategoryConfigCell({ product, categories }: Props) {
@@ -57,8 +57,8 @@ export default function ProductCategoryConfigCell({ product, categories }: Props
 
   if (isMultiVariant) {
     const variantConfigs = variantList.map((v) => {
-      const tierVal = v.automationTier || (v.config as Record<string, string> | undefined)?.series || (v.config as Record<string, string> | undefined)?.tier || product.automationTier || null;
-      const finishVal = v.surfaceFinish || (v.config as Record<string, string> | undefined)?.finish || product.surfaceFinish || null;
+      const tierVal = v.automationTier || product.automationTier || null;
+      const finishVal = v.surfaceFinish || product.surfaceFinish || null;
       const tierLabel = getTierLabel(category, tierVal);
       const finishLabel = getFinishLabel(category, finishVal);
 

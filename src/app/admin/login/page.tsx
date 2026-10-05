@@ -226,13 +226,12 @@ export default function LoginPage() {
 
         {/* Top brand header */}
         <div className="relative z-10">
-          <div className="inline-flex items-center rounded-2xl bg-white px-3.5 py-2 sm:px-4 sm:py-2.5 shadow-md">
+          <div className="inline-flex items-center rounded-xl bg-white px-3 py-1.5 shadow-xs">
             <WhyteLogo
               theme="light"
               alt="Whyte logo"
-              width={160}
+              size="login"
               preload
-              className="h-7 sm:h-8"
             />
           </div>
         </div>
@@ -249,7 +248,7 @@ export default function LoginPage() {
           </h2>
 
           <p className="text-neutral-300 text-sm sm:text-base mt-3 leading-relaxed">
-            Centralized control center for smart touch panels, retrofits, dynamic matrix pricing catalogs, and automated client proposals.
+            Centralized control center for smart touch panels, smart automation, dynamic matrix pricing catalogs, and automated client proposals.
           </p>
 
           {/* Feature Highlights (Neutral Black/Gray Glass Treatment with Pink Accents) */}
@@ -261,7 +260,7 @@ export default function LoginPage() {
               <div>
                 <h3 className="text-sm font-semibold text-white">Product Catalog & Matrix Engine</h3>
                 <p className="text-xs text-neutral-400 mt-0.5">
-                  Configure modules, finishes, retrofit options, and multi-tier pricing.
+                  Configure modules, finishes, automation tiers, and multi-tier pricing.
                 </p>
               </div>
             </div>

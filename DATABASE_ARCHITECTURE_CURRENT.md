@@ -150,7 +150,7 @@
 
 ### 2.3 `Product`
 
-**Purpose:** Master product catalogue. Covers switch boards, accessories, retrofit modules, curtains, smart locks, VDPs, and other items. Supports both simple flat-price products and matrix-priced products (where price depends on multiple dimensions). The `price` field stores the minimum/base price for display purposes ("From X"); actual per-variant prices live in `ProductVariant`.
+**Purpose:** Master product catalogue. Covers switch boards, accessories, curtains, smart locks, VDPs, and other items. Supports both simple flat-price products and matrix-priced products (where price depends on multiple dimensions). The `price` field stores the minimum/base price for display purposes ("From X"); actual per-variant prices live in `ProductVariant`.
 
 **Primary key:** `id` — `SERIAL` (auto-increment integer)
 
@@ -425,7 +425,6 @@ Controls the product category type. Determines icon, display grouping, and PDF r
 |---|---|
 | `switch_board` | Touch switch panel (Tactus series, Tactus Edge, etc.) |
 | `accessory` | Accessories (IR blasters, sensors, gateways, remotes) |
-| `retrofit` | Retrofit in-wall switch modules |
 | `curtain` | Smart curtain motors/controllers |
 | `smart_lock` | Smart door locks |
 | `vdp` | Video Door Phone units (indoor + outdoor) |

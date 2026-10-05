@@ -96,9 +96,16 @@ export function assertCombinationAllowed(params: {
   const matrix = getCategoryVariantMatrix(params.category ?? undefined);
 
   if (!matrix.hasMatrix) {
-    throw new ApiError("VALIDATION_ERROR", NO_MATRIX_CATEGORY_MESSAGE, {
-      field: params.field ?? "automationTier",
-    });
+    if (!params.automationTier && !params.surfaceFinish) {
+      return { displayName: "Standard" };
+    }
+    throw new ApiError(
+      "VALIDATION_ERROR",
+      `This category does not configure automation tiers or surface finishes. Only a generic standard variant is permitted.`,
+      {
+        field: params.field ?? "automationTier",
+      }
+    );
   }
 
   const key = combinationKeyOf(params.automationTier, params.surfaceFinish);
@@ -182,12 +189,19 @@ async function nextSortOrder(productId: number): Promise<number> {
   return current + 1;
 }
 
+import { resolveVariantPricing } from "@/lib/pricing";
+
 export interface AddVariantParams {
   productId: number;
   automationTier: string | null;
   surfaceFinish: string | null;
   variantCode: string;
-  price: number;
+  name?: string | null;
+  price?: number;
+  priceWithoutTax?: number;
+  taxPercent?: number;
+  cost?: number;
+  purchaseTaxPercent?: number;
 }
 
 /**
@@ -228,6 +242,14 @@ export async function addVariantToProduct(params: AddVariantParams) {
 
   const sortOrder = await nextSortOrder(params.productId);
 
+  const pricing = resolveVariantPricing({
+    price: params.price,
+    priceWithoutTax: params.priceWithoutTax,
+    taxPercent: params.taxPercent,
+    cost: params.cost,
+    purchaseTaxPercent: params.purchaseTaxPercent,
+  });
+
   const created = await withTransaction(async (dbSession) => {
     const variantId = await getNextSequence("productVariant", ProductVariant, dbSession);
     const doc = new ProductVariant({
@@ -235,7 +257,7 @@ export async function addVariantToProduct(params: AddVariantParams) {
       productId: params.productId,
       variantCode: params.variantCode,
       code: params.variantCode, // legacy readers
-      name: displayName,
+      name: params.name?.trim() || displayName,
       automationTier: params.automationTier,
       surfaceFinish: params.surfaceFinish,
       config: {
@@ -243,7 +265,11 @@ export async function addVariantToProduct(params: AddVariantParams) {
         finish: params.surfaceFinish,
         variantCode: params.variantCode,
       },
-      price: mongoose.Types.Decimal128.fromString(params.price.toFixed(2)),
+      price: mongoose.Types.Decimal128.fromString(pricing.price.toFixed(2)),
+      priceWithoutTax: mongoose.Types.Decimal128.fromString(pricing.priceWithoutTax.toFixed(2)),
+      taxPercent: mongoose.Types.Decimal128.fromString(pricing.taxPercent.toFixed(2)),
+      cost: mongoose.Types.Decimal128.fromString(pricing.cost.toFixed(2)),
+      purchaseTaxPercent: mongoose.Types.Decimal128.fromString(pricing.purchaseTaxPercent.toFixed(2)),
       sortOrder,
       isActive: true,
     });
@@ -265,7 +291,11 @@ export interface RestoreVariantParams {
   productId: number;
   historyId: number;
   variantCode: string;
-  price: number;
+  price?: number;
+  priceWithoutTax?: number;
+  taxPercent?: number;
+  cost?: number;
+  purchaseTaxPercent?: number;
 }
 
 /**
@@ -328,6 +358,15 @@ export async function restoreVariantToProduct(params: RestoreVariantParams) {
     variantCode: params.variantCode,
   };
 
+  const historyAny = history as unknown as Record<string, unknown>;
+  const pricing = resolveVariantPricing({
+    price: params.price ?? (historyAny.price !== undefined ? Number(String(historyAny.price)) : undefined),
+    priceWithoutTax: params.priceWithoutTax ?? (historyAny.priceWithoutTax !== undefined ? Number(String(historyAny.priceWithoutTax)) : undefined),
+    taxPercent: params.taxPercent ?? (historyAny.taxPercent !== undefined ? Number(String(historyAny.taxPercent)) : undefined),
+    cost: params.cost ?? (historyAny.cost !== undefined ? Number(String(historyAny.cost)) : undefined),
+    purchaseTaxPercent: params.purchaseTaxPercent ?? (historyAny.purchaseTaxPercent !== undefined ? Number(String(historyAny.purchaseTaxPercent)) : undefined),
+  });
+
   const created = await withTransaction(async (dbSession) => {
     const variantId = await getNextSequence("productVariant", ProductVariant, dbSession);
     const doc = new ProductVariant({
@@ -339,7 +378,11 @@ export async function restoreVariantToProduct(params: RestoreVariantParams) {
       automationTier: combination.automationTier,
       surfaceFinish: combination.surfaceFinish,
       config: restoredConfig,
-      price: mongoose.Types.Decimal128.fromString(params.price.toFixed(2)),
+      price: mongoose.Types.Decimal128.fromString(pricing.price.toFixed(2)),
+      priceWithoutTax: mongoose.Types.Decimal128.fromString(pricing.priceWithoutTax.toFixed(2)),
+      taxPercent: mongoose.Types.Decimal128.fromString(pricing.taxPercent.toFixed(2)),
+      cost: mongoose.Types.Decimal128.fromString(pricing.cost.toFixed(2)),
+      purchaseTaxPercent: mongoose.Types.Decimal128.fromString(pricing.purchaseTaxPercent.toFixed(2)),
       sortOrder,
       // A restored variant comes back active so it can be used immediately.
       isActive: true,
@@ -357,3 +400,4 @@ export async function restoreVariantToProduct(params: RestoreVariantParams) {
   await syncProductPriceFromVariants(params.productId);
   return created;
 }
+

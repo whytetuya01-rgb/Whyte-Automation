@@ -4,6 +4,7 @@ import { withTransaction } from "@/lib/transaction";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationRoomSchema } from "@/lib/validation/quotation";
+import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
 
 type RouteContext = { params: Promise<{ id: string; roomId: string }> };
 
@@ -54,7 +55,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       .populate({ path: "roomType" })
       .populate({ path: "items", populate: { path: "product" } });
 
-    return apiSuccess(room);
+    return apiSuccess(normalizeQuotationRoom(room));
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/quotations/[id]/rooms/[roomId]" });
   }

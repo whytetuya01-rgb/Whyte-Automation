@@ -331,7 +331,7 @@ export async function main(dryRun = false) {
 
       // Verify Decimal128 types
       const sampleProd = await Product.findOne({ _id: 1 });
-      console.log(`Sample Product price: ${sampleProd?.price}`);
+      console.log(`Sample Product name: ${sampleProd?.name}`);
 
       const sampleVar = await ProductVariant.findOne({ _id: 1 });
       console.log(`Sample Variant price: ${sampleVar?.price}, config:`, sampleVar?.config);

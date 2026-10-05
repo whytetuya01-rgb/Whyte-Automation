@@ -55,7 +55,7 @@ export default function ProductSelector({
    * selection (l3 > l2 > l1). An exact match on the selected level is required.
    *
    * Category tree structure: L1 (Series) → L2 (Tech: WiFi/Zigbee) → L3 (Material: Glass/Acrylic)
-   * Products are assigned to ANY level (L1 for SmartLock/VDP, L2 for Retrofit, L3 for Switch Boards)
+   * Products are assigned to ANY level (L1 for SmartLock/VDP, L3 for Switch Boards)
    */
   const filteredProducts = useMemo(() => {
     let result = products;

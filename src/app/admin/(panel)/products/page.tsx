@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import Modal from "@/components/shared/Modal";
 import ProductForm from "@/components/admin/ProductForm";
@@ -34,7 +35,6 @@ import { Button, Input, Select } from "@/components/ui";
 const TYPE_CONFIG: Record<string, { label: string; badge: string }> = {
   switch_board: { label: "Switch Board", badge: "bg-blue-50 text-blue-700 border-blue-200" },
   accessory: { label: "Accessory", badge: "bg-neutral-100 text-neutral-700 border-neutral-200" },
-  retrofit: { label: "Retrofit", badge: "bg-amber-50 text-amber-700 border-amber-200" },
   curtain: { label: "Curtain", badge: "bg-purple-50 text-purple-700 border-purple-200" },
   smart_lock: { label: "Smart Lock", badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
   vdp: { label: "VDP", badge: "bg-cyan-50 text-cyan-700 border-cyan-200" },
@@ -757,12 +757,14 @@ function ProductsPageContent() {
                                     </thead>
                                     <tbody className="divide-y divide-neutral-100 text-neutral-700 bg-white">
                                       {variants.map((v, vIndex) => {
-                                        const autoTier = v.automationTier || (v.config as any)?.series || "";
-                                        const finish = v.surfaceFinish || (v.config as any)?.finish || "";
+                                        const autoTier = v.automationTier || "";
+                                        const finish = v.surfaceFinish || "";
+                                        const tierLabel = formatTierLabel(autoTier);
+                                        const finishLabel = formatFinishLabel(finish);
                                         const parts: string[] = [];
-                                        if (autoTier) parts.push(autoTier.charAt(0).toUpperCase() + autoTier.slice(1));
-                                        if (finish) parts.push(finish.charAt(0).toUpperCase() + finish.slice(1));
-                                        const vDisplayName = parts.length > 0 ? parts.join(" · ") : "Standard";
+                                        if (tierLabel) parts.push(tierLabel);
+                                        if (finishLabel) parts.push(finishLabel);
+                                        const vDisplayName = parts.length > 0 ? parts.join(" · ") : (v.name || "Standard");
                                         const vCode = v.variantCode || v.code || (v.config as any)?.variantCode || (v.config as any)?.code;
 
                                         return (
@@ -782,22 +784,28 @@ function ProductsPageContent() {
 
                                             {/* 3. TIER & FINISH */}
                                             <td className="py-2.5 px-3.5">
-                                              <div className="flex items-center gap-1.5 flex-wrap">
-                                                {autoTier ? (
-                                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200 capitalize">
-                                                    {autoTier}
-                                                  </span>
-                                                ) : (
-                                                  <span className="text-[11px] text-neutral-400 italic">No tier</span>
-                                                )}
-                                                {finish ? (
-                                                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-neutral-100 text-neutral-700 border border-neutral-200 capitalize">
-                                                    {finish}
-                                                  </span>
-                                                ) : (
-                                                  <span className="text-[11px] text-neutral-400 italic">No finish</span>
-                                                )}
-                                              </div>
+                                              {!tierLabel && !finishLabel ? (
+                                                <span className="text-[11px] text-neutral-400 italic">
+                                                  Not applicable
+                                                </span>
+                                              ) : (
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                  {tierLabel ? (
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
+                                                      {tierLabel}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-[11px] text-neutral-400 italic">No tier</span>
+                                                  )}
+                                                  {finishLabel ? (
+                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-neutral-100 text-neutral-700 border border-neutral-200">
+                                                      {finishLabel}
+                                                    </span>
+                                                  ) : (
+                                                    <span className="text-[11px] text-neutral-400 italic">No finish</span>
+                                                  )}
+                                                </div>
+                                              )}
                                             </td>
 
                                             {/* 4. VARIANT CODE / SKU */}

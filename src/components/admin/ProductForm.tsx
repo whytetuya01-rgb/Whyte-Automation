@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Product, ProductVariant, Category } from "@/types";
 import notify from "@/lib/notify";
 import { ApiClientError, apiJson, notifyApiError } from "@/lib/apiClient";
-import { getCategoryVariantMatrix } from "@/lib/categoryConfig";
+import { getCategoryVariantMatrix, formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { suggestVariantCode, validateVariantCode } from "@/lib/productVariantService";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import {
@@ -26,6 +26,10 @@ import {
   Wand2,
 } from "lucide-react";
 import { Input, Select, Textarea, Button, Switch } from "@/components/ui";
+import {
+  calculateFromTaxExclusivePrice,
+  calculateFromTaxInclusivePrice,
+} from "@/lib/pricing";
 
 /** A single editable variant row inside the Edit Product → Variant Configurations tab */
 interface VariantRow {
@@ -35,6 +39,11 @@ interface VariantRow {
   surfaceFinish: string;
   variantCode: string;
   price: string;
+  priceWithoutTax: string;
+  taxPercent: string;
+  taxAmount: string;
+  cost: string;
+  purchaseTaxPercent: string;
   hasPriceError: boolean;
 }
 
@@ -48,13 +57,17 @@ interface EditableVariantRow {
   finishLabel: string | null;
   displayName: string;
   variantCode: string;
-  price: string; // stored as string so the input stays editable
+  price: string;
+  priceWithoutTax: string;
+  taxPercent: string;
+  taxAmount: string;
+  cost: string;
+  purchaseTaxPercent: string;
 }
 
 const PRODUCT_TYPES = [
   { value: "switch_board", label: "Switch Board" },
   { value: "accessory", label: "Accessory" },
-  { value: "retrofit", label: "Retrofit" },
   { value: "curtain", label: "Curtain" },
   { value: "smart_lock", label: "Smart Lock" },
   { value: "vdp", label: "VDP" },
@@ -136,18 +149,35 @@ export default function ProductForm({
     const variants: ProductVariant[] = (product.variants as ProductVariant[]) || [];
     setVariantRows(
       variants.map((v) => {
-        const autoTier = v.automationTier || (v.config as any)?.series || "";
-        const finish = v.surfaceFinish || (v.config as any)?.finish || "";
+        const autoTier = v.automationTier || "";
+        const finish = v.surfaceFinish || "";
+        const tierLabel = formatTierLabel(autoTier);
+        const finishLabel = formatFinishLabel(finish);
         const parts: string[] = [];
-        if (autoTier) parts.push(autoTier.charAt(0).toUpperCase() + autoTier.slice(1));
-        if (finish) parts.push(finish.charAt(0).toUpperCase() + finish.slice(1));
+        if (tierLabel) parts.push(tierLabel);
+        if (finishLabel) parts.push(finishLabel);
+
+        const numPrice = v.price !== undefined && v.price !== null ? Number(v.price) : 0;
+        const taxPct = v.taxPercent !== undefined && v.taxPercent !== null ? Number(v.taxPercent) : 18;
+        const pwt = v.priceWithoutTax !== undefined && v.priceWithoutTax !== null
+          ? Number(v.priceWithoutTax)
+          : (numPrice > 0 ? Math.round((numPrice / (1 + taxPct / 100)) * 100) / 100 : 0);
+        const taxAmt = Math.round((numPrice - pwt) * 100) / 100;
+        const cost = v.cost !== undefined && v.cost !== null ? Number(v.cost) : 0;
+        const ptp = v.purchaseTaxPercent !== undefined && v.purchaseTaxPercent !== null ? Number(v.purchaseTaxPercent) : 18;
+
         return {
           id: v.id,
-          displayName: parts.length > 0 ? parts.join(" · ") : "Standard",
-          automationTier: autoTier ? autoTier.charAt(0).toUpperCase() + autoTier.slice(1) : "—",
-          surfaceFinish: finish ? finish.charAt(0).toUpperCase() + finish.slice(1) : "—",
+          displayName: parts.length > 0 ? parts.join(" · ") : (v.name || "Standard"),
+          automationTier: tierLabel ?? "—",
+          surfaceFinish: finishLabel ?? "—",
           variantCode: v.variantCode || v.code || (v.config as any)?.variantCode || "",
-          price: v.price !== undefined && v.price !== null ? String(v.price) : "",
+          price: numPrice > 0 ? numPrice.toFixed(2) : (v.price ? String(v.price) : "0.00"),
+          priceWithoutTax: pwt > 0 ? pwt.toFixed(2) : "0.00",
+          taxPercent: taxPct.toString(),
+          taxAmount: taxAmt.toFixed(2),
+          cost: cost.toFixed(2),
+          purchaseTaxPercent: ptp.toString(),
           hasPriceError: false,
         };
       })
@@ -157,15 +187,54 @@ export default function ProductForm({
   const handleVariantCodeChange = (id: number, val: string) =>
     setVariantRows((prev) => prev.map((r) => (r.id === id ? { ...r, variantCode: val } : r)));
 
+  const handleVariantPriceWithoutTaxChange = (id: number, val: string) =>
+    setVariantRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const taxPct = Number(r.taxPercent) || 18;
+        const numPreTax = Number(val);
+        if (val.trim() !== "" && Number.isFinite(numPreTax) && numPreTax >= 0) {
+          const { taxAmount, price } = calculateFromTaxExclusivePrice(numPreTax, taxPct);
+          return { ...r, priceWithoutTax: val, taxAmount: taxAmount.toFixed(2), price: price.toFixed(2), hasPriceError: false };
+        }
+        return { ...r, priceWithoutTax: val };
+      })
+    );
+
+  const handleVariantTaxPercentChange = (id: number, val: string) =>
+    setVariantRows((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const taxPct = Number(val);
+        const numPreTax = Number(r.priceWithoutTax);
+        if (val.trim() !== "" && Number.isFinite(taxPct) && taxPct >= 0 && Number.isFinite(numPreTax) && numPreTax >= 0) {
+          const { taxAmount, price } = calculateFromTaxExclusivePrice(numPreTax, taxPct);
+          return { ...r, taxPercent: val, taxAmount: taxAmount.toFixed(2), price: price.toFixed(2), hasPriceError: false };
+        }
+        return { ...r, taxPercent: val };
+      })
+    );
+
   const handleVariantPriceChange = (id: number, val: string) =>
     setVariantRows((prev) =>
       prev.map((r) => {
         if (r.id !== id) return r;
         const num = Number(val);
         const isInvalid = val.trim() === "" || !Number.isFinite(num) || isNaN(num) || num < 0;
+        const taxPct = Number(r.taxPercent) || 18;
+        if (!isInvalid) {
+          const { priceWithoutTax, taxAmount } = calculateFromTaxInclusivePrice(num, taxPct);
+          return { ...r, price: val, priceWithoutTax: priceWithoutTax.toFixed(2), taxAmount: taxAmount.toFixed(2), hasPriceError: false };
+        }
         return { ...r, price: val, hasPriceError: isInvalid };
       })
     );
+
+  const handleVariantCostChange = (id: number, val: string) =>
+    setVariantRows((prev) => prev.map((r) => (r.id === id ? { ...r, cost: val } : r)));
+
+  const handleVariantPurchaseTaxPercentChange = (id: number, val: string) =>
+    setVariantRows((prev) => prev.map((r) => (r.id === id ? { ...r, purchaseTaxPercent: val } : r)));
 
   /** Save variant Code + Price in bulk via PATCH */
   const handleSaveVariants = async () => {
@@ -187,6 +256,10 @@ export default function ProductForm({
           id: r.id,
           variantCode: r.variantCode.trim(),
           price: Number(r.price),
+          priceWithoutTax: Number(r.priceWithoutTax || 0),
+          taxPercent: Number(r.taxPercent || 18),
+          cost: Number(r.cost || 0),
+          purchaseTaxPercent: Number(r.purchaseTaxPercent || 18),
         })),
       });
       notify.success("Variants saved", `Updated ${variantRows.length} variants for "${product.name}".`);
@@ -249,8 +322,30 @@ export default function ProductForm({
   // When category changes (create mode only), reset editable rows from the new matrix
   useEffect(() => {
     if (isEdit) return;
-    if (!variantMatrix || !variantMatrix.hasMatrix) {
+    if (!selectedCategory) {
       setEditableRows([]);
+      return;
+    }
+    if (!variantMatrix || !variantMatrix.hasMatrix) {
+      // MODE 2: Category has NO configured Automation Tier and NO configured Surface Finish.
+      // Product must be treated as having ONE SINGLE GENERIC VARIANT!
+      setEditableRows([
+        {
+          comboKey: "::",
+          automationTier: null,
+          surfaceFinish: null,
+          tierLabel: null,
+          finishLabel: null,
+          displayName: "Standard",
+          variantCode: "",
+          price: "",
+          priceWithoutTax: "",
+          taxPercent: "18",
+          taxAmount: "0.00",
+          cost: "0.00",
+          purchaseTaxPercent: "18",
+        },
+      ]);
       return;
     }
     setEditableRows(
@@ -263,15 +358,77 @@ export default function ProductForm({
         displayName: comb.displayName,
         variantCode: "",
         price: "",
+        priceWithoutTax: "",
+        taxPercent: "18",
+        taxAmount: "0.00",
+        cost: "0.00",
+        purchaseTaxPercent: "18",
       }))
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [variantMatrix, isEdit]);
+  }, [variantMatrix, selectedCategory, isEdit]);
 
   /** Update a single field of one editable row */
   const updateRow = (comboKey: string, field: "variantCode" | "price", value: string) => {
     setEditableRows((prev) =>
       prev.map((row) => (row.comboKey === comboKey ? { ...row, [field]: value } : row))
+    );
+  };
+
+  const updateEditablePriceWithoutTax = (comboKey: string, val: string) => {
+    setEditableRows((prev) =>
+      prev.map((r) => {
+        if (r.comboKey !== comboKey) return r;
+        const taxPct = Number(r.taxPercent) || 18;
+        const numPreTax = Number(val);
+        if (val.trim() !== "" && Number.isFinite(numPreTax) && numPreTax >= 0) {
+          const { taxAmount, price } = calculateFromTaxExclusivePrice(numPreTax, taxPct);
+          return { ...r, priceWithoutTax: val, taxAmount: taxAmount.toFixed(2), price: price.toFixed(2) };
+        }
+        return { ...r, priceWithoutTax: val };
+      })
+    );
+  };
+
+  const updateEditableTaxPercent = (comboKey: string, val: string) => {
+    setEditableRows((prev) =>
+      prev.map((r) => {
+        if (r.comboKey !== comboKey) return r;
+        const taxPct = Number(val);
+        const numPreTax = Number(r.priceWithoutTax);
+        if (val.trim() !== "" && Number.isFinite(taxPct) && taxPct >= 0 && Number.isFinite(numPreTax) && numPreTax >= 0) {
+          const { taxAmount, price } = calculateFromTaxExclusivePrice(numPreTax, taxPct);
+          return { ...r, taxPercent: val, taxAmount: taxAmount.toFixed(2), price: price.toFixed(2) };
+        }
+        return { ...r, taxPercent: val };
+      })
+    );
+  };
+
+  const updateEditablePrice = (comboKey: string, val: string) => {
+    setEditableRows((prev) =>
+      prev.map((r) => {
+        if (r.comboKey !== comboKey) return r;
+        const numPrice = Number(val);
+        const taxPct = Number(r.taxPercent) || 18;
+        if (val.trim() !== "" && Number.isFinite(numPrice) && numPrice >= 0) {
+          const { priceWithoutTax, taxAmount } = calculateFromTaxInclusivePrice(numPrice, taxPct);
+          return { ...r, price: val, priceWithoutTax: priceWithoutTax.toFixed(2), taxAmount: taxAmount.toFixed(2) };
+        }
+        return { ...r, price: val };
+      })
+    );
+  };
+
+  const updateEditableCost = (comboKey: string, val: string) => {
+    setEditableRows((prev) =>
+      prev.map((r) => (r.comboKey === comboKey ? { ...r, cost: val } : r))
+    );
+  };
+
+  const updateEditablePurchaseTaxPercent = (comboKey: string, val: string) => {
+    setEditableRows((prev) =>
+      prev.map((r) => (r.comboKey === comboKey ? { ...r, purchaseTaxPercent: val } : r))
     );
   };
 
@@ -408,7 +565,7 @@ export default function ProductForm({
     }
 
     // Validate editable variant rows on create
-    if (!isEdit && variantMatrix?.hasMatrix) {
+    if (!isEdit) {
       const rowError = validateEditableRows();
       if (rowError) {
         notify.error("Variant configuration error", rowError);
@@ -443,6 +600,10 @@ export default function ProductForm({
           surfaceFinish: row.surfaceFinish,
           variantCode: row.variantCode.trim(),
           price: Number(row.price.trim()),
+          priceWithoutTax: Number(row.priceWithoutTax || 0),
+          taxPercent: Number(row.taxPercent || 18),
+          cost: Number(row.cost || 0),
+          purchaseTaxPercent: Number(row.purchaseTaxPercent || 18),
         }));
 
         const created = await apiJson.post<Product & { variants?: ProductVariant[] }>(
@@ -752,9 +913,9 @@ export default function ProductForm({
                           </button>
                         </div>
 
-                        {/* Code + Price row */}
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1">
+                        {/* Pricing details grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 items-end">
+                          <div className="space-y-1 col-span-2 sm:col-span-1 lg:col-span-2">
                             <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
                               Variant Code / SKU
                             </label>
@@ -767,34 +928,68 @@ export default function ProductForm({
                               disabled={isDeleting || savingVariants}
                             />
                           </div>
+
                           <div className="space-y-1">
-                            <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500">
-                              Price (₹) <span className="text-red-400">*</span>
+                            <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 truncate block">
+                              Excl. Tax (₹)
+                            </label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={r.priceWithoutTax}
+                              onChange={(e) => handleVariantPriceWithoutTaxChange(r.id, e.target.value)}
+                              placeholder="0.00"
+                              disabled={isDeleting || savingVariants}
+                              className="h-8 text-right font-medium text-xs text-neutral-700"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 truncate block">
+                              Tax %
+                            </label>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={r.taxPercent}
+                              onChange={(e) => handleVariantTaxPercentChange(r.id, e.target.value)}
+                              placeholder="18"
+                              disabled={isDeleting || savingVariants}
+                              className="h-8 text-right font-medium text-xs text-neutral-700"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 truncate block">
+                              Tax Amt
+                            </label>
+                            <div className="h-8 flex items-center justify-end px-2 bg-neutral-100 rounded text-neutral-600 font-mono text-xs border border-neutral-200">
+                              ₹{r.taxAmount || "0.00"}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold uppercase tracking-wider text-neutral-500 truncate block">
+                              Incl. Tax (₹) <span className="text-red-400">*</span>
                             </label>
                             <div className="relative">
-                              <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400 text-xs select-none">
-                                ₹
-                              </span>
                               <Input
                                 type="number"
                                 min="0"
-                                step="1"
+                                step="any"
                                 value={r.price}
                                 onChange={(e) => handleVariantPriceChange(r.id, e.target.value)}
-                                placeholder="0"
+                                placeholder="0.00"
                                 disabled={isDeleting || savingVariants}
-                                className={`h-8 pl-6 text-right font-semibold text-xs ${
+                                className={`h-8 text-right font-bold text-xs text-neutral-900 ${
                                   r.hasPriceError
                                     ? "border-red-400 focus:border-red-400 focus:ring-red-200"
                                     : ""
                                 }`}
                               />
                             </div>
-                            {r.hasPriceError && (
-                              <p className="text-[10px] text-red-600">
-                                Valid price ≥ 0 required
-                              </p>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -967,18 +1162,6 @@ export default function ProductForm({
               </p>
             </div>
 
-          ) : !variantMatrix || !variantMatrix.hasMatrix ? (
-            // Category has no matrix
-            <div className="p-4 rounded-lg bg-amber-50/60 border border-amber-200/80 text-amber-900 text-xs space-y-1">
-              <p className="font-semibold flex items-center gap-1.5">
-                <Info className="h-4 w-4 text-amber-600 shrink-0" />
-                No variant matrix is configured for this category.
-              </p>
-              <p className="text-amber-700/90 pl-5 text-[11px]">
-                This category has no automation tiers or surface finishes. The product will be created with no variants.
-              </p>
-            </div>
-
           ) : editableRows.length === 0 ? (
             // All rows removed — show validation warning
             <div className="p-4 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs flex items-start gap-2">
@@ -993,25 +1176,40 @@ export default function ProductForm({
 
           ) : (
             // Editable variant table
-            <div className="rounded-lg border border-neutral-200 bg-white overflow-hidden shadow-2xs">
+            <div className="rounded-lg border border-neutral-200 bg-white overflow-x-auto shadow-2xs">
               <table className="w-full text-xs border-collapse">
                 <thead>
-                  <tr className="bg-neutral-900 text-white text-[11px] font-semibold">
+                  <tr className="bg-neutral-900 text-white text-[11px] font-semibold whitespace-nowrap">
                     <th className="py-2.5 px-3 text-left w-6 text-neutral-400">#</th>
                     <th className="py-2.5 px-3 text-left">Variant</th>
-                    {variantMatrix.hasAutomationTiers && (
+                    {variantMatrix?.hasAutomationTiers && (
                       <th className="py-2.5 px-3 text-left">Automation</th>
                     )}
-                    {variantMatrix.hasSurfaceFinishes && (
+                    {variantMatrix?.hasSurfaceFinishes && (
                       <th className="py-2.5 px-3 text-left">Finish</th>
                     )}
                     <th className="py-2.5 px-3 text-left">
                       Variant Code / SKU
                     </th>
                     <th className="py-2.5 px-3 text-left">
-                      Price (₹) <span className="text-red-400">*</span>
+                      Excl. Tax (₹)
                     </th>
-                    <th className="py-2.5 px-3 text-center w-10">Remove</th>
+                    <th className="py-2.5 px-2 text-left w-16">
+                      Tax %
+                    </th>
+                    <th className="py-2.5 px-2 text-left">
+                      Tax Amt
+                    </th>
+                    <th className="py-2.5 px-3 text-left">
+                      Price Incl. Tax (₹) <span className="text-red-400">*</span>
+                    </th>
+                    <th className="py-2.5 px-2 text-left">
+                      Cost (₹)
+                    </th>
+                    <th className="py-2.5 px-2 text-left w-16">
+                      Pur. Tax %
+                    </th>
+                    <th className="py-2.5 px-3 text-center w-8">Remove</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
@@ -1042,13 +1240,13 @@ export default function ProductForm({
 
                         {/* Variant display name */}
                         <td className="py-2 px-3">
-                          <span className="font-medium text-neutral-900">
+                          <span className="font-medium text-neutral-900 whitespace-nowrap">
                             {row.displayName}
                           </span>
                         </td>
 
                         {/* Automation Tier (read-only) */}
-                        {variantMatrix.hasAutomationTiers && (
+                        {variantMatrix?.hasAutomationTiers && (
                           <td className="py-2 px-3">
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
                               {row.tierLabel ?? row.automationTier ?? "—"}
@@ -1057,7 +1255,7 @@ export default function ProductForm({
                         )}
 
                         {/* Surface Finish (read-only) */}
-                        {variantMatrix.hasSurfaceFinishes && (
+                        {variantMatrix?.hasSurfaceFinishes && (
                           <td className="py-2 px-3">
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
                               {row.finishLabel ?? row.surfaceFinish ?? "—"}
@@ -1076,7 +1274,7 @@ export default function ProductForm({
                                   updateRow(row.comboKey, "variantCode", e.target.value)
                                 }
                                 placeholder="e.g. T-RE-AC"
-                                className={`w-full min-w-[100px] rounded border px-2 py-1 text-xs font-mono uppercase focus:outline-none focus:ring-1 transition-colors ${
+                                className={`w-28 rounded border px-2 py-1 text-xs font-mono uppercase focus:outline-none focus:ring-1 transition-colors ${
                                   isDuplicateCode
                                     ? "border-red-400 bg-red-50 text-red-700 focus:ring-red-400"
                                     : "border-neutral-200 bg-white text-neutral-900 focus:ring-blue-500 focus:border-blue-400"
@@ -1101,21 +1299,65 @@ export default function ProductForm({
                           </div>
                         </td>
 
-                        {/* Price (editable) */}
-                        <td className="py-1.5 px-3">
+                        {/* Excl. Tax (editable) */}
+                        <td className="py-1.5 px-2">
+                          <div className="flex items-center">
+                            <span className="text-[11px] text-neutral-400 mr-0.5">₹</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={row.priceWithoutTax}
+                              onChange={(e) =>
+                                updateEditablePriceWithoutTax(row.comboKey, e.target.value)
+                              }
+                              placeholder="0.00"
+                              className="w-20 rounded border border-neutral-200 bg-white px-1.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-400"
+                            />
+                          </div>
+                        </td>
+
+                        {/* Tax % (editable) */}
+                        <td className="py-1.5 px-2">
+                          <div className="flex items-center">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              value={row.taxPercent}
+                              onChange={(e) =>
+                                updateEditableTaxPercent(row.comboKey, e.target.value)
+                              }
+                              placeholder="18"
+                              className="w-14 rounded border border-neutral-200 bg-white px-1.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-400"
+                            />
+                            <span className="text-[11px] text-neutral-400 ml-0.5">%</span>
+                          </div>
+                        </td>
+
+                        {/* Tax Amount (calculated) */}
+                        <td className="py-1.5 px-2 whitespace-nowrap">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-mono bg-neutral-100 text-neutral-700">
+                            ₹{Number(row.taxAmount || 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </td>
+
+                        {/* Price Incl. Tax (editable) */}
+                        <td className="py-1.5 px-2">
                           <div className="relative">
                             <div className="flex items-center">
-                              <span className="text-[11px] text-neutral-500 mr-1 shrink-0">₹</span>
+                              <span className="text-[11px] text-neutral-500 mr-0.5 shrink-0">₹</span>
                               <input
                                 type="number"
                                 min="0"
                                 step="0.01"
                                 value={row.price}
                                 onChange={(e) =>
-                                  updateRow(row.comboKey, "price", e.target.value)
+                                  updateEditablePrice(row.comboKey, e.target.value)
                                 }
                                 placeholder="0.00"
-                                className={`w-full min-w-[80px] rounded border px-2 py-1 text-xs font-mono focus:outline-none focus:ring-1 transition-colors ${
+                                className={`w-24 rounded border px-1.5 py-1 text-xs font-mono font-medium focus:outline-none focus:ring-1 transition-colors ${
                                   priceInvalid
                                     ? "border-red-400 bg-red-50 text-red-700 focus:ring-red-400"
                                     : row.price.trim() === ""
@@ -1132,13 +1374,55 @@ export default function ProductForm({
                           </div>
                         </td>
 
+                        {/* Cost (editable) */}
+                        <td className="py-1.5 px-2">
+                          <div className="flex items-center">
+                            <span className="text-[11px] text-neutral-400 mr-0.5">₹</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={row.cost}
+                              onChange={(e) =>
+                                updateEditableCost(row.comboKey, e.target.value)
+                              }
+                              placeholder="0.00"
+                              className="w-18 rounded border border-neutral-200 bg-white px-1.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-400"
+                            />
+                          </div>
+                        </td>
+
+                        {/* Purchase Tax % (editable) */}
+                        <td className="py-1.5 px-2">
+                          <div className="flex items-center">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.01"
+                              value={row.purchaseTaxPercent}
+                              onChange={(e) =>
+                                updateEditablePurchaseTaxPercent(row.comboKey, e.target.value)
+                              }
+                              placeholder="18"
+                              className="w-14 rounded border border-neutral-200 bg-white px-1.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-400"
+                            />
+                            <span className="text-[11px] text-neutral-400 ml-0.5">%</span>
+                          </div>
+                        </td>
+
                         {/* Remove button */}
-                        <td className="py-1.5 px-3 text-center">
+                        <td className="py-1.5 px-2 text-center">
                           <button
                             type="button"
                             onClick={() => removeRow(row.comboKey)}
-                            title={`Remove ${row.displayName}`}
-                            className="inline-flex items-center justify-center h-7 w-7 rounded-md text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            disabled={editableRows.length <= 1}
+                            title={
+                              editableRows.length <= 1
+                                ? "A product must have at least one variant"
+                                : `Remove ${row.displayName}`
+                            }
+                            className="inline-flex items-center justify-center h-7 w-7 rounded-md text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -1153,12 +1437,20 @@ export default function ProductForm({
               <div className="px-3 py-2 bg-neutral-50 border-t border-neutral-200 flex items-center justify-between">
                 <span className="text-[11px] text-neutral-500">
                   <span className="font-semibold text-neutral-700">{editableRows.length}</span>{" "}
-                  of{" "}
-                  <span className="font-semibold">{variantMatrix.totalCombinations}</span>{" "}
-                  combinations selected
+                  {variantMatrix?.hasMatrix ? (
+                    <>
+                      of{" "}
+                      <span className="font-semibold">{variantMatrix.totalCombinations}</span>{" "}
+                      combinations selected
+                    </>
+                  ) : (
+                    "generic variant"
+                  )}
                 </span>
                 <span className="text-[10px] text-neutral-400 italic">
-                  Automation &amp; Finish are read-only — defined by category matrix
+                  {variantMatrix?.hasMatrix
+                    ? "Automation & Finish are read-only — defined by category matrix"
+                    : "Single variant product without automation tier or finish"}
                 </span>
               </div>
             </div>

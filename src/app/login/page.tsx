@@ -66,7 +66,9 @@ function UserLoginForm() {
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center justify-center">
         <section className="grid w-full overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-xl shadow-neutral-900/5 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="bg-neutral-900 p-7 text-white sm:p-10 lg:p-12">
-            <div className="inline-flex items-center rounded-xl bg-white px-3 py-2"><WhyteLogo theme="light" alt="Whyte logo" width={144} preload className="h-7 w-auto" /></div>
+            <div className="inline-flex items-center rounded-xl bg-white px-3 py-1.5 shadow-xs">
+              <WhyteLogo theme="light" alt="Whyte logo" size="login" preload />
+            </div>
             <div className="mt-16 max-w-md lg:mt-24">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-400">Whyte Automations</p>
               <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">Your quotation workspace.</h1>

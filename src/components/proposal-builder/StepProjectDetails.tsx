@@ -176,7 +176,7 @@ export default function StepProjectDetails({
                       options={[
                         { value: "", label: "— Select Project Type (Optional) —" },
                         ...(Array.isArray(houseTypes) ? houseTypes : []).map((ht) => ({
-                          value: String(ht.id),
+                          value: String(ht.id ?? (ht as any)._id),
                           label: `${ht.name}${ht.description ? ` (${ht.description})` : ""}`,
                         })),
                         { value: "residential", label: "Residential / Apartment" },

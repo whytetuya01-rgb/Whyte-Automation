@@ -28,9 +28,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               <WhyteLogo
                 theme="light"
                 alt="Whyte logo"
-                width={200}
+                size="header"
                 preload
-                className="h-[38px] md:h-[46px]"
               />
             </Link>
 

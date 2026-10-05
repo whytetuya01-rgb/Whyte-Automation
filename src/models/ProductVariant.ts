@@ -11,7 +11,11 @@ export interface IProductVariant {
   automationTier: string | null;
   surfaceFinish: string | null;
   config: Record<string, unknown>;
+  priceWithoutTax?: mongoose.Types.Decimal128 | string;
+  taxPercent?: mongoose.Types.Decimal128 | string;
   price: mongoose.Types.Decimal128 | string;
+  cost?: mongoose.Types.Decimal128 | string;
+  purchaseTaxPercent?: mongoose.Types.Decimal128 | string;
   isActive: boolean;
   sortOrder: number;
   createdAt?: Date;
@@ -32,7 +36,11 @@ const ProductVariantSchema = new Schema<IProductVariantDocument>(
     automationTier: { type: String, default: null },
     surfaceFinish: { type: String, default: null },
     config: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
-    price: createDecimalField({ required: true }),
+    priceWithoutTax: createDecimalField({ default: "0.00", min: 0 }),
+    taxPercent: createDecimalField({ default: "18.00", min: 0 }),
+    price: createDecimalField({ required: true, min: 0 }),
+    cost: createDecimalField({ default: "0.00", min: 0 }),
+    purchaseTaxPercent: createDecimalField({ default: "18.00", min: 0 }),
     isActive: { type: Boolean, default: true, index: true },
     sortOrder: { type: Number, default: 0, index: true },
     createdAt: { type: Date, default: Date.now },
@@ -60,6 +68,9 @@ const ProductVariantSchema = new Schema<IProductVariantDocument>(
         if (!ret.name && ret.config && typeof ret.config === "object" && (ret.config as any).name) {
           ret.name = (ret.config as any).name;
         }
+        const pwt = ret.priceWithoutTax ? Number(ret.priceWithoutTax) : 0;
+        const tp = ret.taxPercent ? Number(ret.taxPercent) : 18;
+        ret.taxAmount = (Math.round(pwt * tp) / 100).toFixed(2);
         return ret;
       },
     },
@@ -81,6 +92,9 @@ const ProductVariantSchema = new Schema<IProductVariantDocument>(
         if (!ret.name && ret.config && typeof ret.config === "object" && (ret.config as any).name) {
           ret.name = (ret.config as any).name;
         }
+        const pwt = ret.priceWithoutTax ? Number(ret.priceWithoutTax) : 0;
+        const tp = ret.taxPercent ? Number(ret.taxPercent) : 18;
+        ret.taxAmount = (Math.round(pwt * tp) / 100).toFixed(2);
         return ret;
       },
     },
@@ -112,8 +126,33 @@ ProductVariantSchema.index({ productId: 1, isActive: 1, sortOrder: 1 });
 ProductVariantSchema.index({ code: 1 }, { sparse: true });
 ProductVariantSchema.index({ variantCode: 1 }, { sparse: true });
 
+const existingProductVariantModel = mongoose.models.ProductVariant as Model<IProductVariantDocument> | undefined;
+
+if (existingProductVariantModel) {
+  if (!existingProductVariantModel.schema.path("priceWithoutTax")) {
+    existingProductVariantModel.schema.add({
+      priceWithoutTax: createDecimalField({ default: "0.00", min: 0 }),
+    });
+  }
+  if (!existingProductVariantModel.schema.path("taxPercent")) {
+    existingProductVariantModel.schema.add({
+      taxPercent: createDecimalField({ default: "18.00", min: 0 }),
+    });
+  }
+  if (!existingProductVariantModel.schema.path("cost")) {
+    existingProductVariantModel.schema.add({
+      cost: createDecimalField({ default: "0.00", min: 0 }),
+    });
+  }
+  if (!existingProductVariantModel.schema.path("purchaseTaxPercent")) {
+    existingProductVariantModel.schema.add({
+      purchaseTaxPercent: createDecimalField({ default: "18.00", min: 0 }),
+    });
+  }
+}
+
 export const ProductVariant: Model<IProductVariantDocument> =
-  mongoose.models.ProductVariant ||
+  existingProductVariantModel ??
   mongoose.model<IProductVariantDocument>("ProductVariant", ProductVariantSchema);
 
 export default ProductVariant;

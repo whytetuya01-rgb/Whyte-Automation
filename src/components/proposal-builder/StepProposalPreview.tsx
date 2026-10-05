@@ -270,7 +270,7 @@ export default function StepProposalPreview({
 
   const totalProducts = useMemo(() => {
     return rooms.reduce((sum, r) => {
-      return sum + (r.items ? r.items.length : 0);
+      return sum + (r.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
     }, 0);
   }, [rooms]);
 
@@ -504,10 +504,9 @@ export default function StepProposalPreview({
                       <WhyteLogo
                         theme="light"
                         alt="WHYTE"
-                        width={120}
+                        size="document-header"
                         unoptimized
                         loading="eager"
-                        className="h-6"
                       />
                       <span className="text-gray-300">|</span>
                       <span className="font-semibold text-gray-700 text-xs">
@@ -536,10 +535,9 @@ export default function StepProposalPreview({
                             <WhyteLogo
                               theme="light"
                               alt="WHYTE Automations"
-                              width={200}
+                              size="document-cover"
                               unoptimized
                               loading="eager"
-                              className="h-9 sm:h-10"
                             />
                             <p className="text-[10px] uppercase tracking-widest text-accent font-bold mt-1">
                               Next-Gen Smart Living Ecosystems
@@ -584,7 +582,7 @@ export default function StepProposalPreview({
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-5">
                             <p className="text-white text-xs sm:text-sm font-semibold tracking-wide">
-                              Feather-Touch Switching • Wireless & Retrofit
+                              Feather-Touch Switching • Wireless Smart
                               Control • Luxury Architectural Living
                             </p>
                           </div>
@@ -864,13 +862,17 @@ export default function StepProposalPreview({
                           </h3>
                           <div className="flex flex-wrap gap-2">
                             {rooms.map((r) => {
+                              const roomId = Number(r.id ?? (r as any)._id);
                               const Icon = getRoomIcon(
                                 r.customName ?? r.roomType?.name ?? "Room"
                               );
-                              const count = r.items?.length || 0;
+                              const count = (r.items || []).reduce(
+                                (acc, i) => acc + (Number(i.quantity) || 1),
+                                0
+                              );
                               return (
                                 <div
-                                  key={r.id}
+                                  key={roomId}
                                   className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs"
                                 >
                                   <Icon size={13} className="text-accent" />
@@ -1039,10 +1041,10 @@ export default function StepProposalPreview({
                                 {room.customName ?? room.roomType?.name}
                               </h3>
                               <span className="text-[10px] font-mono text-accent-foreground bg-accent-light px-2 py-0.5 rounded border border-accent-border/60">
-                                {room.items.length}{" "}
-                                {room.items.length === 1
-                                  ? "product"
-                                  : "products"}
+                                {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)}{" "}
+                                {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0) === 1
+                                  ? "device"
+                                  : "devices"}
                               </span>
                             </div>
                             <span className="font-mono font-bold text-xs sm:text-sm text-gray-950">
@@ -1345,10 +1347,9 @@ export default function StepProposalPreview({
                             <WhyteLogo
                               theme="light"
                               alt="Whyte Automations"
-                              width={120}
+                              size="document-footer"
                               unoptimized
                               loading="eager"
-                              className="h-6"
                             />
                             <p className="font-bold text-gray-950">
                               Whyte Automations Private Limited

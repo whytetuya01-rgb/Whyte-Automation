@@ -11,6 +11,8 @@ import {
   readJsonBody,
 } from "@/lib/api-response";
 
+import { normalizeCategories } from "@/lib/quotationNormalization";
+
 const MAX_DEPTH = 3;
 
 export const dynamic = "force-dynamic";
@@ -32,7 +34,7 @@ export async function GET() {
       })
       .lean({ virtuals: true });
 
-    return NextResponse.json(categories);
+    return NextResponse.json(normalizeCategories(categories));
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/categories" });
   }

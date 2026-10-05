@@ -20,6 +20,7 @@ import Link from "next/link";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import StatusBadge from "@/components/shared/StatusBadge";
 import ProductCategoryConfigCell from "@/components/admin/ProductCategoryConfigCell";
+import { normalizeProducts, normalizeCategories } from "@/lib/quotationNormalization";
 import { QuotationStatus, Product as IProduct, Category as ICategory } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,6 @@ export const dynamic = "force-dynamic";
 const TYPE_LABELS: Record<string, string> = {
   switch_board: "Switch Boards",
   accessory: "Accessories",
-  retrofit: "Retrofit Modules",
   curtain: "Curtain Controllers",
   smart_lock: "Smart Locks",
   vdp: "Video Door Phones",
@@ -37,12 +37,19 @@ const TYPE_LABELS: Record<string, string> = {
 const TYPE_BADGES: Record<string, string> = {
   switch_board: "bg-[#FCEAF0] text-[#B83E68] border-[#F1B8C8]",
   accessory: "bg-[#F6F6F7] text-neutral-700 border-[#E5E5E7]",
-  retrofit: "bg-[#F6F6F7] text-neutral-800 border-[#E5E5E7]",
   curtain: "bg-[#FCEAF0] text-[#B83E68] border-[#F1B8C8]",
   smart_lock: "bg-[#FCEAF0] text-[#B83E68] border-[#F1B8C8]",
   vdp: "bg-[#F6F6F7] text-neutral-700 border-[#E5E5E7]",
   other: "bg-[#F6F6F7] text-neutral-600 border-[#E5E5E7]",
 };
+
+function getProductDisplayPrice(p: IProduct): number {
+  const activeVariants = p.variants?.filter((v) => v.isActive) ?? [];
+  const prices = activeVariants.map((v) => Number(v.price)).filter((x) => Number.isFinite(x) && x > 0);
+  if (prices.length > 0) return Math.min(...prices);
+  if (p.variants && p.variants.length > 0 && p.variants[0].price) return Number(p.variants[0].price);
+  return Number(p.price || 0);
+}
 
 export default async function DashboardPage() {
   await connectMongoDB();
@@ -96,23 +103,15 @@ export default async function DashboardPage() {
   ]);
 
   // Normalize plain JS objects for client components and server rendering
-  const recentProducts: IProduct[] = rawProducts.map((doc: any) => {
-    const p = typeof doc.toJSON === "function" ? doc.toJSON() : doc;
-    return {
-      ...p,
-      id: p.id ?? p._id,
-      price: p.price ? String(p.price) : "0.00",
-    };
-  });
+  const recentProducts: IProduct[] = normalizeProducts(
+    rawProducts.map((doc: any) => (typeof doc.toObject === "function" ? doc.toObject() : doc))
+  );
 
   const recentQuotations = rawQuotations.map((d: any) =>
     typeof d.toJSON === "function" ? d.toJSON() : d
   );
 
-  const categories: ICategory[] = rawCategories.map((c: any) => ({
-    ...c,
-    id: c._id ?? c.id,
-  }));
+  const categories: ICategory[] = normalizeCategories(rawCategories);
 
   const typeBreakdown = productsByTypeRaw.map((item: any) => {
     const count = Number(item.count) || 0;
@@ -667,7 +666,7 @@ export default async function DashboardPage() {
                                 From
                               </span>
                             )}
-                            {formatCurrency(p.price)}
+                            {formatCurrency(getProductDisplayPrice(p))}
                           </span>
                         </td>
 
@@ -751,7 +750,7 @@ export default async function DashboardPage() {
                                 From
                               </span>
                             )}
-                            {formatCurrency(p.price)}
+                            {formatCurrency(getProductDisplayPrice(p))}
                           </span>
                         </div>
 

@@ -16,8 +16,8 @@ export default async function DealerAccessPage() {
     <main className="admin-theme min-h-screen bg-neutral-50 flex items-center justify-center p-6">
       <section className="w-full max-w-lg rounded-2xl border border-neutral-200 bg-white p-8 sm:p-10 shadow-sm text-center">
         <div className="mb-8 flex justify-center">
-          <div className="inline-flex items-center rounded-2xl bg-white px-3.5 py-2 shadow-sm border border-neutral-200">
-            <WhyteLogo theme="light" alt="Whyte logo" width={160} preload className="h-7 sm:h-8" />
+          <div className="inline-flex items-center rounded-xl bg-white px-3 py-1.5 shadow-xs border border-neutral-200">
+            <WhyteLogo theme="light" alt="Whyte logo" size="login" preload />
           </div>
         </div>
         <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-admin-primary-soft text-admin-primary">

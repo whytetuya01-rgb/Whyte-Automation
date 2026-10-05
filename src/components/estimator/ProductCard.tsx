@@ -11,7 +11,6 @@ interface Props {
 const typeColors: Record<string, string> = {
   switch_board: "bg-blue-50 text-blue-600",
   accessory: "bg-purple-50 text-purple-600",
-  retrofit: "bg-orange-50 text-orange-600",
   curtain: "bg-green-50 text-green-600",
   smart_lock: "bg-yellow-50 text-yellow-700",
   vdp: "bg-pink-50 text-pink-600",
@@ -21,7 +20,6 @@ const typeColors: Record<string, string> = {
 const typeLabels: Record<string, string> = {
   switch_board: "Switch Board",
   accessory: "Accessory",
-  retrofit: "Retrofit",
   curtain: "Curtain",
   smart_lock: "Smart Lock",
   vdp: "VDP",
@@ -29,11 +27,22 @@ const typeLabels: Record<string, string> = {
 };
 
 export default function ProductCard({ product, onAdd }: Props) {
-  // For matrix products, show "From ₹X" using the min variant price (stored in product.price)
-  // For flat products, show the exact price
-  const priceDisplay = product.isMatrix
-    ? `From ${formatCurrency(product.price)}`
-    : formatCurrency(product.price);
+  // Derive min variant price from variants
+  const activeVariants = product.variants?.filter((v) => v.isActive) ?? [];
+  const validPrices = activeVariants
+    .map((v) => Number(v.price))
+    .filter((p) => Number.isFinite(p) && p > 0);
+  const minPrice =
+    validPrices.length > 0
+      ? Math.min(...validPrices)
+      : product.variants?.[0]?.price
+      ? Number(product.variants[0].price)
+      : 0;
+
+  const priceDisplay =
+    product.isMatrix || activeVariants.length > 1
+      ? `From ${formatCurrency(minPrice)}`
+      : formatCurrency(minPrice);
 
   // Show a badge if this is a matrix product (has variants)
   const variantCount = product.variants?.filter((v) => v.isActive).length ?? 0;

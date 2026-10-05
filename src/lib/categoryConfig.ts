@@ -221,3 +221,49 @@ export function getCategoryVariantMatrix(
   };
 }
 
+export const KNOWN_TIER_LABELS: Record<string, string> = {
+  remote: "Remote",
+  wifi: "WiFi",
+  bluetooth: "Bluetooth",
+  wired: "Wired",
+  zigbee: "Zigbee",
+  matter: "Matter",
+  non_smart: "Non-Smart",
+  smart: "Smart",
+};
+
+export const KNOWN_FINISH_LABELS: Record<string, string> = {
+  acrylic: "Acrylic",
+  glass: "Glass",
+  metal: "Metal",
+  wood: "Wood",
+  matte: "Matte",
+  glossy: "Glossy",
+};
+
+/**
+ * Converts an automationTier stored identifier into a user-friendly display label.
+ * Returns null if the value is missing, empty, or null.
+ */
+export function formatTierLabel(tier: string | null | undefined): string | null {
+  if (!tier || typeof tier !== "string") return null;
+  const trimmed = tier.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (KNOWN_TIER_LABELS[lower]) return KNOWN_TIER_LABELS[lower];
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+/**
+ * Converts a surfaceFinish stored identifier into a user-friendly display label.
+ * Returns null if the value is missing, empty, or null.
+ */
+export function formatFinishLabel(finish: string | null | undefined): string | null {
+  if (!finish || typeof finish !== "string") return null;
+  const trimmed = finish.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (KNOWN_FINISH_LABELS[lower]) return KNOWN_FINISH_LABELS[lower];
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+

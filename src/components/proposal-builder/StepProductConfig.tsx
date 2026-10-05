@@ -18,6 +18,9 @@ import {
   ShoppingBag,
   Sparkles,
   MapPin,
+  SlidersHorizontal,
+  X,
+  RotateCcw,
 } from "lucide-react";
 import {
   Product,
@@ -28,7 +31,13 @@ import {
   ProductVariant,
 } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
-import { getCategoryConfig } from "@/lib/categoryConfig";
+import { getCategoryConfig, formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
+import {
+  filterProductCatalog,
+  FilteredProductResult,
+  getVariantTier,
+  getVariantFinish,
+} from "@/lib/productFiltering";
 import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
 
@@ -66,7 +75,10 @@ export default function StepProductConfig({
 }: Props) {
   // Navigation / Selection State
   const rooms = quotation.rooms || [];
-  const currentRoom = rooms.find((r) => r.id === activeRoomId) || rooms[0] || null;
+  const currentRoom =
+    rooms.find((r) => Number(r.id ?? (r as any)._id) === Number(activeRoomId)) ||
+    rooms[0] ||
+    null;
 
   // Filter State
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
@@ -93,17 +105,17 @@ export default function StepProductConfig({
 
   // Helper to extract clean display name for a variant
   const getVariantName = (v: ProductVariant) => {
+    const tier = formatTierLabel(v.automationTier);
+    const finish = formatFinishLabel(v.surfaceFinish);
     const parts: string[] = [];
-    if (v.config && Object.keys(v.config).length > 0) {
+    if (tier) parts.push(tier);
+    if (finish) parts.push(finish);
+    if (parts.length === 0 && v.config && Object.keys(v.config).length > 0) {
       for (const [, val] of Object.entries(v.config)) {
-        if (val) parts.push(val);
+        if (val) parts.push(String(val));
       }
     }
-    if (parts.length === 0) {
-      if (v.automationTier) parts.push(v.automationTier);
-      if (v.surfaceFinish) parts.push(v.surfaceFinish);
-    }
-    return parts.length > 0 ? parts.join(" · ") : "Standard";
+    return parts.length > 0 ? parts.join(" · ") : (v.name || "Standard");
   };
 
   // Mobile Summary Drawer State
@@ -117,7 +129,8 @@ export default function StepProductConfig({
     const locMap: Record<number, string> = {};
     quotation.rooms?.forEach((room) => {
       room.items?.forEach((item) => {
-        locMap[item.id] = item.notes ?? "";
+        const itId = Number(item.id ?? (item as any)._id);
+        locMap[itId] = item.notes ?? "";
       });
     });
     setItemLocations((prev) => ({ ...locMap, ...prev }));
@@ -132,23 +145,26 @@ export default function StepProductConfig({
     await onUpdateItem(itemId, { notes: val || null });
   };
 
-  // Set default active room if not set
+  // Set default active room if not set or invalid
   useEffect(() => {
-    if ((!activeRoomId || !currentRoom) && rooms.length > 0) {
-      onSelectRoom(rooms[0].id);
+    if (rooms.length > 0) {
+      const hasActive = activeRoomId && rooms.some((r) => Number(r.id ?? (r as any)._id) === Number(activeRoomId));
+      if (!hasActive) {
+        onSelectRoom(Number(rooms[0].id ?? (rooms[0] as any)._id));
+      }
     }
-  }, [activeRoomId, currentRoom, rooms, onSelectRoom]);
+  }, [activeRoomId, rooms, onSelectRoom]);
 
   // Set default category on first load if available
   useEffect(() => {
     if (selectedCategoryId === null && categories.length > 0) {
-      setSelectedCategoryId(categories[0].id);
+      setSelectedCategoryId(Number(categories[0].id ?? (categories[0] as any)._id));
     }
   }, [categories, selectedCategoryId]);
 
   // Active Category & Subcategory Objects
   const activeCategory = useMemo(() => {
-    return categories.find((c) => c.id === selectedCategoryId) || null;
+    return categories.find((c) => Number(c.id ?? (c as any)._id) === Number(selectedCategoryId)) || null;
   }, [categories, selectedCategoryId]);
 
   const subcategories = useMemo(() => {
@@ -156,7 +172,7 @@ export default function StepProductConfig({
   }, [activeCategory]);
 
   const activeSubcategory = useMemo(() => {
-    return subcategories.find((c) => c.id === selectedSubcategoryId) || null;
+    return subcategories.find((c) => Number(c.id ?? (c as any)._id) === Number(selectedSubcategoryId)) || null;
   }, [subcategories, selectedSubcategoryId]);
 
   // Inspect dynamic Category Config (Automation Tiers & Surface Finishes)
@@ -170,144 +186,155 @@ export default function StepProductConfig({
   // Reset or initialize Tier & Finish when Category changes
   useEffect(() => {
     if (categoryConfig.hasAutomationTiers && categoryConfig.configuredTiers.length > 0) {
-      if (!categoryConfig.validTierValues.includes(selectedTier)) {
-        setSelectedTier(categoryConfig.configuredTiers[0].value);
+      if (!selectedTier || (selectedTier !== "all" && !categoryConfig.validTierValues.includes(selectedTier))) {
+        const defaultTier =
+          quotation.defaultTier && categoryConfig.validTierValues.includes(quotation.defaultTier)
+            ? quotation.defaultTier
+            : categoryConfig.configuredTiers[0].value;
+        setSelectedTier(defaultTier);
       }
     } else {
       setSelectedTier("");
     }
 
     if (categoryConfig.hasSurfaceFinishes && categoryConfig.configuredFinishes.length > 0) {
-      if (!categoryConfig.validFinishValues.includes(selectedFinish)) {
-        setSelectedFinish(categoryConfig.configuredFinishes[0].value);
+      if (!selectedFinish || (selectedFinish !== "all" && !categoryConfig.validFinishValues.includes(selectedFinish))) {
+        const defaultFinish =
+          quotation.defaultFinish && categoryConfig.validFinishValues.includes(quotation.defaultFinish)
+            ? quotation.defaultFinish
+            : categoryConfig.configuredFinishes[0].value;
+        setSelectedFinish(defaultFinish);
       }
     } else {
       setSelectedFinish("");
     }
-  }, [categoryConfig, selectedTier, selectedFinish]);
+  }, [categoryConfig, quotation.defaultTier, quotation.defaultFinish]);
 
-  // Mandatory Validation State
-  const tierRequired = categoryConfig.hasAutomationTiers;
-  const finishRequired = categoryConfig.hasSurfaceFinishes;
-  const isTierMissing = tierRequired && !selectedTier;
-  const isFinishMissing = finishRequired && !selectedFinish;
-  const isConfigIncomplete = isTierMissing || isFinishMissing;
-
-  // Filtered Products Catalog
-  const filteredProducts = useMemo(() => {
-    let list = products;
-
-    if (selectedSubcategoryId) {
-      list = list.filter((p) => p.categoryId === selectedSubcategoryId);
-    } else if (selectedCategoryId) {
-      const subIds = subcategories.map((s) => s.id);
-      list = list.filter(
-        (p) => p.categoryId === selectedCategoryId || (p.categoryId && subIds.includes(p.categoryId))
-      );
-    }
-
-    if (productTypeFilter !== "all") {
-      list = list.filter((p) => p.type === productTypeFilter);
-    }
-
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.code && p.code.toLowerCase().includes(q)) ||
-          (p.description && p.description.toLowerCase().includes(q))
-      );
-    }
-
-    return list;
-  }, [products, selectedCategoryId, selectedSubcategoryId, productTypeFilter, search, subcategories]);
-
-  // Resolve price and variant for a product based on current dynamic tier/finish
-  const resolveProductPricing = (product: Product) => {
-    if (!product.isMatrix || !product.variants || product.variants.length === 0) {
-      return {
-        price: Number(product.price || 0),
-        variant: null,
-        label: null,
-      };
-    }
-
-    const activeVariants = product.variants.filter((v) => v.isActive);
-
-    if (selectedTier && selectedFinish) {
-      const match = activeVariants.find((v) => {
-        const conf = v.config || {};
-        const tierMatch =
-          v.automationTier === selectedTier ||
-          conf.series === selectedTier ||
-          conf.tier === selectedTier;
-        const finishMatch =
-          v.surfaceFinish === selectedFinish || conf.finish === selectedFinish;
-        return tierMatch && finishMatch;
-      });
-      if (match) {
-        return {
-          price: Number(match.price),
-          variant: match,
-          label: `${selectedTier} + ${selectedFinish}`,
-        };
-      }
-    } else if (selectedTier) {
-      const match = activeVariants.find((v) => {
-        const conf = v.config || {};
-        return (
-          v.automationTier === selectedTier ||
-          conf.series === selectedTier ||
-          conf.tier === selectedTier
-        );
-      });
-      if (match) {
-        return {
-          price: Number(match.price),
-          variant: match,
-          label: selectedTier,
-        };
-      }
-    }
-
-    const minPrice = Math.min(...activeVariants.map((v) => Number(v.price || 0)));
-    return {
-      price: minPrice,
-      variant: null,
-      label: null,
-    };
+  // Reset all filters handler
+  const handleResetFilters = () => {
+    setSelectedTier("all");
+    setSelectedFinish("all");
+    setProductTypeFilter("all");
+    setSearch("");
+    setSelectedSubcategoryId(null);
   };
 
-  // Add product handler - ALWAYS creates a new independent product record
-  const handleAddProduct = async (product: Product) => {
-    if (!currentRoom || isConfigIncomplete) return;
-    const { variant } = resolveProductPricing(product);
+  const hasActiveFilters = Boolean(
+    (selectedTier && selectedTier !== "all") ||
+    (selectedFinish && selectedFinish !== "all") ||
+    (productTypeFilter && productTypeFilter !== "all") ||
+    search.trim() ||
+    selectedSubcategoryId !== null
+  );
 
-    if (product.isMatrix && !variant) {
-      setPickerProduct(product);
+  // Filtered Products Catalog using pure AND logic
+  const filteredCatalog = useMemo(() => {
+    return filterProductCatalog(products, {
+      categoryId: selectedCategoryId,
+      subcategoryId: selectedSubcategoryId,
+      subcategoryIds: subcategories.map((s) => Number(s.id ?? (s as any)._id)),
+      automationTier: selectedTier,
+      surfaceFinish: selectedFinish,
+      productType: productTypeFilter,
+      search,
+      configuredTiers: categoryConfig.configuredTiers,
+      configuredFinishes: categoryConfig.configuredFinishes,
+      hasCategoryTiers: categoryConfig.hasAutomationTiers,
+      hasCategoryFinishes: categoryConfig.hasSurfaceFinishes,
+    });
+  }, [
+    products,
+    selectedCategoryId,
+    selectedSubcategoryId,
+    subcategories,
+    selectedTier,
+    selectedFinish,
+    productTypeFilter,
+    search,
+    categoryConfig,
+  ]);
+
+  // Backward-compatible reference for counts and external consumers
+  const filteredProducts = useMemo(() => {
+    return filteredCatalog.map((r) => r.product);
+  }, [filteredCatalog]);
+
+  // Add product handler - uses exact eligible variant or opens selection
+  const handleAddProduct = async (catItem: FilteredProductResult) => {
+    if (!currentRoom) return;
+    const roomId = Number(currentRoom.id ?? (currentRoom as any)._id);
+    if (!roomId) return;
+
+    const { product, eligibleVariants, exactVariant } = catItem;
+    const prodId = Number(product.id ?? (product as any)._id);
+
+    if (exactVariant) {
+      const varId = Number(exactVariant.id ?? (exactVariant as any)._id);
+      const config: Record<string, string> = { ...(exactVariant.config || {}) };
+      const vTier = getVariantTier(exactVariant);
+      const vFinish = getVariantFinish(exactVariant);
+      if (vTier) config.series = vTier;
+      if (vFinish) config.finish = vFinish;
+
+      await onAddItem(
+        roomId,
+        prodId,
+        varId,
+        Object.keys(config).length > 0 ? config : undefined
+      );
       return;
     }
 
-    const config: Record<string, string> = {};
-    if (selectedTier) config.series = selectedTier;
-    if (selectedFinish) config.finish = selectedFinish;
+    if (eligibleVariants.length > 1) {
+      setExpandedCardIds((prev) => new Set(prev).add(prodId));
+      return;
+    }
+
+    // Flat product without variants
+    await onAddItem(roomId, prodId);
+  };
+
+  // Add specific variant directly
+  const handleAddVariant = async (product: Product, variant: ProductVariant) => {
+    if (!currentRoom) return;
+    const roomId = Number(currentRoom.id ?? (currentRoom as any)._id);
+    const prodId = Number(product.id ?? (product as any)._id);
+    const varId = Number(variant.id ?? (variant as any)._id);
+    if (!roomId || !prodId || !varId) return;
+
+    const config: Record<string, string> = { ...(variant.config || {}) };
+    const vTier = getVariantTier(variant);
+    const vFinish = getVariantFinish(variant);
+    if (vTier) config.series = vTier;
+    if (vFinish) config.finish = vFinish;
 
     await onAddItem(
-      currentRoom.id,
-      product.id,
-      variant ? variant.id : undefined,
+      roomId,
+      prodId,
+      varId,
       Object.keys(config).length > 0 ? config : undefined
     );
   };
 
-  // Remove one instance of product in current room
+  // Remove one instance of product in current room (decrement quantity or delete)
   const handleRemoveProductInstance = async (product: Product) => {
     if (!currentRoom) return;
-    const matchingItems = currentRoom.items.filter((i) => i.productId === product.id);
+    const prodId = Number(product.id ?? (product as any)._id);
+    const matchingItems = (currentRoom.items || []).filter((i) => {
+      const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+      return pId === prodId;
+    });
     if (matchingItems.length === 0) return;
     const lastItem = matchingItems[matchingItems.length - 1];
-    await onDeleteItem(lastItem.id);
+    const itemId = Number(lastItem.id ?? (lastItem as any)._id);
+    if (!itemId) return;
+
+    const currentQty = Number(lastItem.quantity) || 1;
+    if (currentQty > 1) {
+      await onUpdateItem(itemId, { quantity: currentQty - 1 });
+    } else {
+      await onDeleteItem(itemId);
+    }
   };
 
   // Totals Calculation for Live Summary
@@ -316,7 +343,7 @@ export default function StepProductConfig({
       return (
         sum +
         (r.items || []).reduce(
-          (acc, i) => acc + (i.quantity || 1) * Number(i.unitPrice || 0),
+          (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
           0
         )
       );
@@ -325,21 +352,21 @@ export default function StepProductConfig({
 
   const totalProductsCount = useMemo(() => {
     return rooms.reduce((sum, r) => {
-      return sum + (r.items || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
+      return sum + (r.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
     }, 0);
   }, [rooms]);
 
   const currentRoomSubtotal = useMemo(() => {
     if (!currentRoom || !currentRoom.items) return 0;
     return currentRoom.items.reduce(
-      (acc, i) => acc + (i.quantity || 1) * Number(i.unitPrice || 0),
+      (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
       0
     );
   }, [currentRoom]);
 
   const currentRoomProductsCount = useMemo(() => {
     if (!currentRoom || !currentRoom.items) return 0;
-    return currentRoom.items.reduce((acc, i) => acc + (i.quantity || 1), 0);
+    return currentRoom.items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
   }, [currentRoom]);
 
   return (
@@ -387,19 +414,24 @@ export default function StepProductConfig({
 
         <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {rooms.map((room) => {
-            const isCurrent = room.id === currentRoom?.id;
+            const currentId = Number(currentRoom?.id ?? (currentRoom as any)?._id);
+            const roomId = Number(room.id ?? (room as any)._id);
+            const isCurrent = Boolean(currentId && roomId === currentId);
             const IconComp = getRoomIcon(room.customName ?? room.roomType?.name ?? "Room");
             const roomSub = (room.items || []).reduce(
-              (acc, i) => acc + Number(i.unitPrice || 0),
+              (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
               0
             );
-            const roomProdCount = room.items ? room.items.length : 0;
+            const roomProdCount = (room.items || []).reduce(
+              (acc, i) => acc + (Number(i.quantity) || 1),
+              0
+            );
 
             return (
               <button
-                key={room.id}
+                key={roomId}
                 type="button"
-                onClick={() => onSelectRoom(room.id)}
+                onClick={() => onSelectRoom(roomId)}
                 className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 border select-none ${
                   isCurrent
                     ? "bg-gray-950 text-white border-accent/40 shadow-xs ring-1 ring-accent/25"
@@ -453,13 +485,14 @@ export default function StepProductConfig({
               </label>
               <div className="flex flex-wrap gap-2">
                 {categories.map((cat) => {
-                  const isSelected = selectedCategoryId === cat.id;
+                  const catId = Number(cat.id ?? (cat as any)._id);
+                  const isSelected = Boolean(selectedCategoryId && selectedCategoryId === catId);
                   return (
                     <button
-                      key={cat.id}
+                      key={catId}
                       type="button"
                       onClick={() => {
-                        setSelectedCategoryId(cat.id);
+                        setSelectedCategoryId(catId);
                         setSelectedSubcategoryId(null);
                       }}
                       className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition border select-none ${
@@ -494,12 +527,13 @@ export default function StepProductConfig({
                     All {activeCategory?.name}
                   </button>
                   {subcategories.map((sub) => {
-                    const isSelected = selectedSubcategoryId === sub.id;
+                    const subId = Number(sub.id ?? (sub as any)._id);
+                    const isSelected = Boolean(selectedSubcategoryId && selectedSubcategoryId === subId);
                     return (
                       <button
-                        key={sub.id}
+                        key={subId}
                         type="button"
-                        onClick={() => setSelectedSubcategoryId(sub.id)}
+                        onClick={() => setSelectedSubcategoryId(subId)}
                         className={`px-3 py-1 rounded-lg text-xs font-medium transition border select-none ${
                           isSelected
                             ? "bg-gray-950 text-white border-gray-950"
@@ -519,24 +553,30 @@ export default function StepProductConfig({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3 border-t border-gray-100">
                 {categoryConfig.hasAutomationTiers && (
                   <div>
-                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">
-                      Automation Tier <span className="text-red-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-gray-700">
+                        Automation Tier
+                      </label>
+                      {selectedTier && selectedTier !== "all" && (
+                        <span className="text-[10px] font-bold text-accent bg-accent/10 px-1.5 py-0.2 rounded">
+                          Filtered
+                        </span>
+                      )}
+                    </div>
                     <Select
-                      value={selectedTier}
+                      value={selectedTier || "all"}
                       onChange={(e) => setSelectedTier(e.target.value)}
-                      placeholder="— Select Automation Tier —"
                       options={[
-                        { value: "", label: "— Select Automation Tier —" },
+                        { value: "all", label: "All Automation Tiers" },
                         ...categoryConfig.configuredTiers.map((t) => ({
                           value: t.value,
                           label: t.label,
                         })),
                       ]}
-                      triggerClassName={`h-10 rounded-xl text-xs sm:text-sm font-medium ${
-                        isTierMissing
-                          ? "border-red-400 text-red-700 ring-1 ring-red-400/20"
-                          : "border-gray-200 text-gray-900 focus:border-gray-950 focus:ring-1 focus:ring-gray-950/10"
+                      triggerClassName={`h-10 rounded-xl text-xs sm:text-sm font-medium transition-all ${
+                        selectedTier && selectedTier !== "all"
+                          ? "border-accent/70 bg-accent/[0.03] text-gray-950 font-semibold ring-1 ring-accent/20"
+                          : "border-gray-200 text-gray-700 hover:border-gray-300"
                       }`}
                     />
                   </div>
@@ -544,40 +584,34 @@ export default function StepProductConfig({
 
                 {categoryConfig.hasSurfaceFinishes && (
                   <div>
-                    <label className="block text-[11px] font-semibold text-gray-600 mb-1">
-                      Surface Finish <span className="text-red-500">*</span>
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-semibold text-gray-700">
+                        Surface Finish
+                      </label>
+                      {selectedFinish && selectedFinish !== "all" && (
+                        <span className="text-[10px] font-bold text-accent bg-accent/10 px-1.5 py-0.2 rounded">
+                          Filtered
+                        </span>
+                      )}
+                    </div>
                     <Select
-                      value={selectedFinish}
+                      value={selectedFinish || "all"}
                       onChange={(e) => setSelectedFinish(e.target.value)}
-                      placeholder="— Select Surface Finish —"
                       options={[
-                        { value: "", label: "— Select Surface Finish —" },
+                        { value: "all", label: "All Surface Finishes" },
                         ...categoryConfig.configuredFinishes.map((f) => ({
                           value: f.value,
                           label: f.label,
                         })),
                       ]}
-                      triggerClassName={`h-10 rounded-xl text-xs sm:text-sm font-medium ${
-                        isFinishMissing
-                          ? "border-red-400 text-red-700 ring-1 ring-red-400/20"
-                          : "border-gray-200 text-gray-900 focus:border-gray-950 focus:ring-1 focus:ring-gray-950/10"
+                      triggerClassName={`h-10 rounded-xl text-xs sm:text-sm font-medium transition-all ${
+                        selectedFinish && selectedFinish !== "all"
+                          ? "border-accent/70 bg-accent/[0.03] text-gray-950 font-semibold ring-1 ring-accent/20"
+                          : "border-gray-200 text-gray-700 hover:border-gray-300"
                       }`}
                     />
                   </div>
                 )}
-              </div>
-            )}
-
-            {/* Validation notice if mandatory tier/finish missing */}
-            {isConfigIncomplete && (
-              <div className="p-3 bg-amber-50/70 rounded-xl border border-amber-200 flex items-center gap-2 text-xs text-amber-800">
-                <AlertCircle size={15} className="shrink-0 text-amber-600" />
-                <span>
-                  Please select the required{" "}
-                  <strong>{isTierMissing ? "Automation Tier" : "Surface Finish"}</strong> to
-                  configure devices for this category.
-                </span>
               </div>
             )}
 
@@ -586,26 +620,45 @@ export default function StepProductConfig({
               <div className="relative flex-1">
                 <Search
                   size={15}
-                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400"
+                  className={`absolute left-3.5 top-1/2 -translate-y-1/2 transition-colors ${
+                    search.trim() ? "text-accent" : "text-gray-400"
+                  }`}
                 />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search devices by name or code..."
-                  className="w-full h-9 pl-10 pr-3.5 border border-gray-200 rounded-xl text-xs sm:text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-950 focus:ring-1 focus:ring-gray-950/10 bg-white"
+                  className={`w-full h-9 pl-10 pr-8 border rounded-xl text-xs sm:text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none transition-all bg-white ${
+                    search.trim()
+                      ? "border-accent/70 ring-1 ring-accent/20 font-medium"
+                      : "border-gray-200 focus:border-gray-950 focus:ring-1 focus:ring-gray-950/10"
+                  }`}
                 />
+                {search.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => setSearch("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 p-0.5 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X size={13} />
+                  </button>
+                )}
               </div>
 
               <div className="w-full sm:w-56 shrink-0">
                 <Select
                   value={productTypeFilter}
                   onChange={(e) => setProductTypeFilter(e.target.value)}
-                  triggerClassName="h-9 rounded-xl text-xs sm:text-sm text-gray-700 border-gray-200"
+                  triggerClassName={`h-9 rounded-xl text-xs sm:text-sm transition-all ${
+                    productTypeFilter !== "all"
+                      ? "border-accent/70 bg-accent/[0.03] text-gray-950 font-semibold ring-1 ring-accent/20"
+                      : "border-gray-200 text-gray-700"
+                  }`}
                   options={[
                     { value: "all", label: "All Device Types" },
                     { value: "switch_board", label: "Switch Boards" },
-                    { value: "retrofit", label: "Retrofit Modules" },
                     { value: "accessory", label: "Accessories" },
                     { value: "smart_lock", label: "Smart Locks" },
                     { value: "curtain", label: "Curtains / Blinds" },
@@ -614,43 +667,147 @@ export default function StepProductConfig({
                 />
               </div>
             </div>
+
+            {/* Active Filter Chips & Clear Action */}
+            {hasActiveFilters && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-2.5 border-t border-gray-100 text-xs">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mr-1">
+                  Active Filters:
+                </span>
+                {selectedTier && selectedTier !== "all" && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-accent font-medium text-[11px]">
+                    <span>
+                      Tier:{" "}
+                      {categoryConfig.configuredTiers.find((t) => t.value === selectedTier)?.label ??
+                        selectedTier}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedTier("all")}
+                      className="hover:text-red-500 cursor-pointer ml-0.5"
+                      title="Clear Tier filter"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                )}
+                {selectedFinish && selectedFinish !== "all" && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-accent/10 border border-accent/30 text-accent font-medium text-[11px]">
+                    <span>
+                      Finish:{" "}
+                      {categoryConfig.configuredFinishes.find((f) => f.value === selectedFinish)?.label ??
+                        selectedFinish}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedFinish("all")}
+                      className="hover:text-red-500 cursor-pointer ml-0.5"
+                      title="Clear Finish filter"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                )}
+                {productTypeFilter !== "all" && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-700 font-medium text-[11px]">
+                    <span>Type: {productTypeFilter}</span>
+                    <button
+                      type="button"
+                      onClick={() => setProductTypeFilter("all")}
+                      className="hover:text-red-500 cursor-pointer ml-0.5"
+                      title="Clear Type filter"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                )}
+                {search.trim() && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-gray-100 border border-gray-200 text-gray-700 font-medium text-[11px]">
+                    <span>Search: &ldquo;{search.trim()}&rdquo;</span>
+                    <button
+                      type="button"
+                      onClick={() => setSearch("")}
+                      className="hover:text-red-500 cursor-pointer ml-0.5"
+                      title="Clear search"
+                    >
+                      <X size={11} />
+                    </button>
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="text-[11px] text-gray-500 hover:text-gray-900 underline font-semibold ml-auto cursor-pointer"
+                >
+                  Reset all filters
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Product Catalog Grid */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between px-1">
-              <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold">
-                Product Catalog ({filteredProducts.length} devices)
-              </h3>
-              {currentRoom && (
-                <span className="text-xs text-gray-500 font-medium">
-                  Adding into:{" "}
-                  <strong className="text-gray-950">
-                    {currentRoom.customName ?? currentRoom.roomType?.name}
-                  </strong>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 px-1">
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold">
+                  Product Catalog
+                </h3>
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                  {filteredCatalog.length} {filteredCatalog.length === 1 ? "device" : "devices"}
                 </span>
+              </div>
+              {currentRoom && (
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-accent/[0.08] border border-accent/25 text-xs text-accent">
+                  <span className="text-gray-500 font-normal">Adding into:</span>
+                  <span className="font-extrabold text-accent flex items-center gap-1">
+                    <MapPin size={11} className="text-accent shrink-0" />
+                    <strong className="text-gray-950 font-bold">
+                      {currentRoom.customName ?? currentRoom.roomType?.name}
+                    </strong>
+                  </span>
+                </div>
               )}
             </div>
 
-            {filteredProducts.length === 0 ? (
-              <div className="bg-white rounded-2xl border border-gray-200 p-8 text-center text-gray-400 shadow-none">
-                <Package size={32} className="mx-auto text-gray-300 mb-2" />
-                <p className="font-semibold text-gray-800 text-sm">No products found</p>
-                <p className="text-xs text-gray-400 mt-0.5">
-                  Try clearing search or switching categories.
+            {filteredCatalog.length === 0 ? (
+              <div className="bg-white rounded-2xl border border-gray-200 p-8 sm:p-10 text-center text-gray-400 shadow-none">
+                <div className="w-12 h-12 rounded-2xl bg-gray-50 border border-gray-200 flex items-center justify-center mx-auto mb-3 text-gray-400">
+                  <SlidersHorizontal size={22} />
+                </div>
+                <h4 className="font-bold text-gray-800 text-sm sm:text-base">
+                  No devices match your criteria
+                </h4>
+                <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
+                  No products in this category satisfy the selected tier, finish, type, or search filter.
                 </p>
+                <div className="mt-4 flex items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResetFilters}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gray-950 text-white hover:bg-gray-800 transition active:scale-95 cursor-pointer shadow-xs"
+                  >
+                    <RotateCcw size={12} />
+                    <span>Reset Filters</span>
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 gap-3.5">
-                {filteredProducts.map((prod) => {
-                  const { price } = resolveProductPricing(prod);
+                {filteredCatalog.map((catItem) => {
+                  const { product: prod, eligibleVariants, minPrice, exactVariant } = catItem;
+                  const prodId = Number(prod.id ?? (prod as any)._id);
                   const inRoomCount = currentRoom
-                    ? currentRoom.items.filter((i) => i.productId === prod.id).length
+                    ? (currentRoom.items || [])
+                        .filter((i) => {
+                          const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+                          return pId === prodId;
+                        })
+                        .reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
                     : 0;
 
                   return (
                     <div
-                      key={prod.id}
+                      key={prodId}
                       className={`bg-white rounded-xl border p-3.5 transition-all duration-200 flex flex-col justify-between group shadow-none ${
                         inRoomCount > 0
                           ? "border-accent/40 ring-1 ring-accent/20 shadow-2xs"
@@ -667,7 +824,12 @@ export default function StepProductConfig({
                             loading="lazy"
                           />
                         ) : (
-                          <Package size={26} className="text-gray-300" />
+                          <div className="flex flex-col items-center justify-center gap-1 text-gray-300">
+                            <Package size={26} className="text-gray-300" />
+                            <span className="text-[9px] font-semibold uppercase tracking-wider text-gray-400">
+                              {prod.type ? prod.type.replace("_", " ") : "Whyte Device"}
+                            </span>
+                          </div>
                         )}
 
                         {prod.moduleSize && (
@@ -690,9 +852,9 @@ export default function StepProductConfig({
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-accent block truncate">
                             {prod.category?.name ?? "Automation"}
                           </span>
-                          {prod.variants && prod.variants.length > 1 && (
+                          {eligibleVariants.length > 0 && (
                             <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded shrink-0">
-                              {prod.variants.filter((v) => v.isActive).length} variants
+                              {eligibleVariants.length} {eligibleVariants.length === 1 ? "variant" : "variants"}
                             </span>
                           )}
                         </div>
@@ -711,35 +873,34 @@ export default function StepProductConfig({
                         {/* Selected configuration preview */}
                         {(selectedTier || selectedFinish) && (
                           <div className="flex flex-wrap gap-1 pt-1">
-                            {selectedTier && (
+                            {selectedTier && selectedTier !== "all" && (
                               <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-accent-light text-accent-foreground border border-accent-border/60">
-                                {selectedTier}
+                                {categoryConfig.configuredTiers.find((t) => t.value === selectedTier)?.label ?? selectedTier}
                               </span>
                             )}
-                            {selectedFinish && (
+                            {selectedFinish && selectedFinish !== "all" && (
                               <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-accent-light text-accent-foreground border border-accent-border/60">
-                                {selectedFinish}
+                                {categoryConfig.configuredFinishes.find((f) => f.value === selectedFinish)?.label ?? selectedFinish}
                               </span>
                             )}
                           </div>
                         )}
 
-                        {/* Variants inline display & toggle */}
+                        {/* Variants inline display & toggle (strictly scoped to eligibleVariants) */}
                         {(() => {
-                          const activeVariants = (prod.variants || []).filter((v) => v.isActive);
-                          if (activeVariants.length <= 1) return null;
-                          const isCardExpanded = expandedCardIds.has(prod.id);
+                          if (eligibleVariants.length <= 1) return null;
+                          const isCardExpanded = expandedCardIds.has(prodId);
 
                           return (
                             <div className="pt-2">
                               <button
                                 type="button"
-                                onClick={() => toggleCardVariants(prod.id)}
+                                onClick={() => toggleCardVariants(prodId)}
                                 className="w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-gray-50 hover:bg-gray-100 text-gray-800 transition-colors border border-gray-200/80 cursor-pointer"
                               >
                                 <span className="flex items-center gap-1.5">
                                   <Layers size={12} className="text-accent" />
-                                  <span>{activeVariants.length} Variants</span>
+                                  <span>{eligibleVariants.length} Matching Variants</span>
                                 </span>
                                 <span className="flex items-center gap-1 text-[11px] text-accent font-semibold">
                                   <span>{isCardExpanded ? "Hide" : "View"}</span>
@@ -752,20 +913,29 @@ export default function StepProductConfig({
                                 </span>
                               </button>
 
-                              {/* Expanded Variants List right on card */}
+                              {/* Expanded Variants List right on card - ONLY eligible variants shown */}
                               {isCardExpanded && (
                                 <div className="mt-2 space-y-1.5 max-h-48 overflow-y-auto pr-0.5">
-                                  {activeVariants.map((v) => {
+                                  {eligibleVariants.map((v) => {
+                                    const vid = Number(v.id ?? (v as any)._id);
                                     const vLabel = getVariantName(v);
+                                    const vTier = getVariantTier(v);
+                                    const vFinish = getVariantFinish(v);
                                     const vCount = currentRoom
-                                      ? currentRoom.items.filter(
-                                          (i) => i.productId === prod.id && i.productVariantId === v.id
-                                        ).length
+                                      ? (currentRoom.items || [])
+                                          .filter(
+                                            (i) => {
+                                              const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+                                              const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
+                                              return pId === prodId && pvId === vid;
+                                            }
+                                          )
+                                          .reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
                                       : 0;
 
                                     return (
                                       <div
-                                        key={v.id}
+                                        key={vid}
                                         className={`p-2 rounded-lg border text-xs flex items-center justify-between gap-2 transition-all ${
                                           vCount > 0
                                             ? "bg-accent/5 border-accent/40 shadow-2xs"
@@ -776,14 +946,26 @@ export default function StepProductConfig({
                                           <p className="font-semibold text-gray-900 text-[11px] truncate">
                                             {vLabel}
                                           </p>
-                                          <p className="font-mono font-bold text-accent text-[11px]">
-                                            {formatCurrency(v.price)}
-                                          </p>
+                                          <div className="flex items-center gap-1.5 mt-0.5">
+                                            <span className="font-mono font-bold text-accent text-[11px]">
+                                              {formatCurrency(v.price)}
+                                            </span>
+                                            {vTier && (
+                                              <span className="text-[9px] text-gray-400 font-medium capitalize">
+                                                {vTier}
+                                              </span>
+                                            )}
+                                            {vFinish && (
+                                              <span className="text-[9px] text-gray-400 font-medium capitalize">
+                                                • {vFinish}
+                                              </span>
+                                            )}
+                                          </div>
                                         </div>
 
                                         <button
                                           type="button"
-                                          onClick={() => onAddItem(currentRoom!.id, prod.id, v.id, v.config)}
+                                          onClick={() => handleAddVariant(prod, v)}
                                           className={`px-2 py-1 rounded-md text-[10px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer ${
                                             vCount > 0
                                               ? "bg-accent text-white hover:bg-accent-hover shadow-2xs"
@@ -808,12 +990,14 @@ export default function StepProductConfig({
                       <div className="mt-3.5 pt-2.5 border-t border-gray-100 flex items-center justify-between gap-2">
                         <div>
                           <p className="text-[10px] text-gray-400 font-normal">
-                            {prod.variants && prod.variants.filter((v) => v.isActive).length > 1 && !selectedTier && !selectedFinish
+                            {exactVariant
+                              ? "Unit Price"
+                              : eligibleVariants.length > 1
                               ? "Starting at"
                               : "Unit Price"}
                           </p>
                           <p className="text-sm font-extrabold font-mono text-gray-950">
-                            {formatCurrency(price)}
+                            {formatCurrency(exactVariant ? exactVariant.price : minPrice)}
                           </p>
                         </div>
 
@@ -849,17 +1033,18 @@ export default function StepProductConfig({
 
                           <button
                             type="button"
-                            disabled={isConfigIncomplete}
-                            onClick={() => handleAddProduct(prod)}
-                            className={`w-7 h-7 flex items-center justify-center transition active:scale-90 disabled:opacity-25 disabled:cursor-not-allowed ${
+                            onClick={() => handleAddProduct(catItem)}
+                            className={`w-7 h-7 flex items-center justify-center transition active:scale-90 ${
                               inRoomCount > 0
                                 ? "hover:bg-white/20 text-white"
                                 : "hover:bg-gray-100 text-gray-700"
                             }`}
                             title={
-                              isConfigIncomplete
-                                ? "Select required tier/finish first"
-                                : "Add product to room"
+                              exactVariant
+                                ? `Add ${getVariantName(exactVariant)} to room`
+                                : eligibleVariants.length > 1
+                                ? "Select from matching variants"
+                                : "Add device to room"
                             }
                           >
                             <Plus size={12} />
@@ -907,17 +1092,22 @@ export default function StepProductConfig({
             {/* Room Breakdown Scrollable List */}
             <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
               {rooms.map((room) => {
+                const currentId = Number(currentRoom?.id ?? (currentRoom as any)?._id);
+                const roomId = Number(room.id ?? (room as any)._id);
                 const sub = (room.items || []).reduce(
-                  (acc, i) => acc + Number(i.unitPrice || 0),
+                  (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
                   0
                 );
-                const isCurrent = room.id === currentRoom?.id;
-                const prodCount = room.items ? room.items.length : 0;
+                const isCurrent = Boolean(currentId && roomId === currentId);
+                const prodCount = (room.items || []).reduce(
+                  (acc, i) => acc + (Number(i.quantity) || 1),
+                  0
+                );
 
                 return (
                   <div
-                    key={room.id}
-                    onClick={() => onSelectRoom(room.id)}
+                    key={roomId}
+                    onClick={() => onSelectRoom(roomId)}
                     className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center justify-between text-xs select-none ${
                       isCurrent
                         ? "bg-gray-950 text-white border-gray-950 shadow-xs"
@@ -933,7 +1123,7 @@ export default function StepProductConfig({
                           isCurrent ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
                         }`}
                       >
-                        {prodCount} {prodCount === 1 ? "product" : "products"}
+                        {prodCount} {prodCount === 1 ? "device" : "devices"}
                       </span>
                     </div>
                     <span className="font-mono font-bold shrink-0">{formatCurrency(sub)}</span>
@@ -973,20 +1163,16 @@ export default function StepProductConfig({
                     Added Products
                   </h3>
                   <p className="text-sm font-extrabold text-gray-950 mt-0.5">
-                    {currentRoom.customName ?? currentRoom.roomType?.name} ·{" "}
-                    <span className="font-normal text-xs text-gray-500">
-                      {currentRoom.items.length}{" "}
-                      {currentRoom.items.length === 1 ? "product" : "products"}
-                    </span>
+                    {currentRoom.customName ?? currentRoom.roomType?.name}
                   </p>
                 </div>
 
                 <span className="text-xs font-bold font-mono text-gray-700 bg-gray-100 px-2.5 py-0.5 rounded-md">
-                  {currentRoomProductsCount} {currentRoomProductsCount === 1 ? "product" : "products"}
+                  {currentRoomProductsCount} {currentRoomProductsCount === 1 ? "device" : "devices"}
                 </span>
               </div>
 
-              {currentRoom.items.length === 0 ? (
+              {(!currentRoom.items || currentRoom.items.length === 0) ? (
                 <div className="py-6 text-center text-gray-400">
                   <ShoppingBag size={22} className="mx-auto mb-1.5 opacity-40 text-gray-400" />
                   <p className="text-xs font-semibold text-gray-700">No products added yet</p>
@@ -997,11 +1183,14 @@ export default function StepProductConfig({
               ) : (
                 <div className="divide-y divide-gray-100">
                   {currentRoom.items.map((item, index) => {
+                    const itemId = Number(item.id ?? (item as any)._id);
+                    const qty = Number(item.quantity) || 1;
                     const unitPrice = Number(item.unitPrice || 0);
+                    const linePrice = qty * unitPrice;
 
                     return (
-                      <div key={item.id} className="py-3.5 space-y-2.5">
-                        {/* Product Header: Index, Name, Code, Config & Delete */}
+                      <div key={itemId} className="py-3.5 space-y-2.5">
+                        {/* Product Header: Index, Name, Code, Config, Quantity Stepper & Delete */}
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5 mb-0.5">
@@ -1027,20 +1216,58 @@ export default function StepProductConfig({
                               )}
                             </div>
 
-                            <p className="text-xs font-extrabold font-mono text-gray-950 mt-1">
-                              {formatCurrency(unitPrice)}
-                            </p>
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <span className="text-xs font-extrabold font-mono text-gray-950">
+                                {formatCurrency(linePrice)}
+                              </span>
+                              {qty > 1 && (
+                                <span className="text-[10px] text-gray-400 font-mono">
+                                  ({formatCurrency(unitPrice)} each)
+                                </span>
+                              )}
+                            </div>
                           </div>
 
-                          {/* Delete Action (No quantity badge, no aggregation) */}
-                          <button
-                            type="button"
-                            onClick={() => onDeleteItem(item.id)}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition shrink-0"
-                            title="Remove product"
-                          >
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Quantity Stepper */}
+                            <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50/70 overflow-hidden">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (qty > 1) {
+                                    onUpdateItem(itemId, { quantity: qty - 1 });
+                                  } else {
+                                    onDeleteItem(itemId);
+                                  }
+                                }}
+                                className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
+                                title={qty > 1 ? "Decrease quantity" : "Remove product"}
+                              >
+                                <Minus size={11} />
+                              </button>
+                              <span className="w-6 text-center text-xs font-mono font-bold text-gray-900">
+                                {qty}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => onUpdateItem(itemId, { quantity: qty + 1 })}
+                                className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
+                                title="Increase quantity"
+                              >
+                                <Plus size={11} />
+                              </button>
+                            </div>
+
+                            {/* Delete Action */}
+                            <button
+                              type="button"
+                              onClick={() => onDeleteItem(itemId)}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                              title="Remove product"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
 
                         {/* Individual Installation Location Input */}
@@ -1051,9 +1278,9 @@ export default function StepProductConfig({
                           </label>
                           <input
                             type="text"
-                            value={itemLocations[item.id] ?? item.notes ?? ""}
-                            onChange={(e) => handleLocationChange(item.id, e.target.value)}
-                            onBlur={() => handleLocationBlur(item.id)}
+                            value={itemLocations[itemId] ?? item.notes ?? ""}
+                            onChange={(e) => handleLocationChange(itemId, e.target.value)}
+                            onBlur={() => handleLocationBlur(itemId)}
                             placeholder="e.g. Master switch near entrance, bedside..."
                             className="w-full h-8 px-2.5 border border-gray-200 rounded-lg text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/20 bg-gray-50/40 focus:bg-white transition"
                           />
@@ -1121,7 +1348,7 @@ export default function StepProductConfig({
             <div className="flex-1 overflow-y-auto space-y-3">
               {rooms.map((room) => {
                 const sub = (room.items || []).reduce(
-                  (acc, i) => acc + Number(i.unitPrice || 0),
+                  (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
                   0
                 );
                 return (
@@ -1130,14 +1357,19 @@ export default function StepProductConfig({
                       <span>{room.customName ?? room.roomType?.name}</span>
                       <span className="font-mono">{formatCurrency(sub)}</span>
                     </div>
-                    {(room.items || []).map((i) => (
-                      <div key={i.id} className="flex justify-between text-xs text-gray-500 mt-1">
-                        <span>{i.product?.name ?? "Product"}</span>
-                        <span className="font-mono">
-                          {formatCurrency(Number(i.unitPrice || 0))}
-                        </span>
-                      </div>
-                    ))}
+                    {(room.items || []).map((i) => {
+                      const iQty = Number(i.quantity) || 1;
+                      return (
+                        <div key={i.id} className="flex justify-between text-xs text-gray-500 mt-1">
+                          <span>
+                            {i.product?.name ?? "Product"}{iQty > 1 ? ` (×${iQty})` : ""}
+                          </span>
+                          <span className="font-mono">
+                            {formatCurrency(iQty * Number(i.unitPrice || 0))}
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })}
@@ -1177,8 +1409,10 @@ export default function StepProductConfig({
         <VariantPicker
           product={pickerProduct}
           onSelect={(variantId, conf) => {
-            if (currentRoom) {
-              onAddItem(currentRoom.id, pickerProduct.id, variantId, conf);
+            const currentRoomId = Number(currentRoom?.id ?? (currentRoom as any)?._id);
+            const pId = Number(pickerProduct.id ?? (pickerProduct as any)._id);
+            if (currentRoomId && pId) {
+              onAddItem(currentRoomId, pId, variantId ? Number(variantId) : undefined, conf);
             }
             setPickerProduct(null);
           }}

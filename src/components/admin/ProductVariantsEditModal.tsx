@@ -16,6 +16,10 @@ import {
   type VariantMatrixSummary,
 } from "@/lib/productVariantService";
 import {
+  calculateFromTaxExclusivePrice,
+  calculateFromTaxInclusivePrice,
+} from "@/lib/pricing";
+import {
   AlertCircle,
   Check,
   History,
@@ -66,6 +70,7 @@ interface MatrixResponse {
 interface EditRow {
   key: string;
   displayName: string;
+  name: string;
   automationTier: string | null;
   surfaceFinish: string | null;
   tierLabel: string | null;
@@ -76,9 +81,19 @@ interface EditRow {
   previousVariantId: number | null;
   variantCode: string;
   price: string;
+  priceWithoutTax: string;
+  taxPercent: string;
+  taxAmount: string;
+  cost: string;
+  purchaseTaxPercent: string;
   /** Values as loaded, used to detect real edits only. */
   originalCode: string;
+  originalName: string;
   originalPrice: string;
+  originalPriceWithoutTax: string;
+  originalTaxPercent: string;
+  originalCost: string;
+  originalPurchaseTaxPercent: string;
   deletedAt: string | null;
   codeError: string | null;
   priceError: string | null;
@@ -120,6 +135,16 @@ function normalisePrice(value: string): string {
   return Number.isFinite(num) ? String(num) : trimmed;
 }
 
+function parseDecimalValue(val: unknown): string {
+  if (typeof val === "string" || typeof val === "number") {
+    return String(val);
+  }
+  if (val && typeof val === "object" && "$numberDecimal" in (val as Record<string, unknown>)) {
+    return String((val as { $numberDecimal: string }).$numberDecimal);
+  }
+  return "";
+}
+
 /**
  * The legacy `GET /api/products/[id]/variants` endpoint returns raw documents,
  * so a Decimal128 price arrives as `{ $numberDecimal: "..." }` and the id as
@@ -132,19 +157,11 @@ function normaliseVariantList(payload: unknown): ProductVariant[] {
 
   return payload.map((entry, index) => {
     const record = (entry ?? {}) as Record<string, unknown>;
-    const price = record.price as
-      | string
-      | number
-      | { $numberDecimal?: string }
-      | null
-      | undefined;
-
-    let priceText = "";
-    if (typeof price === "string" || typeof price === "number") {
-      priceText = String(price);
-    } else if (price && typeof price === "object" && typeof price.$numberDecimal === "string") {
-      priceText = price.$numberDecimal;
-    }
+    const priceText = parseDecimalValue(record.price);
+    const pwtText = parseDecimalValue(record.priceWithoutTax);
+    const tpText = parseDecimalValue(record.taxPercent);
+    const costText = parseDecimalValue(record.cost);
+    const ptpText = parseDecimalValue(record.purchaseTaxPercent);
 
     return {
       id: Number(record.id ?? record._id ?? index),
@@ -156,6 +173,10 @@ function normaliseVariantList(payload: unknown): ProductVariant[] {
       surfaceFinish: (record.surfaceFinish as string | null) ?? null,
       config: (record.config as Record<string, string>) ?? {},
       price: normalisePrice(priceText),
+      priceWithoutTax: pwtText ? normalisePrice(pwtText) : undefined,
+      taxPercent: tpText ? normalisePrice(tpText) : undefined,
+      cost: costText ? normalisePrice(costText) : undefined,
+      purchaseTaxPercent: ptpText ? normalisePrice(ptpText) : undefined,
       isActive: record.isActive !== false,
       sortOrder: Number(record.sortOrder ?? index),
     };
@@ -185,11 +206,41 @@ export default function ProductVariantsEditModal({
     const code = isActive
       ? row.variant?.variantCode || row.variant?.code || ""
       : row.history?.variantCode || "";
-    const price = isActive ? row.variant?.price || "" : row.history?.price || "";
+
+    const rawPrice = isActive ? row.variant?.price : row.history?.price;
+    const numPrice = rawPrice !== undefined && rawPrice !== null ? Number(rawPrice) : 0;
+
+    const rawTaxPercent = isActive ? row.variant?.taxPercent : row.history?.taxPercent;
+    const taxPct = rawTaxPercent !== undefined && rawTaxPercent !== null ? Number(rawTaxPercent) : 18;
+
+    const rawPwt = isActive ? row.variant?.priceWithoutTax : row.history?.priceWithoutTax;
+    const pwt = rawPwt !== undefined && rawPwt !== null
+      ? Number(rawPwt)
+      : (numPrice > 0 ? Math.round((numPrice / (1 + taxPct / 100)) * 100) / 100 : 0);
+
+    const rawTaxAmt = isActive ? row.variant?.taxAmount : row.history?.taxAmount;
+    const taxAmt = rawTaxAmt !== undefined && rawTaxAmt !== null
+      ? Number(rawTaxAmt)
+      : Math.round((numPrice - pwt) * 100) / 100;
+
+    const rawCost = isActive ? row.variant?.cost : row.history?.cost;
+    const cost = rawCost !== undefined && rawCost !== null ? Number(rawCost) : 0;
+
+    const rawPtp = isActive ? row.variant?.purchaseTaxPercent : row.history?.purchaseTaxPercent;
+    const ptp = rawPtp !== undefined && rawPtp !== null ? Number(rawPtp) : 18;
+
+    const priceStr = numPrice > 0 ? numPrice.toFixed(2) : (isActive ? "0.00" : "");
+    const pwtStr = pwt > 0 ? pwt.toFixed(2) : (isActive ? "0.00" : "");
+    const taxPctStr = taxPct.toString();
+    const taxAmtStr = taxAmt.toFixed(2);
+    const costStr = cost.toFixed(2);
+    const ptpStr = ptp.toString();
+    const name = (isActive ? row.variant?.name : row.history?.name) || row.displayName || "Standard";
 
     return {
       key: row.key,
       displayName: row.displayName,
+      name,
       automationTier: row.automationTier,
       surfaceFinish: row.surfaceFinish,
       tierLabel: row.tierLabel,
@@ -199,9 +250,19 @@ export default function ProductVariantsEditModal({
       historyId: row.history?.historyId ?? null,
       previousVariantId: row.history?.previousVariantId ?? null,
       variantCode: code,
-      price,
+      price: priceStr,
+      priceWithoutTax: pwtStr,
+      taxPercent: taxPctStr,
+      taxAmount: taxAmtStr,
+      cost: costStr,
+      purchaseTaxPercent: ptpStr,
       originalCode: code,
-      originalPrice: price,
+      originalName: name,
+      originalPrice: priceStr,
+      originalPriceWithoutTax: pwtStr,
+      originalTaxPercent: taxPctStr,
+      originalCost: costStr,
+      originalPurchaseTaxPercent: ptpStr,
       deletedAt: row.history?.deletedAt ?? null,
       codeError: null,
       priceError: null,
@@ -271,7 +332,12 @@ export default function ProductVariantsEditModal({
           row.status === "active" &&
           row.variantId !== null &&
           (row.variantCode.trim() !== row.originalCode.trim() ||
-            normalisePrice(row.price) !== normalisePrice(row.originalPrice))
+            (row.name ?? "").trim() !== (row.originalName ?? "").trim() ||
+            normalisePrice(row.price) !== normalisePrice(row.originalPrice) ||
+            normalisePrice(row.priceWithoutTax) !== normalisePrice(row.originalPriceWithoutTax) ||
+            normalisePrice(row.taxPercent) !== normalisePrice(row.originalTaxPercent) ||
+            normalisePrice(row.cost) !== normalisePrice(row.originalCost) ||
+            normalisePrice(row.purchaseTaxPercent) !== normalisePrice(row.originalPurchaseTaxPercent))
       ),
     [rows]
   );
@@ -288,13 +354,85 @@ export default function ProductVariantsEditModal({
   const setField = (key: string, patch: Partial<EditRow>) =>
     setRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
 
+  const handleNameChange = (key: string, value: string) =>
+    setField(key, { name: value, displayName: value });
+
   const handleCodeChange = (key: string, value: string) =>
     setField(key, { variantCode: value, codeError: null });
 
+  const handlePriceWithoutTaxChange = (key: string, value: string) => {
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.key !== key) return row;
+        const taxPct = Number(row.taxPercent) || 18;
+        const numPreTax = Number(value);
+        if (value.trim() !== "" && Number.isFinite(numPreTax) && numPreTax >= 0) {
+          const { taxAmount, price } = calculateFromTaxExclusivePrice(numPreTax, taxPct);
+          return {
+            ...row,
+            priceWithoutTax: value,
+            taxAmount: taxAmount.toFixed(2),
+            price: price.toFixed(2),
+            priceError: null,
+          };
+        }
+        return { ...row, priceWithoutTax: value };
+      })
+    );
+  };
+
+  const handleTaxPercentChange = (key: string, value: string) => {
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.key !== key) return row;
+        const taxPct = Number(value);
+        const numPreTax = Number(row.priceWithoutTax);
+        if (value.trim() !== "" && Number.isFinite(taxPct) && taxPct >= 0 && Number.isFinite(numPreTax) && numPreTax >= 0) {
+          const { taxAmount, price } = calculateFromTaxExclusivePrice(numPreTax, taxPct);
+          return {
+            ...row,
+            taxPercent: value,
+            taxAmount: taxAmount.toFixed(2),
+            price: price.toFixed(2),
+            priceError: null,
+          };
+        }
+        return { ...row, taxPercent: value };
+      })
+    );
+  };
+
   const handlePriceChange = (key: string, value: string) => {
-    const isInvalid =
-      value.trim() === "" || !Number.isFinite(Number(value)) || Number(value) < 0;
-    setField(key, { price: value, priceError: isInvalid ? "Enter a valid price" : null });
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.key !== key) return row;
+        const numPrice = Number(value);
+        const taxPct = Number(row.taxPercent) || 18;
+        if (value.trim() !== "" && Number.isFinite(numPrice) && numPrice >= 0) {
+          const { priceWithoutTax, taxAmount } = calculateFromTaxInclusivePrice(numPrice, taxPct);
+          return {
+            ...row,
+            price: value,
+            priceWithoutTax: priceWithoutTax.toFixed(2),
+            taxAmount: taxAmount.toFixed(2),
+            priceError: null,
+          };
+        }
+        return {
+          ...row,
+          price: value,
+          priceError: value.trim() === "" ? "Enter a valid price" : null,
+        };
+      })
+    );
+  };
+
+  const handleCostChange = (key: string, value: string) => {
+    setField(key, { cost: value });
+  };
+
+  const handlePurchaseTaxPercentChange = (key: string, value: string) => {
+    setField(key, { purchaseTaxPercent: value });
   };
 
   /** Codes already used by ACTIVE rows, so pending Add/Restore can catch clashes. */
@@ -371,7 +509,12 @@ export default function ProductVariantsEditModal({
             automationTier: row.automationTier,
             surfaceFinish: row.surfaceFinish,
             variantCode: row.variantCode.trim(),
+            name: row.name.trim() || row.displayName,
             price: Number(row.price),
+            priceWithoutTax: Number(row.priceWithoutTax || 0),
+            taxPercent: Number(row.taxPercent || 18),
+            cost: Number(row.cost || 0),
+            purchaseTaxPercent: Number(row.purchaseTaxPercent || 18),
           }
         );
         notify.success("Variant added", data.message ?? `"${row.displayName}" added.`);
@@ -416,6 +559,10 @@ export default function ProductVariantsEditModal({
                 historyId: row.historyId,
                 variantCode: row.variantCode.trim(),
                 price: Number(row.price),
+                priceWithoutTax: Number(row.priceWithoutTax || 0),
+                taxPercent: Number(row.taxPercent || 18),
+                cost: Number(row.cost || 0),
+                purchaseTaxPercent: Number(row.purchaseTaxPercent || 18),
               }
             );
             notify.success("Variant restored", data.message ?? `"${label}" restored.`);
@@ -494,7 +641,12 @@ export default function ProductVariantsEditModal({
     const payloadRows = dirtyActiveRows.map((row) => ({
       id: row.variantId as number,
       variantCode: row.variantCode.trim(),
+      name: row.name.trim() || row.displayName,
       price: Number(row.price),
+      priceWithoutTax: Number(row.priceWithoutTax || 0),
+      taxPercent: Number(row.taxPercent || 18),
+      cost: Number(row.cost || 0),
+      purchaseTaxPercent: Number(row.purchaseTaxPercent || 18),
     }));
 
     // Pre-flight duplicate detection against the final set of active codes.
@@ -543,7 +695,7 @@ export default function ProductVariantsEditModal({
   ];
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Edit Variants" size="xl">
+    <Modal isOpen={isOpen} onClose={onClose} title="Edit Variants" size="4xl">
       <form onSubmit={handleSave} className="space-y-4">
         {/* ── Product context banner ── */}
         <div className="rounded-xl border border-neutral-200 bg-neutral-50/80 p-3.5 flex items-center justify-between gap-3">
@@ -574,7 +726,7 @@ export default function ProductVariantsEditModal({
                   <>
                     {" · "}
                     {matrix.summary.total} possible{" "}
-                    {matrix.summary.total === 1 ? "combination" : "combinations"}
+                    {matrix.summary.total === 1 ? "variant" : "variants"}
                   </>
                 ) : null}
               </p>
@@ -592,7 +744,7 @@ export default function ProductVariantsEditModal({
               {activeCount} Active
             </span>
             <span className="text-[10px] text-neutral-400">
-              Matrix is the source of truth
+              Variant is pricing source of truth
             </span>
           </div>
         </div>
@@ -635,36 +787,30 @@ export default function ProductVariantsEditModal({
         {loading && rows.length === 0 ? (
           <div className="py-16 flex flex-col items-center gap-2 text-neutral-400">
             <Loader2 className="h-5 w-5 animate-spin" />
-            <span className="text-xs">Loading possible variants…</span>
-          </div>
-        ) : matrix && !matrix.hasMatrix ? (
-          <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2">
-            <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold">This category has no configured variant matrix.</p>
-              <p className="text-[11px] text-amber-700/90 mt-0.5">
-                No combinations can be added or restored until an administrator configures
-                automation tiers or surface finishes for this category.
-              </p>
-            </div>
+            <span className="text-xs">Loading variants…</span>
           </div>
         ) : visibleRows.length === 0 ? (
           <div className="py-12 text-center text-xs text-neutral-400 italic">
             {filter === "all"
-              ? "No possible variants for this category."
+              ? "No variants found."
               : `No ${filters.find((f) => f.key === filter)?.label.toLowerCase()} combinations.`}
           </div>
         ) : (
           <div className="rounded-xl border border-neutral-200 bg-white overflow-hidden shadow-2xs">
-            <div className="max-h-[440px] overflow-y-auto">
-              <table className="w-full text-left text-xs border-collapse">
+            <div className="max-h-[460px] overflow-x-auto overflow-y-auto">
+              <table className="w-full text-left text-xs border-collapse min-w-[980px]">
                 <thead className="sticky top-0 bg-neutral-900 text-white uppercase text-[10px] font-semibold tracking-wider z-10">
                   <tr className="border-b border-neutral-800">
-                    <th className="py-3 px-3.5">STATUS</th>
-                    <th className="py-3 px-3.5">VARIANT</th>
-                    <th className="py-3 px-3.5 w-[190px]">VARIANT CODE / SKU</th>
-                    <th className="py-3 px-3.5 w-[150px] text-right">PRICE (₹ INR)</th>
-                    <th className="py-3 px-3.5 w-[130px] text-center">ACTION</th>
+                    <th className="py-3 px-3 w-[90px]">STATUS</th>
+                    <th className="py-3 px-3 w-[130px]">VARIANT</th>
+                    <th className="py-3 px-3 w-[130px]">SKU CODE</th>
+                    <th className="py-3 px-2.5 w-[110px] text-right">EXCL. TAX (₹)</th>
+                    <th className="py-3 px-2 w-[70px] text-right">TAX %</th>
+                    <th className="py-3 px-2 w-[85px] text-right">TAX AMT</th>
+                    <th className="py-3 px-2.5 w-[120px] text-right font-bold">PRICE (₹)</th>
+                    <th className="py-3 px-2 w-[90px] text-right">COST (₹)</th>
+                    <th className="py-3 px-2 w-[70px] text-right">PUR. TAX %</th>
+                    <th className="py-3 px-3 w-[100px] text-center">ACTION</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100 text-neutral-700">
@@ -675,7 +821,12 @@ export default function ProductVariantsEditModal({
                     const isEdited =
                       isActive &&
                       (row.variantCode.trim() !== row.originalCode.trim() ||
-                        normalisePrice(row.price) !== normalisePrice(row.originalPrice));
+                        (row.name ?? "").trim() !== (row.originalName ?? "").trim() ||
+                        normalisePrice(row.price) !== normalisePrice(row.originalPrice) ||
+                        normalisePrice(row.priceWithoutTax) !== normalisePrice(row.originalPriceWithoutTax) ||
+                        normalisePrice(row.taxPercent) !== normalisePrice(row.originalTaxPercent) ||
+                        normalisePrice(row.cost) !== normalisePrice(row.originalCost) ||
+                        normalisePrice(row.purchaseTaxPercent) !== normalisePrice(row.originalPurchaseTaxPercent));
 
                     return (
                       <tr
@@ -689,7 +840,7 @@ export default function ProductVariantsEditModal({
                         }`}
                       >
                         {/* 1. STATUS */}
-                        <td className="py-2.5 px-3.5">
+                        <td className="py-2.5 px-3">
                           <span
                             className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide border ${meta.chip}`}
                           >
@@ -704,31 +855,55 @@ export default function ProductVariantsEditModal({
                           )}
                         </td>
 
-                        {/* 2. VARIANT — read-only, from the category matrix */}
-                        <td className="py-2.5 px-3.5">
-                          <span className="font-semibold text-neutral-900 block">
-                            {row.displayName}
-                          </span>
-                          <span className="text-[10px] text-neutral-400">
-                            {row.tierLabel ?? row.automationTier ?? "—"}
-                            {row.tierLabel || row.automationTier ? " · " : ""}
-                            {row.finishLabel ?? row.surfaceFinish ?? ""}
-                          </span>
+                        {/* 2. VARIANT */}
+                        <td className="py-2.5 px-3">
+                          {!row.tierLabel && !row.automationTier && !row.finishLabel && !row.surfaceFinish ? (
+                            <div>
+                              {isActive ? (
+                                <Input
+                                  type="text"
+                                  value={row.name}
+                                  onChange={(e) => handleNameChange(row.key, e.target.value)}
+                                  placeholder="Standard"
+                                  disabled={busyKey !== null}
+                                  className="h-8 font-semibold text-xs text-neutral-900"
+                                />
+                              ) : (
+                                <span className="font-semibold text-neutral-900 block truncate" title={row.displayName}>
+                                  {row.displayName}
+                                </span>
+                              )}
+                              <span className="text-[10px] text-neutral-400 mt-0.5 block italic">
+                                Not applicable
+                              </span>
+                            </div>
+                          ) : (
+                            <div>
+                              <span className="font-semibold text-neutral-900 block truncate" title={row.displayName}>
+                                {row.displayName}
+                              </span>
+                              <span className="text-[10px] text-neutral-400 block">
+                                {row.tierLabel ?? row.automationTier ?? "—"}
+                                {row.tierLabel || row.automationTier ? " · " : ""}
+                                {row.finishLabel ?? row.surfaceFinish ?? ""}
+                              </span>
+                            </div>
+                          )}
                           {row.status === "active" && row.variantId !== null && (
-                            <span className="ml-1.5 text-[10px] text-neutral-400">
+                            <span className="text-[10px] text-neutral-400">
                               #{row.variantId}
                             </span>
                           )}
                         </td>
 
-                        {/* 3. VARIANT CODE — prefilled from history for REMOVED */}
-                        <td className="py-2 px-3.5">
+                        {/* 3. VARIANT CODE */}
+                        <td className="py-2 px-3">
                           <div className="flex items-center gap-1">
                             <Input
                               type="text"
                               value={row.variantCode}
                               onChange={(e) => handleCodeChange(row.key, e.target.value)}
-                              placeholder={isActive ? "e.g. TAC-004-RE-A" : "Enter a code"}
+                              placeholder={isActive ? "e.g. TAC-004-RE-A" : "Enter code"}
                               disabled={busyKey !== null}
                               className={`h-8 font-mono text-xs uppercase ${
                                 row.codeError ? "border-red-400" : ""
@@ -739,7 +914,7 @@ export default function ProductVariantsEditModal({
                                 type="button"
                                 onClick={() => handleSuggest(row.key)}
                                 disabled={busyKey !== null}
-                                title="Suggest a code from the product code and combination"
+                                title="Suggest code"
                                 className="shrink-0 rounded border border-neutral-200 bg-white p-1.5 text-neutral-500 transition-colors hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-800 disabled:opacity-40"
                               >
                                 <Wand2 className="h-3.5 w-3.5" />
@@ -749,36 +924,104 @@ export default function ProductVariantsEditModal({
                           {row.codeError && (
                             <p className="text-[10px] text-red-600 mt-0.5">{row.codeError}</p>
                           )}
-                          {row.status === "removed" && !row.codeError && (
-                            <p className="text-[10px] text-amber-700/80 mt-0.5">
-                              Prefilled from history
-                            </p>
-                          )}
                         </td>
 
-                        {/* 4. PRICE — prefilled from history for REMOVED */}
-                        <td className="py-2 px-3.5 text-right">
-                          <div className="relative inline-block w-full max-w-[140px]">
-                            <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-neutral-400 font-medium text-xs select-none">
+                        {/* 4. PRICE WITHOUT TAX */}
+                        <td className="py-2 px-2.5 text-right">
+                          <div className="relative inline-block w-full">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-400 font-medium text-[11px] select-none">
                               ₹
                             </span>
                             <Input
                               type="number"
-                              step="1"
+                              step="any"
+                              min="0"
+                              value={row.priceWithoutTax}
+                              onChange={(e) => handlePriceWithoutTaxChange(row.key, e.target.value)}
+                              placeholder="0.00"
+                              disabled={busyKey !== null}
+                              className="h-8 pl-5 text-right font-medium text-xs text-neutral-700"
+                            />
+                          </div>
+                        </td>
+
+                        {/* 5. SALES TAX % */}
+                        <td className="py-2 px-2 text-right">
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={row.taxPercent}
+                            onChange={(e) => handleTaxPercentChange(row.key, e.target.value)}
+                            placeholder="18"
+                            disabled={busyKey !== null}
+                            className="h-8 text-right font-medium text-xs text-neutral-700"
+                          />
+                        </td>
+
+                        {/* 6. TAX AMOUNT (Calculated read-only) */}
+                        <td className="py-2.5 px-2 text-right">
+                          <span className="inline-block py-1 px-1.5 bg-neutral-100 rounded text-neutral-600 font-mono text-[11px]">
+                            ₹{row.taxAmount || "0.00"}
+                          </span>
+                        </td>
+
+                        {/* 7. PRICE WITH TAX */}
+                        <td className="py-2 px-2.5 text-right">
+                          <div className="relative inline-block w-full">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-neutral-400 font-medium text-[11px] select-none">
+                              ₹
+                            </span>
+                            <Input
+                              type="number"
+                              step="any"
                               min="0"
                               value={row.price}
                               onChange={(e) => handlePriceChange(row.key, e.target.value)}
-                              placeholder="0"
+                              placeholder="0.00"
                               disabled={busyKey !== null}
-                              className={`h-8 pl-6 text-right font-semibold text-xs ${
+                              className={`h-8 pl-5 text-right font-bold text-xs text-neutral-900 ${
                                 row.priceError ? "border-red-500" : ""
                               }`}
                             />
                           </div>
                         </td>
 
-                        {/* 5. ACTION */}
-                        <td className="py-2 px-3.5 text-center">
+                        {/* 8. COST */}
+                        <td className="py-2 px-2 text-right">
+                          <div className="relative inline-block w-full">
+                            <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-neutral-400 font-medium text-[10px] select-none">
+                              ₹
+                            </span>
+                            <Input
+                              type="number"
+                              step="any"
+                              min="0"
+                              value={row.cost}
+                              onChange={(e) => handleCostChange(row.key, e.target.value)}
+                              placeholder="0.00"
+                              disabled={busyKey !== null}
+                              className="h-8 pl-4 text-right text-xs text-neutral-600"
+                            />
+                          </div>
+                        </td>
+
+                        {/* 9. PURCHASE TAX % */}
+                        <td className="py-2 px-2 text-right">
+                          <Input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={row.purchaseTaxPercent}
+                            onChange={(e) => handlePurchaseTaxPercentChange(row.key, e.target.value)}
+                            placeholder="18"
+                            disabled={busyKey !== null}
+                            className="h-8 text-right text-xs text-neutral-600"
+                          />
+                        </td>
+
+                        {/* 10. ACTION */}
+                        <td className="py-2 px-3 text-center">
                           {isBusy ? (
                             <Loader2 className="h-4 w-4 mx-auto animate-spin text-neutral-400" />
                           ) : isActive ? (

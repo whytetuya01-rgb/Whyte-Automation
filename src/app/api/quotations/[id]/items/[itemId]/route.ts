@@ -4,6 +4,8 @@ import { Quotation, QuotationItem, QuotationRoom } from "@/models";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationItemSchema } from "@/lib/validation/quotation";
+import { normalizeQuotationItem } from "@/lib/quotationNormalization";
+import { calculateFromTaxInclusivePrice } from "@/lib/pricing";
 
 type RouteContext = { params: Promise<{ id: string; itemId: string }> };
 
@@ -51,7 +53,12 @@ export async function PATCH(req: Request, context: RouteContext) {
     const data: Record<string, unknown> = { ...rest };
 
     if (unitPrice !== undefined) {
+      const existingTax = (existingItem as any)?.taxPercent;
+      const taxPercent = existingTax ? Number(String(existingTax)) : 18;
+      const { priceWithoutTax, taxAmount } = calculateFromTaxInclusivePrice(unitPrice, taxPercent);
       data.unitPrice = mongoose.Types.Decimal128.fromString(unitPrice.toFixed(2));
+      data.priceWithoutTax = mongoose.Types.Decimal128.fromString(priceWithoutTax.toFixed(2));
+      data.taxAmount = mongoose.Types.Decimal128.fromString(taxAmount.toFixed(2));
     }
 
     // Moving an item to another room is only allowed inside the same quotation.
@@ -80,7 +87,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       })
       .populate({ path: "productVariant" });
 
-    return apiSuccess(item);
+    return apiSuccess(normalizeQuotationItem(item));
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/quotations/[id]/items/[itemId]" });
   }

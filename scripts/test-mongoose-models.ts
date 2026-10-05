@@ -84,16 +84,29 @@ async function runModelValidation() {
     _id: 9999,
     name: "Test Switch Board",
     type: "switch_board",
-    price: "1500.50",
     unit: "pcs",
     isMatrix: true,
     matrixDimensions: [{ key: "finish", label: "Finish", options: ["glass", "metal"] }],
   });
 
   const productJson = testProduct.toJSON();
-  console.log(`Product instance created: ID=${productJson.id}, Name=${productJson.name}, Price=${productJson.price}`);
+  console.log(`Product instance created: ID=${productJson.id}, Name=${productJson.name}`);
   if (productJson.id !== 9999) throw new Error("Product ID virtual failed");
-  if (productJson.price !== "1500.50") throw new Error(`Decimal getter failed: got ${productJson.price}`);
+
+  const testVariant = new ProductVariant({
+    _id: 8888,
+    productId: 9999,
+    priceWithoutTax: "4914.41",
+    taxPercent: "18.00",
+    price: "5799.00",
+    cost: "0.00",
+    purchaseTaxPercent: "18.00",
+  });
+  const variantJson = testVariant.toJSON() as any;
+  console.log(`Variant instance created: ID=${variantJson.id}, Price=${variantJson.price}, PreTax=${variantJson.priceWithoutTax}, TaxAmount=${variantJson.taxAmount}`);
+  if (variantJson.price !== "5799.00") throw new Error("Variant price failed");
+  if (variantJson.priceWithoutTax !== "4914.41") throw new Error("Variant priceWithoutTax failed");
+  if (variantJson.taxAmount !== "884.59") throw new Error("Variant taxAmount virtual failed");
 
   const testQuotation = new Quotation({
     _id: "cuid_test_123",

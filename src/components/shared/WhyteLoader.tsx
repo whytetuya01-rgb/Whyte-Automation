@@ -34,15 +34,14 @@ export default function WhyteLoader({
     >
       <div className="relative flex flex-col items-center justify-center">
         {/* Logo Container with Left-to-Right Reveal Animation */}
-        <div className="relative w-[180px] sm:w-[220px] md:w-[250px] aspect-[43/10] flex items-center justify-center">
+        <div className="relative w-[150px] sm:w-[180px] md:w-[200px] aspect-[4305/1000] flex items-center justify-center">
           {/* Base Layer: Subdued background track */}
           <div className="absolute inset-0 flex items-center justify-center opacity-15 pointer-events-none">
             <WhyteLogo
               theme="light"
               alt="Whyte Automations"
-              width={250}
+              size="loader"
               preload
-              className="w-full h-auto"
             />
           </div>
 
@@ -51,8 +50,7 @@ export default function WhyteLoader({
             <WhyteLogo
               theme="light"
               alt="Whyte Automations"
-              width={250}
-              className="w-full h-auto"
+              size="loader"
             />
           </div>
         </div>

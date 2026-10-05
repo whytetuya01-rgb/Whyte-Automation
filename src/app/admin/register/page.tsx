@@ -100,7 +100,9 @@ export default function AdminRegisterPage() {
       <section className="relative min-h-[250px] overflow-hidden bg-black p-6 text-white sm:p-10 lg:min-h-screen lg:p-14">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(212,106,140,0.10),transparent_42%),linear-gradient(to_right,rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:auto,36px_36px,36px_36px]" />
         <div className="relative flex h-full flex-col justify-between">
-          <div className="inline-flex w-fit items-center rounded-2xl bg-white px-3.5 py-2 shadow-md"><WhyteLogo theme="light" alt="Whyte logo" width={160} preload className="h-7 sm:h-8" /></div>
+          <div className="inline-flex w-fit items-center rounded-xl bg-white px-3 py-1.5 shadow-xs">
+            <WhyteLogo theme="light" alt="Whyte logo" size="login" preload />
+          </div>
           <div className="my-8 max-w-lg lg:my-auto">
             <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-admin-primary/30 bg-admin-primary/10 px-3 py-1.5 text-xs font-medium text-admin-primary"><ShieldCheck size={14} /> Dealer access</div>
             <h1 className="text-2xl font-bold leading-tight tracking-tight sm:text-3xl lg:text-4xl">Get started with Whyte Automations.</h1>

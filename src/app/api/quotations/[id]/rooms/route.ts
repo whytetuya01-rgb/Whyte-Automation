@@ -5,6 +5,7 @@ import { isBathroomLikeRoomName } from "@/lib/utils";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationRoomSchema, parseQuotationId } from "@/lib/validation/quotation";
+import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -66,7 +67,7 @@ export async function POST(req: Request, context: RouteContext) {
       .populate({ path: "roomType" })
       .populate({ path: "items" });
 
-    return apiSuccess(populatedRoom, { status: 201 });
+    return apiSuccess(normalizeQuotationRoom(populatedRoom), { status: 201 });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/rooms" });
   }

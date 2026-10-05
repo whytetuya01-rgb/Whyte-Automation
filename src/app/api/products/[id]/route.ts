@@ -14,6 +14,7 @@ import {
 } from "@/lib/api-response";
 import { updateProductSchema } from "@/lib/validation/product";
 import { getProductDependencies } from "@/lib/dependencies";
+import { normalizeProduct } from "@/lib/quotationNormalization";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -41,7 +42,7 @@ export async function GET(_req: Request, context: RouteContext) {
     if (!product) {
       throw new ApiError("NOT_FOUND", "Product not found.");
     }
-    return NextResponse.json(product);
+    return NextResponse.json(normalizeProduct(product.toObject ? product.toObject() : product));
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products/[id]" });
   }
@@ -136,21 +137,6 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
     }
 
-    // Product.price is a derived convenience field: it always mirrors the
-    // cheapest variant price. Recompute whenever the update could change it.
-    if (typeof data.isActive === "boolean" || data.categoryId !== undefined) {
-      const cheapest = await ProductVariant.find({ productId, isActive: true })
-        .sort({ price: 1 })
-        .select("price")
-        .lean();
-      if (cheapest.length > 0) {
-        const first = cheapest[0] as { price?: unknown };
-        if (first?.price !== undefined && first.price !== null) {
-          data.price = mongoose.Types.Decimal128.fromString(String(first.price));
-        }
-      }
-    }
-
     data.updatedAt = new Date();
 
     const updatedProduct = await withTransaction(async (dbSession) => {
@@ -170,7 +156,9 @@ export async function PATCH(req: Request, context: RouteContext) {
       });
     });
 
-    return apiSuccess(updatedProduct);
+    return apiSuccess(
+      normalizeProduct(updatedProduct?.toObject ? updatedProduct.toObject() : updatedProduct)
+    );
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/products/[id]" });
   }

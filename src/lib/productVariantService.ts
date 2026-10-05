@@ -1,5 +1,6 @@
-import { getCategoryVariantMatrix } from "@/lib/categoryConfig";
+import { getCategoryVariantMatrix, formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import type { ApiErrorCode } from "@/lib/api-response";
+import { resolveVariantPricing } from "@/lib/pricing";
 
 /**
  * Pure (database-free) variant matrix rules, shared by the API routes and the
@@ -22,6 +23,11 @@ export interface NormalizedVariantRow {
   displayName: string;
   variantCode: string;
   price: number;
+  priceWithoutTax: number;
+  taxPercent: number;
+  taxAmount: number;
+  cost: number;
+  purchaseTaxPercent: number;
   sortOrder: number;
 }
 
@@ -55,6 +61,15 @@ function buildCombinationSet(category: {
   const matrix = getCategoryVariantMatrix(category);
   const allowed = new Set<string>();
   const displayNames = new Map<string, string>();
+
+  if (!matrix.hasMatrix) {
+    // Mode 2: Category has NO configured Automation Tier and NO configured Surface Finish.
+    // Represents ONE single generic variant: automationTier = null, surfaceFinish = null.
+    const key = combinationKey(null, null);
+    allowed.add(key);
+    displayNames.set(key, "Standard");
+    return { allowed, displayNames };
+  }
 
   for (const combination of matrix.combinations) {
     const key = combinationKey(combination.automationTier, combination.surfaceFinish);
@@ -160,6 +175,10 @@ export function normalizeVariantRows(rows: Array<{
   surfaceFinish?: unknown;
   variantCode?: unknown;
   price?: unknown;
+  priceWithoutTax?: unknown;
+  taxPercent?: unknown;
+  cost?: unknown;
+  purchaseTaxPercent?: unknown;
   sortOrder?: unknown;
 }>): NormalizedVariantRow[] {
   return rows.map((row, index) => {
@@ -172,12 +191,25 @@ export function normalizeVariantRows(rows: Array<{
         ? null
         : String(row.surfaceFinish).trim() || null;
 
+    const pricing = resolveVariantPricing({
+      price: row.price,
+      priceWithoutTax: row.priceWithoutTax,
+      taxPercent: row.taxPercent,
+      cost: row.cost,
+      purchaseTaxPercent: row.purchaseTaxPercent,
+    });
+
     return {
       automationTier,
       surfaceFinish,
       displayName: buildVariantDisplayName(automationTier, surfaceFinish),
       variantCode: String(row.variantCode ?? "").trim(),
-      price: Number(row.price ?? 0),
+      price: pricing.price,
+      priceWithoutTax: pricing.priceWithoutTax,
+      taxPercent: pricing.taxPercent,
+      taxAmount: pricing.taxAmount,
+      cost: pricing.cost,
+      purchaseTaxPercent: pricing.purchaseTaxPercent,
       sortOrder: typeof row.sortOrder === "number" ? row.sortOrder : index,
     };
   });
@@ -187,8 +219,10 @@ export function buildVariantDisplayName(
   automationTier: string | null,
   surfaceFinish: string | null
 ): string {
-  if (automationTier && surfaceFinish) return `${automationTier} · ${surfaceFinish}`;
-  return automationTier ?? surfaceFinish ?? "Standard";
+  const tierLabel = formatTierLabel(automationTier);
+  const finishLabel = formatFinishLabel(surfaceFinish);
+  if (tierLabel && finishLabel) return `${tierLabel} · ${finishLabel}`;
+  return tierLabel ?? finishLabel ?? "Standard";
 }
 
 export interface VariantCodeRule {
@@ -299,10 +333,20 @@ export type VariantMatrixStatus = "active" | "removed" | "not_added";
 
 export interface VariantMatrixActiveVariant {
   id: number;
+  productId: number;
+  automationTier: string | null;
+  surfaceFinish: string | null;
+  tierLabel?: string | null;
+  finishLabel?: string | null;
   variantCode: string;
   code: string;
   name: string | null;
   price: string;
+  priceWithoutTax: string;
+  taxPercent: string;
+  taxAmount: string;
+  cost: string;
+  purchaseTaxPercent: string;
   isActive: boolean;
   sortOrder: number;
 }
@@ -313,6 +357,11 @@ export interface VariantMatrixHistorySnapshot {
   previousVariantId: number;
   variantCode: string | null;
   price: string | null;
+  priceWithoutTax: string | null;
+  taxPercent: string | null;
+  taxAmount: string | null;
+  cost: string | null;
+  purchaseTaxPercent: string | null;
   name: string | null;
   reason: string;
   deletedAt: string;
@@ -362,6 +411,7 @@ export interface VariantMatrixSnapshot {
 interface RawVariant {
   id?: number | null;
   _id?: number | null;
+  productId?: unknown;
   automationTier?: unknown;
   surfaceFinish?: unknown;
   variantCode?: unknown;
@@ -369,6 +419,10 @@ interface RawVariant {
   name?: unknown;
   config?: unknown;
   price?: unknown;
+  priceWithoutTax?: unknown;
+  taxPercent?: unknown;
+  cost?: unknown;
+  purchaseTaxPercent?: unknown;
   isActive?: unknown;
   sortOrder?: unknown;
 }
@@ -381,6 +435,10 @@ interface RawHistory {
   surfaceFinish?: unknown;
   variantCode?: unknown;
   price?: unknown;
+  priceWithoutTax?: unknown;
+  taxPercent?: unknown;
+  cost?: unknown;
+  purchaseTaxPercent?: unknown;
   name?: unknown;
   reason?: unknown;
   deletedAt?: unknown;
@@ -459,7 +517,19 @@ export function buildVariantMatrixSnapshot(params: {
     }
   >();
 
-  for (const combination of matrix.combinations) {
+  const combinationsToIterate = matrix.hasMatrix
+    ? matrix.combinations
+    : [
+        {
+          automationTier: null,
+          surfaceFinish: null,
+          tierLabel: null,
+          finishLabel: null,
+          displayName: "Standard",
+        },
+      ];
+
+  for (const combination of combinationsToIterate) {
     const key = combinationKey(combination.automationTier, combination.surfaceFinish);
     allowed.add(key);
     matrixMeta.set(key, {
@@ -486,7 +556,11 @@ export function buildVariantMatrixSnapshot(params: {
   for (const variant of sortedVariants) {
     const id = Number(variant.id ?? variant._id ?? 0);
     const combination = resolveVariantCombination(variant);
-    const key = combinationKey(combination.automationTier, combination.surfaceFinish);
+    const rawKey = combinationKey(combination.automationTier, combination.surfaceFinish);
+    const key =
+      !matrix.hasMatrix && !claimedKeys.has(combinationKey(null, null))
+        ? combinationKey(null, null)
+        : rawKey;
     const code = String(variant.variantCode ?? variant.code ?? "").trim();
 
     if (!allowed.has(key)) {
@@ -516,12 +590,33 @@ export function buildVariantMatrixSnapshot(params: {
     }
 
     claimedKeys.add(key);
+    const pricing = resolveVariantPricing({
+      price: variant.price,
+      priceWithoutTax: variant.priceWithoutTax,
+      taxPercent: variant.taxPercent,
+      cost: variant.cost,
+      purchaseTaxPercent: variant.purchaseTaxPercent,
+    });
+
+    const tier = matrix.hasMatrix ? combination.automationTier : null;
+    const finish = matrix.hasMatrix ? combination.surfaceFinish : null;
+
     activeByKey.set(key, {
       id,
+      productId: Number(variant.productId ?? 0),
+      automationTier: tier,
+      surfaceFinish: finish,
+      tierLabel: formatTierLabel(tier),
+      finishLabel: formatFinishLabel(finish),
       variantCode: code,
       code: String(variant.code ?? "").trim(),
-      name: asTrimmedOrNull(variant.name),
-      price: toPriceString(variant.price),
+      name: asTrimmedOrNull(variant.name) ?? buildVariantDisplayName(tier, finish),
+      price: pricing.price.toFixed(2),
+      priceWithoutTax: pricing.priceWithoutTax.toFixed(2),
+      taxPercent: pricing.taxPercent.toFixed(2),
+      taxAmount: pricing.taxAmount.toFixed(2),
+      cost: pricing.cost.toFixed(2),
+      purchaseTaxPercent: pricing.purchaseTaxPercent.toFixed(2),
       isActive: variant.isActive !== false,
       sortOrder: typeof variant.sortOrder === "number" ? variant.sortOrder : 0,
     });
@@ -531,16 +626,33 @@ export function buildVariantMatrixSnapshot(params: {
   const historyByKey = new Map<string, VariantMatrixHistorySnapshot>();
   for (const entry of params.history ?? []) {
     const combination = resolveVariantCombination(entry);
-    const key = combinationKey(combination.automationTier, combination.surfaceFinish);
+    const rawKey = combinationKey(combination.automationTier, combination.surfaceFinish);
+    const key =
+      !matrix.hasMatrix && !historyByKey.has(combinationKey(null, null))
+        ? combinationKey(null, null)
+        : rawKey;
     const deletedAt = toDateString(entry.deletedAt);
     const existing = historyByKey.get(key);
     if (existing && existing.deletedAt > deletedAt) continue;
+
+    const histPricing = resolveVariantPricing({
+      price: entry.price,
+      priceWithoutTax: entry.priceWithoutTax,
+      taxPercent: entry.taxPercent,
+      cost: entry.cost,
+      purchaseTaxPercent: entry.purchaseTaxPercent,
+    });
 
     historyByKey.set(key, {
       historyId: Number(entry.id ?? entry._id ?? 0),
       previousVariantId: Number(entry.variantId ?? 0),
       variantCode: asTrimmedOrNull(entry.variantCode),
       price: toPriceString(entry.price) || null,
+      priceWithoutTax: histPricing.priceWithoutTax > 0 ? histPricing.priceWithoutTax.toFixed(2) : null,
+      taxPercent: histPricing.taxPercent.toFixed(2),
+      taxAmount: histPricing.taxAmount.toFixed(2),
+      cost: histPricing.cost.toFixed(2),
+      purchaseTaxPercent: histPricing.purchaseTaxPercent.toFixed(2),
       name: asTrimmedOrNull(entry.name),
       reason: typeof entry.reason === "string" ? entry.reason : "hard_delete",
       deletedAt,
@@ -553,7 +665,7 @@ export function buildVariantMatrixSnapshot(params: {
   let removedCount = 0;
   let notAddedCount = 0;
 
-  for (const combination of matrix.combinations) {
+  for (const combination of combinationsToIterate) {
     const key = combinationKey(combination.automationTier, combination.surfaceFinish);
     const meta = matrixMeta.get(key);
     if (!meta) continue;
@@ -613,18 +725,40 @@ export function findVariantCodeOwner(
  * `{$numberDecimal: "..."}` object a raw document would serialize to.
  */
 export function serializeVariant(
-  variant: RawVariant & { _id?: unknown; id?: unknown }
+  variant: RawVariant & { _id?: unknown; id?: unknown; productId?: unknown }
 ): VariantMatrixActiveVariant {
   const id = Number(variant.id ?? variant._id ?? 0);
+  const productId = Number(variant.productId ?? 0);
   const variantCode = String(variant.variantCode ?? variant.code ?? "").trim();
   const combination = resolveVariantCombination(variant);
 
+  const pricing = resolveVariantPricing({
+    price: variant.price,
+    priceWithoutTax: variant.priceWithoutTax,
+    taxPercent: variant.taxPercent,
+    cost: variant.cost,
+    purchaseTaxPercent: variant.purchaseTaxPercent,
+  });
+
+  const tier = combination.automationTier;
+  const finish = combination.surfaceFinish;
+
   return {
     id,
+    productId,
+    automationTier: tier,
+    surfaceFinish: finish,
+    tierLabel: formatTierLabel(tier),
+    finishLabel: formatFinishLabel(finish),
     variantCode,
     code: String(variant.code ?? variantCode).trim(),
-    name: asTrimmedOrNull(variant.name) ?? buildVariantDisplayName(combination.automationTier, combination.surfaceFinish),
-    price: toPriceString(variant.price),
+    name: asTrimmedOrNull(variant.name) ?? buildVariantDisplayName(tier, finish),
+    price: pricing.price.toFixed(2),
+    priceWithoutTax: pricing.priceWithoutTax.toFixed(2),
+    taxPercent: pricing.taxPercent.toFixed(2),
+    taxAmount: pricing.taxAmount.toFixed(2),
+    cost: pricing.cost.toFixed(2),
+    purchaseTaxPercent: pricing.purchaseTaxPercent.toFixed(2),
     isActive: variant.isActive !== false,
     sortOrder: typeof variant.sortOrder === "number" ? variant.sortOrder : 0,
   };

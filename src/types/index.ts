@@ -1,4 +1,4 @@
-export type ProductType = "switch_board" | "accessory" | "retrofit" | "curtain" | "smart_lock" | "vdp" | "other";
+export type ProductType = "switch_board" | "accessory" | "curtain" | "smart_lock" | "vdp" | "other";
 
 /** A single option in a category's variant dimension. e.g. { value: "wifi", label: "WiFi Smart" } */
 export interface VariantOption {
@@ -44,10 +44,17 @@ export interface ProductVariant {
   variantCode?: string | null;
   name?: string | null;
   code?: string | null;
-  automationTier: string | null;  // kept for backward compat
-  surfaceFinish: string | null;   // kept for backward compat
-  config: Record<string, string>; // NEW: generic N-dim config
-  price: string;
+  automationTier: string | null;
+  surfaceFinish: string | null;
+  tierLabel?: string | null;
+  finishLabel?: string | null;
+  config?: Record<string, string>;
+  priceWithoutTax?: string;
+  taxPercent?: string;
+  taxAmount?: string;
+  price: string;                  // final selling price INCLUDING tax
+  cost?: string;
+  purchaseTaxPercent?: string;
   isActive: boolean;
   sortOrder: number;
   createdAt?: string;
@@ -64,7 +71,7 @@ export interface Product {
   category?: Category;
   automationTier?: string | null;
   surfaceFinish?: string | null;
-  price: string;           // min variant price (or flat price for display)
+  price?: string;                 // optional legacy display field; variant is source of truth
   unit: string;
   imageUrl: string | null;
   moduleSize?: string | null;
@@ -87,10 +94,14 @@ export interface QuotationItem {
   productVariantId: number | null;
   productVariant?: ProductVariant | null;
   variantLabel: string | null;
-  variantConfig: Record<string, string> | null; // NEW: config snapshot
+  variantConfig: Record<string, string> | null; // config snapshot
   sbNumber: string | null;
   quantity: number;
   unitPrice: string;
+  priceWithoutTax?: string;
+  taxPercent?: string;
+  taxAmount?: string;
+  linePrice?: number;
   notes: string | null;
   sortOrder: number;
 }
@@ -105,6 +116,8 @@ export interface QuotationRoom {
   notes: string | null;
   sortOrder: number;
   items: QuotationItem[];
+  subtotal?: number;
+  productsCount?: number;
 }
 
 export interface Quotation {
@@ -121,6 +134,14 @@ export interface Quotation {
   notes: string | null;
   discountType: DiscountType | null;
   discountValue: string | null;
+  discountAmount?: number;
+  subtotal?: number;
+  totalAmount?: number;
+  grandTotal?: number;
+  productsCount?: number;
+  totalProducts?: number;
+  earningPercent?: number;
+  estimatedEarning?: number;
   allocatedDiscountPercent?: number | null;
   customerDiscountPercent?: number | null;
   estimatedEarningPercent?: number | null;

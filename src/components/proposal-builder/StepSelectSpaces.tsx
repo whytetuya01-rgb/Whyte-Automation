@@ -62,7 +62,7 @@ export default function StepSelectSpaces({
   const selectedHouseType = useMemo(() => {
     if (!quotation.houseTypeId || houseTypes.length === 0) return null;
     return (
-      houseTypes.find((ht) => ht.id === quotation.houseTypeId) ||
+      houseTypes.find((ht) => (ht.id ?? (ht as any)._id) === quotation.houseTypeId) ||
       null
     );
   }, [quotation.houseTypeId, houseTypes]);
@@ -128,11 +128,14 @@ export default function StepSelectSpaces({
 
   // Add a standard room preset
   const handleAddPreset = async (preset: ResolvedRoomPreset) => {
-    await onAddRoom(preset.roomTypeId ?? null, preset.name);
+    await onAddRoom(preset.roomTypeId ? Number(preset.roomTypeId) : null, preset.name);
   };
 
   // Remove a room (prompts if room has configured items, unselects immediately if empty)
   const handleRemovePreset = async (room: QuotationRoom) => {
+    const roomId = Number(room.id ?? (room as any)._id);
+    if (!roomId) return;
+
     if (room.items && room.items.length > 0) {
       await confirm({
         title: "Remove Space",
@@ -145,14 +148,14 @@ export default function StepSelectSpaces({
         variant: "danger",
         onConfirm: async () => {
           try {
-            await onDeleteRoom(room.id);
+            await onDeleteRoom(roomId);
           } catch {
             notify.error("Unable to remove space", "Failed to remove this space. Please try again.");
           }
         },
       });
     } else {
-      await onDeleteRoom(room.id);
+      await onDeleteRoom(roomId);
     }
   };
 
@@ -179,13 +182,14 @@ export default function StepSelectSpaces({
 
     // Match rooms in this quotation matching preset roomTypeId or matching custom name
     const matchingRooms = existingRooms.filter((r) => {
-      if (preset.roomTypeId && r.roomTypeId === preset.roomTypeId) return true;
-      if (!r.roomTypeId && r.customName?.toLowerCase() === preset.name.toLowerCase()) return true;
+      const rRoomTypeId = r.roomTypeId !== undefined && r.roomTypeId !== null ? Number(r.roomTypeId) : null;
+      if (preset.roomTypeId && rRoomTypeId === Number(preset.roomTypeId)) return true;
+      if (!rRoomTypeId && r.customName && preset.name && r.customName.trim().toLowerCase() === preset.name.trim().toLowerCase()) return true;
       return false;
     });
 
     const isSelected = matchingRooms.length > 0;
-    const totalItems = matchingRooms.reduce((acc, r) => acc + (r.items ? r.items.length : 0), 0);
+    const totalItems = matchingRooms.reduce((acc, r) => acc + (r.items || []).reduce((sum, item) => sum + (item.quantity || 1), 0), 0);
 
     return (
       <div
@@ -345,7 +349,7 @@ export default function StepSelectSpaces({
                   } Configured`}
             </h3>
             <p className="text-xs text-gray-400">
-              {existingRooms.reduce((acc, r) => acc + (r.items ? r.items.length : 0), 0)} devices planned across
+              {existingRooms.reduce((acc, r) => acc + (r.items || []).reduce((sum, item) => sum + (item.quantity || 1), 0), 0)} devices planned across
               selected areas
             </p>
           </div>
@@ -355,7 +359,7 @@ export default function StepSelectSpaces({
           <div className="flex flex-wrap gap-1.5 max-w-2xl">
             {existingRooms.map((r) => (
               <span
-                key={r.id}
+                key={r.id ?? (r as any)._id}
                 className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gray-50 border border-gray-200 text-gray-800 text-xs font-semibold"
               >
                 {r.customName ?? r.roomType?.name ?? "Room"}
@@ -531,9 +535,10 @@ export default function StepSelectSpaces({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3.5">
             {customRooms.map((room) => {
               const subtotal = getRoomSubtotal(room);
+              const deviceCount = (room.items || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
               return (
                 <div
-                  key={room.id}
+                  key={room.id ?? (room as any)._id}
                   className="bg-gray-950 text-white rounded-2xl p-4 shadow-xs relative group flex flex-col justify-between min-h-[135px]"
                 >
                   <div className="flex items-center justify-between">
@@ -552,7 +557,7 @@ export default function StepSelectSpaces({
                   <div className="mt-3">
                     <p className="font-bold text-sm sm:text-base truncate">{room.customName}</p>
                     <p className="text-xs text-gray-300 mt-0.5">
-                      {room.items.length} {room.items.length === 1 ? "device" : "devices"}
+                      {deviceCount} {deviceCount === 1 ? "device" : "devices"}
                       {subtotal > 0 && ` • ${formatCurrency(subtotal)}`}
                     </p>
                   </div>

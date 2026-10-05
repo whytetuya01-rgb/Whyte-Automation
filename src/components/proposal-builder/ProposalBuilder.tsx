@@ -22,6 +22,23 @@ import StepReview from "./StepReview";
 import StepProposalPreview from "./StepProposalPreview";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import StatusBadge from "@/components/shared/StatusBadge";
+import {
+  normalizeQuotation,
+  normalizeCategories,
+  normalizeRoomTypes,
+  normalizeHouseTypes,
+} from "@/lib/quotationNormalization";
+
+function extractErrorMessage(err: any, fallback: string): string {
+  if (!err) return fallback;
+  if (typeof err === "string") return err;
+  if (err.error) {
+    if (typeof err.error === "string") return err.error;
+    if (typeof err.error === "object" && err.error.message) return err.error.message;
+  }
+  if (err.message && typeof err.message === "string") return err.message;
+  return fallback;
+}
 
 interface Props {
   initialQuotation?: Quotation | null;
@@ -53,11 +70,13 @@ export default function ProposalBuilder({
   );
 
   // Core Data States
-  const [quotation, setQuotation] = useState<Quotation | null>(initialQuotation);
-  const [houseTypes, setHouseTypes] = useState<HouseType[]>(initialHouseTypes);
+  const [quotation, setQuotation] = useState<Quotation | null>(
+    initialQuotation ? normalizeQuotation(initialQuotation) : null
+  );
+  const [houseTypes, setHouseTypes] = useState<HouseType[]>(normalizeHouseTypes(initialHouseTypes));
   const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [categories, setCategories] = useState<Category[]>(initialCategories);
-  const [roomTypes, setRoomTypes] = useState<RoomType[]>(initialRoomTypes);
+  const [categories, setCategories] = useState<Category[]>(normalizeCategories(initialCategories));
+  const [roomTypes, setRoomTypes] = useState<RoomType[]>(normalizeRoomTypes(initialRoomTypes));
   const [company, setCompany] = useState<Company | null>(initialCompany);
 
   // Fetch status ref to guard against redundant/duplicate network fetches
@@ -70,9 +89,9 @@ export default function ProposalBuilder({
   });
 
   // Active Room state for Step 3
-  const [activeRoomId, setActiveRoomId] = useState<number | null>(
-    initialQuotation?.rooms?.[0]?.id ?? null
-  );
+  const initialRooms = initialQuotation?.rooms || [];
+  const firstRoomId = initialRooms.length > 0 ? (initialRooms[0].id ?? (initialRooms[0] as any)._id) : null;
+  const [activeRoomId, setActiveRoomId] = useState<number | null>(firstRoomId);
 
   // Loading & Saving States
   const [isDataLoading, setIsDataLoading] = useState(false);
@@ -80,6 +99,20 @@ export default function ProposalBuilder({
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
 
   const quotationId = quotation?.id;
+
+  // Browser Back/Forward navigation synchronization
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const s = params.get("step");
+      if (s) {
+        const p = parseInt(s, 10) as ProposalStep;
+        if (p >= 1 && p <= 5) setCurrentStep(p);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   // Keep URL updated with current step
   const navigateToStep = useCallback(
@@ -100,9 +133,15 @@ export default function ProposalBuilder({
       const res = await fetch(`/api/quotations/${quotationId}`);
       if (res.ok) {
         const fresh = await res.json();
-        setQuotation(fresh);
-        if (activeRoomId === null && fresh.rooms?.length > 0) {
-          setActiveRoomId(fresh.rooms[0].id);
+        const normalized = normalizeQuotation(fresh);
+        setQuotation(normalized);
+        const validRooms = normalized.rooms || [];
+        if (validRooms.length > 0) {
+          if (!activeRoomId || !validRooms.some((r) => r.id === activeRoomId)) {
+            setActiveRoomId(validRooms[0].id);
+          }
+        } else {
+          setActiveRoomId(null);
         }
       }
     } catch (e) {
@@ -117,7 +156,7 @@ export default function ProposalBuilder({
       fetchStatusRef.current.houseTypes = true;
       fetch("/api/house-types")
         .then((r) => (r.ok ? r.json() : []))
-        .then((data) => setHouseTypes(Array.isArray(data) ? data : []))
+        .then((data) => setHouseTypes(normalizeHouseTypes(Array.isArray(data) ? data : [])))
         .catch(() => setHouseTypes([]));
     }
 
@@ -125,7 +164,7 @@ export default function ProposalBuilder({
       fetchStatusRef.current.roomTypes = true;
       fetch("/api/room-types")
         .then((r) => (r.ok ? r.json() : []))
-        .then((data) => setRoomTypes(Array.isArray(data) ? data : []))
+        .then((data) => setRoomTypes(normalizeRoomTypes(Array.isArray(data) ? data : [])))
         .catch(() => setRoomTypes([]));
     }
 
@@ -136,9 +175,20 @@ export default function ProposalBuilder({
         fetch("/api/products")
           .then((r) => (r.ok ? r.json() : []))
           .then((data) => {
-            if (Array.isArray(data)) setProducts(data);
-            else if (Array.isArray(data?.items)) setProducts(data.items);
-            else setProducts([]);
+            const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
+            setProducts(
+              list.map((p: any) => ({
+                ...p,
+                id: Number(p.id ?? p._id),
+                variants: Array.isArray(p.variants)
+                  ? p.variants.map((v: any) => ({
+                      ...v,
+                      id: Number(v.id ?? v._id),
+                      price: String(v.price),
+                    }))
+                  : [],
+              }))
+            );
           })
           .catch(() => setProducts([]));
       }
@@ -147,7 +197,7 @@ export default function ProposalBuilder({
         fetchStatusRef.current.categories = true;
         fetch("/api/categories")
           .then((r) => (r.ok ? r.json() : []))
-          .then((data) => setCategories(Array.isArray(data) ? data : []))
+          .then((data) => setCategories(normalizeCategories(Array.isArray(data) ? data : [])))
           .catch(() => setCategories([]));
       }
     }
@@ -192,7 +242,7 @@ export default function ProposalBuilder({
 
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || "Failed to create quotation");
+          throw new Error(extractErrorMessage(err, "Failed to create quotation"));
         }
 
         const resJson = await res.json();
@@ -203,10 +253,14 @@ export default function ProposalBuilder({
         const fullRes = await fetch(`/api/quotations/${newQuote.id || newQuote._id}`);
         const fullJson = fullRes.ok ? await fullRes.json() : newQuote;
         const fullQuote = fullJson?.data ?? fullJson;
+        const normalized = normalizeQuotation(fullQuote);
 
-        setQuotation(fullQuote);
+        setQuotation(normalized);
+        if (normalized.rooms?.length > 0) {
+          setActiveRoomId(normalized.rooms[0].id);
+        }
         setSaveStatus("saved");
-        router.replace(`/quotation/${fullQuote.id}?step=2`);
+        router.replace(`/quotation/${normalized.id}?step=2`);
         setCurrentStep(2);
       } else {
         // Update existing quotation via PATCH /api/quotations/[id]
@@ -225,18 +279,23 @@ export default function ProposalBuilder({
         });
 
         if (!res.ok) {
-          throw new Error("Failed to update project details");
+          const err = await res.json().catch(() => ({}));
+          throw new Error(extractErrorMessage(err, "Failed to update project details"));
         }
 
         const resJson = await res.json();
         const updated = resJson?.data ?? resJson;
-        setQuotation(updated);
+        const normalized = normalizeQuotation(updated);
+        setQuotation(normalized);
+        if (normalized.rooms?.length > 0 && (!activeRoomId || !normalized.rooms.some((r) => r.id === activeRoomId))) {
+          setActiveRoomId(normalized.rooms[0].id);
+        }
         setSaveStatus("saved");
         toast.success("Project details saved");
         navigateToStep(2);
       }
     } catch (err: any) {
-      toast.error(err.message || "Failed to save project details");
+      toast.error(extractErrorMessage(err, "Failed to save project details"));
       setSaveStatus("unsaved");
     } finally {
       setIsSaving(false);
@@ -258,15 +317,21 @@ export default function ProposalBuilder({
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to add room");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to add room"));
+      }
       const roomRes = await res.json();
       const createdRoom = roomRes?.data ?? roomRes;
-      setActiveRoomId(createdRoom.id);
+      const createdId = Number(createdRoom.id ?? createdRoom._id);
+      if (createdId) {
+        setActiveRoomId(createdId);
+      }
       await refreshQuotation();
       setSaveStatus("saved");
       toast.success(`Space "${createdRoom.customName ?? "Room"}" added`);
     } catch (e: any) {
-      toast.error(e.message || "Failed to add room");
+      toast.error(extractErrorMessage(e, "Failed to add room"));
       setSaveStatus("unsaved");
     }
   };
@@ -279,18 +344,21 @@ export default function ProposalBuilder({
         method: "DELETE",
       });
 
-      if (!res.ok) throw new Error("Failed to remove room");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to remove room"));
+      }
 
       if (activeRoomId === roomId) {
-        const remaining = quotation.rooms.filter((r) => r.id !== roomId);
-        setActiveRoomId(remaining[0]?.id ?? null);
+        const remaining = (quotation.rooms || []).filter((r) => (r.id ?? (r as any)._id) !== roomId);
+        setActiveRoomId(remaining[0]?.id ?? (remaining[0] as any)?._id ?? null);
       }
 
       await refreshQuotation();
       setSaveStatus("saved");
       toast.success("Space removed");
     } catch (e: any) {
-      toast.error(e.message || "Failed to remove room");
+      toast.error(extractErrorMessage(e, "Failed to remove room"));
       setSaveStatus("unsaved");
     }
   };
@@ -303,6 +371,11 @@ export default function ProposalBuilder({
     variantConfig?: Record<string, string>
   ) => {
     if (!quotation?.id) return;
+    const targetRoomId = Number(roomId || activeRoomId || quotation.rooms?.[0]?.id);
+    if (!targetRoomId) {
+      toast.error("Please select a space before adding devices");
+      return;
+    }
     setSaveStatus("saving");
 
     try {
@@ -310,7 +383,7 @@ export default function ProposalBuilder({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          quotationRoomId: roomId,
+          quotationRoomId: targetRoomId,
           productId,
           productVariantId: productVariantId ?? undefined,
           variantConfig: variantConfig ?? undefined,
@@ -320,14 +393,14 @@ export default function ProposalBuilder({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || "Failed to add product");
+        throw new Error(extractErrorMessage(err, "Failed to add product"));
       }
 
       await refreshQuotation();
       setSaveStatus("saved");
       toast.success("Device added to space");
     } catch (e: any) {
-      toast.error(e.message || "Failed to add device");
+      toast.error(extractErrorMessage(e, "Failed to add device"));
       setSaveStatus("unsaved");
     }
   };
@@ -342,11 +415,14 @@ export default function ProposalBuilder({
         body: JSON.stringify(data),
       });
 
-      if (!res.ok) throw new Error("Failed to update item");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to update item"));
+      }
       await refreshQuotation();
       setSaveStatus("saved");
     } catch (e: any) {
-      toast.error(e.message || "Failed to update item");
+      toast.error(extractErrorMessage(e, "Failed to update item"));
       setSaveStatus("unsaved");
     }
   };
@@ -374,12 +450,15 @@ export default function ProposalBuilder({
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to replace product");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to replace product"));
+      }
       await refreshQuotation();
       setSaveStatus("saved");
       toast.success("Product replaced");
     } catch (e: any) {
-      toast.error(e.message || "Failed to replace product");
+      toast.error(extractErrorMessage(e, "Failed to replace product"));
       setSaveStatus("unsaved");
     }
   };
@@ -392,12 +471,15 @@ export default function ProposalBuilder({
         method: "DELETE",
       });
 
-      if (!res.ok) throw new Error("Failed to remove item");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to remove item"));
+      }
       await refreshQuotation();
       setSaveStatus("saved");
       toast.success("Device removed");
     } catch (e: any) {
-      toast.error(e.message || "Failed to remove item");
+      toast.error(extractErrorMessage(e, "Failed to remove item"));
       setSaveStatus("unsaved");
     }
   };
@@ -412,12 +494,15 @@ export default function ProposalBuilder({
         body: JSON.stringify({ notes: notes || null }),
       });
 
-      if (!res.ok) throw new Error("Failed to update notes");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to save notes"));
+      }
       await refreshQuotation();
       setSaveStatus("saved");
       toast.success("Notes saved");
     } catch (e: any) {
-      toast.error(e.message || "Failed to save notes");
+      toast.error(extractErrorMessage(e, "Failed to save notes"));
       setSaveStatus("unsaved");
     }
   };
@@ -440,12 +525,15 @@ export default function ProposalBuilder({
         }),
       });
 
-      if (!res.ok) throw new Error("Failed to apply discount");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to apply discount"));
+      }
       await refreshQuotation();
       setSaveStatus("saved");
       toast.success("Discount updated");
     } catch (e: any) {
-      toast.error(e.message || "Failed to update discount");
+      toast.error(extractErrorMessage(e, "Failed to update discount"));
       setSaveStatus("unsaved");
     }
   };

@@ -6,6 +6,9 @@ import { getNextSequence } from "@/lib/counter";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationItemSchema, parseQuotationId } from "@/lib/validation/quotation";
+import { normalizeQuotationItem } from "@/lib/quotationNormalization";
+import { resolveVariantPricing } from "@/lib/pricing";
+import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -18,6 +21,10 @@ interface VariantLike {
   automationTier?: string | null;
   surfaceFinish?: string | null;
   price?: unknown;
+  priceWithoutTax?: unknown;
+  taxPercent?: unknown;
+  cost?: unknown;
+  purchaseTaxPercent?: unknown;
 }
 
 /**
@@ -206,28 +213,41 @@ export async function POST(req: Request, context: RouteContext) {
       }
     }
 
-    const resolvedConfig = selectedVariant.config ?? {};
+    const tier = selectedVariant.automationTier;
+    const finish = selectedVariant.surfaceFinish;
+    const tierLbl = formatTierLabel(tier);
+    const finishLbl = formatFinishLabel(finish);
     const variantLabel =
-      buildVariantLabel(resolvedConfig) ??
-      (selectedVariant.automationTier || selectedVariant.surfaceFinish
-        ? [selectedVariant.automationTier, selectedVariant.surfaceFinish]
-            .filter(Boolean)
-            .map((s) => (s as string).charAt(0).toUpperCase() + (s as string).slice(1))
-            .join(" + ") || null
-        : null);
+      (tierLbl || finishLbl)
+        ? [tierLbl, finishLbl].filter(Boolean).join(" + ")
+        : (buildVariantLabel(selectedVariant.config ?? {}) ?? null);
 
     const nextItemId = await getNextSequence("quotationItem", QuotationItem);
 
-    // The unit price always comes from the resolved variant, never from the client.
+    const variantPricing = resolveVariantPricing({
+      price: selectedVariant.price,
+      priceWithoutTax: selectedVariant.priceWithoutTax,
+      taxPercent: selectedVariant.taxPercent,
+    });
+
+    const resolvedConfig =
+      variantConfig && Object.keys(variantConfig).length > 0
+        ? variantConfig
+        : (selectedVariant.config ?? null);
+
+    // The unit price and tax snapshot always come from the resolved variant, never from the client.
     await QuotationItem.create({
       _id: nextItemId,
       quotationRoomId,
       productId,
       productVariantId: selectedVariant.id ?? selectedVariant._id,
       quantity: Math.max(1, quantity ?? 1),
-      unitPrice: toDecimal128(selectedVariant.price),
+      unitPrice: mongoose.Types.Decimal128.fromString(variantPricing.price.toFixed(2)),
+      priceWithoutTax: mongoose.Types.Decimal128.fromString(variantPricing.priceWithoutTax.toFixed(2)),
+      taxPercent: mongoose.Types.Decimal128.fromString(variantPricing.taxPercent.toFixed(2)),
+      taxAmount: mongoose.Types.Decimal128.fromString(variantPricing.taxAmount.toFixed(2)),
       variantLabel,
-      variantConfig: Object.keys(resolvedConfig).length > 0 ? resolvedConfig : null,
+      variantConfig: resolvedConfig && Object.keys(resolvedConfig).length > 0 ? resolvedConfig : null,
       sbNumber: sbNumber ?? null,
       notes: notes ?? null,
       sortOrder: 0,
@@ -240,7 +260,7 @@ export async function POST(req: Request, context: RouteContext) {
       })
       .populate({ path: "productVariant" });
 
-    return apiSuccess(populatedItem, { status: 201 });
+    return apiSuccess(normalizeQuotationItem(populatedItem), { status: 201 });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/items" });
   }

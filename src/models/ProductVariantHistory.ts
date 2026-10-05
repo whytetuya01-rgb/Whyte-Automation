@@ -32,7 +32,11 @@ export interface IProductVariantHistory {
   automationTier: string | null;
   surfaceFinish: string | null;
   config: Record<string, unknown>;
+  priceWithoutTax?: mongoose.Types.Decimal128 | string | null;
+  taxPercent?: mongoose.Types.Decimal128 | string | null;
   price: mongoose.Types.Decimal128 | string | null;
+  cost?: mongoose.Types.Decimal128 | string | null;
+  purchaseTaxPercent?: mongoose.Types.Decimal128 | string | null;
   isActive: boolean;
   sortOrder: number;
   /** Why the variant was removed. */
@@ -60,7 +64,11 @@ const ProductVariantHistorySchema = new Schema<IProductVariantHistoryDocument>(
     automationTier: { type: String, default: null },
     surfaceFinish: { type: String, default: null },
     config: { type: mongoose.Schema.Types.Mixed, default: () => ({}) },
+    priceWithoutTax: createDecimalField({ default: null, required: false }),
+    taxPercent: createDecimalField({ default: null, required: false }),
     price: createDecimalField({ default: null, required: false }),
+    cost: createDecimalField({ default: null, required: false }),
+    purchaseTaxPercent: createDecimalField({ default: null, required: false }),
     isActive: { type: Boolean, default: true },
     sortOrder: { type: Number, default: 0 },
     reason: { type: String, default: "hard_delete" },

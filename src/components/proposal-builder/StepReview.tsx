@@ -7,6 +7,7 @@ import {
   MapPin,
   Package,
   Plus,
+  Minus,
   Trash2,
   ArrowLeft,
   ArrowRight,
@@ -262,12 +263,12 @@ export default function StepReview({
     setSelectorState({
       isOpen: true,
       mode: "add",
-      roomId,
+      roomId: Number(roomId),
       roomName,
     });
     setSearch("");
     if (categories.length > 0 && selectedCategoryId === null) {
-      setSelectedCategoryId(categories[0].id);
+      setSelectedCategoryId(Number(categories[0].id ?? (categories[0] as any)._id));
     }
   };
 
@@ -276,13 +277,13 @@ export default function StepReview({
     setSelectorState({
       isOpen: true,
       mode: "change",
-      roomId,
+      roomId: Number(roomId),
       roomName,
       targetItem: item,
     });
     setSearch("");
     if (categories.length > 0 && selectedCategoryId === null) {
-      setSelectedCategoryId(categories[0].id);
+      setSelectedCategoryId(Number(categories[0].id ?? (categories[0] as any)._id));
     }
   };
 
@@ -291,11 +292,14 @@ export default function StepReview({
     let list = products.filter((p) => p.isActive);
 
     if (selectedCategoryId !== null) {
-      const activeCat = categories.find((c) => c.id === selectedCategoryId);
-      const subIds = activeCat?.children?.map((s) => s.id) || [];
-      list = list.filter(
-        (p) => p.categoryId === selectedCategoryId || (p.categoryId && subIds.includes(p.categoryId))
+      const activeCat = categories.find(
+        (c) => Number(c.id ?? (c as any)._id) === selectedCategoryId
       );
+      const subIds = (activeCat?.children || []).map((s) => Number(s.id ?? (s as any)._id));
+      list = list.filter((p) => {
+        const pCatId = Number(p.categoryId ?? (p as any).category?.id ?? (p as any).category?._id);
+        return pCatId === selectedCategoryId || subIds.includes(pCatId);
+      });
     }
 
     if (productTypeFilter !== "all") {
@@ -319,6 +323,11 @@ export default function StepReview({
   const handleSelectProduct = async (product: Product) => {
     if (!selectorState) return;
 
+    const prodId = Number(product.id ?? (product as any)._id);
+    const targetItemId = selectorState.targetItem
+      ? Number(selectorState.targetItem.id ?? (selectorState.targetItem as any)._id)
+      : undefined;
+
     // If matrix product with multiple variants, open VariantPicker
     const activeVariants = product.variants?.filter((v) => v.isActive) || [];
     if (product.isMatrix && activeVariants.length > 1) {
@@ -326,14 +335,17 @@ export default function StepReview({
         product,
         mode: selectorState.mode,
         roomId: selectorState.roomId,
-        targetItemId: selectorState.targetItem?.id,
+        targetItemId,
       });
       setSelectorState(null);
       return;
     }
 
     const firstVariant = activeVariants[0];
-    const price = firstVariant ? Number(firstVariant.price) : Number(product.price || 0);
+    const firstVariantId = firstVariant
+      ? Number(firstVariant.id ?? (firstVariant as any)._id)
+      : undefined;
+    const price = firstVariant ? Number(firstVariant.price) : 0;
     const variantLabel = firstVariant
       ? (firstVariant.automationTier || firstVariant.surfaceFinish
           ? [firstVariant.automationTier, firstVariant.surfaceFinish].filter(Boolean).join(" + ")
@@ -344,17 +356,17 @@ export default function StepReview({
       if (onAddItem) {
         await onAddItem(
           selectorState.roomId,
-          product.id,
-          firstVariant?.id,
+          prodId,
+          firstVariantId,
           firstVariant?.config as Record<string, string> | undefined
         );
       }
-    } else if (selectorState.mode === "change" && selectorState.targetItem) {
+    } else if (selectorState.mode === "change" && targetItemId) {
       if (onReplaceItem) {
         await onReplaceItem(
-          selectorState.targetItem.id,
-          product.id,
-          firstVariant?.id,
+          targetItemId,
+          prodId,
+          firstVariantId,
           firstVariant?.config as Record<string, string> | undefined,
           price,
           variantLabel ?? undefined
@@ -369,8 +381,12 @@ export default function StepReview({
   const handleVariantChosen = async (variantId: number, config: Record<string, string>) => {
     if (!pickerProduct) return;
     const { product, mode, roomId, targetItemId } = pickerProduct;
-    const variant = product.variants?.find((v) => (v.id || (v as any)._id) === variantId);
-    const price = variant ? Number(variant.price) : Number(product.price || 0);
+    const prodId = Number(product.id ?? (product as any)._id);
+    const numVariantId = Number(variantId);
+    const variant = product.variants?.find(
+      (v) => Number(v.id ?? (v as any)._id) === numVariantId
+    );
+    const price = variant ? Number(variant.price) : 0;
     const variantLabel = variant
       ? (variant.automationTier || variant.surfaceFinish
           ? [variant.automationTier, variant.surfaceFinish].filter(Boolean).join(" + ")
@@ -379,14 +395,14 @@ export default function StepReview({
 
     if (mode === "add") {
       if (onAddItem) {
-        await onAddItem(roomId, product.id, variantId, config);
+        await onAddItem(roomId, prodId, numVariantId, config);
       }
     } else if (mode === "change" && targetItemId) {
       if (onReplaceItem) {
         await onReplaceItem(
           targetItemId,
-          product.id,
-          variantId,
+          prodId,
+          numVariantId,
           config,
           price,
           variantLabel ?? undefined
@@ -579,11 +595,15 @@ export default function StepReview({
                   ) : (
                     <div className="divide-y divide-gray-100">
                       {room.items.map((item, index) => {
-                        const linePrice = (item.quantity || 1) * Number(item.unitPrice || 0);
+                        const itemId = Number(item.id ?? (item as any)._id);
+                        const qty = Number(item.quantity) || 1;
+                        const unitPrice = Number(item.unitPrice || 0);
+                        const linePrice = qty * unitPrice;
+                        const roomId = Number(room.id ?? (room as any)._id);
 
                         return (
                           <div
-                            key={item.id}
+                            key={itemId}
                             className="p-4 sm:p-5 hover:bg-gray-50/60 transition-colors"
                           >
                             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
@@ -632,7 +652,7 @@ export default function StepReview({
 
                                   {/* Unit Price */}
                                   <p className="text-xs font-medium text-gray-500 font-mono">
-                                    {formatCurrency(linePrice)} each
+                                    {qty > 1 ? `Qty: ${qty} · ` : ""}{formatCurrency(unitPrice)} each
                                   </p>
                                 </div>
                               </div>
@@ -664,26 +684,56 @@ export default function StepReview({
                                 </div>
 
                                 <div className="flex items-center gap-2">
+                                  {/* Quantity Stepper */}
+                                  <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50/70 overflow-hidden">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (qty > 1) {
+                                          onUpdateItem(itemId, { quantity: qty - 1 });
+                                        } else {
+                                          onDeleteItem(itemId);
+                                        }
+                                      }}
+                                      className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
+                                      title={qty > 1 ? "Decrease quantity" : "Remove product"}
+                                    >
+                                      <Minus size={11} />
+                                    </button>
+                                    <span className="w-5 text-center text-xs font-mono font-bold text-gray-900">
+                                      {qty}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => onUpdateItem(itemId, { quantity: qty + 1 })}
+                                      className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
+                                      title="Increase quantity"
+                                    >
+                                      <Plus size={11} />
+                                    </button>
+                                  </div>
+
                                   <button
                                     type="button"
                                     onClick={() =>
                                       handleOpenChangeModal(
                                         item,
-                                        room.id,
+                                        roomId,
                                         room.customName ?? room.roomType?.name ?? "Space"
                                       )
                                     }
-                                    className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-accent-light hover:text-accent-foreground hover:border-accent-border transition active:scale-95 shadow-2xs"
+                                    className="px-2.5 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-accent-light hover:text-accent-foreground hover:border-accent-border transition active:scale-95 shadow-2xs"
                                   >
                                     Change
                                   </button>
 
                                   <button
                                     type="button"
-                                    onClick={() => onDeleteItem(item.id)}
-                                    className="px-3.5 py-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition active:scale-95 shadow-2xs"
+                                    onClick={() => onDeleteItem(itemId)}
+                                    className="p-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition active:scale-95 shadow-2xs"
+                                    title="Remove product"
                                   >
-                                    Remove
+                                    <Trash2 size={13} />
                                   </button>
                                 </div>
                               </div>
@@ -936,7 +986,6 @@ export default function StepReview({
                     options={[
                       { value: "all", label: "All Types" },
                       { value: "switch_board", label: "Switch Boards" },
-                      { value: "retrofit", label: "Retrofit" },
                       { value: "accessory", label: "Accessories" },
                       { value: "smart_lock", label: "Smart Locks" },
                       { value: "curtain", label: "Curtains" },
