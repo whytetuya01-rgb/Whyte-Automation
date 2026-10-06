@@ -24,6 +24,7 @@ import { calculateQuotationGst } from "@/lib/pricing";
 import { getRoomDisplayName, getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
 import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
+import { getItemImageUrl, formatProposalProductName } from "@/components/proposal-builder/StepProposalPreview";
 
 /**
  * Responsive Category Pill Scroller for modal dialogs.
@@ -665,6 +666,14 @@ export default function StepReview({
                             const unitPrice = Number(item.unitPrice || 0);
                             const linePrice = qty * unitPrice;
                             const roomId = Number(room.id ?? (room as any)._id);
+                            const imgUrl = getItemImageUrl(item);
+                            const formattedName = formatProposalProductName(item.product?.name);
+                            const rawNotes = item.notes?.trim() || "";
+                            const hasValidLocation =
+                              Boolean(rawNotes) &&
+                              !rawNotes.startsWith("/") &&
+                              !rawNotes.includes("whyte_catalog_images") &&
+                              !["unspecified", "not specified", "n/a", "unknown", "installation location not specified"].includes(rawNotes.toLowerCase());
 
                             return (
                               <div
@@ -672,15 +681,19 @@ export default function StepReview({
                                 className="p-4 sm:p-5 hover:bg-gray-50/60 transition-colors"
                               >
                                 <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-                                  {/* COLUMN 1 — PRODUCT INFORMATION (45–50% -> md:col-span-6) */}
-                                  <div className="md:col-span-6 flex items-start gap-3.5 min-w-0">
+                                  {/* COLUMN 1 — PRODUCT INFORMATION */}
+                                  <div className={`${hasValidLocation ? "md:col-span-6" : "md:col-span-9"} flex items-start gap-3.5 min-w-0`}>
                                     {/* Product Image / Icon */}
                                     <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden mt-0.5">
-                                      {item.product?.imageUrl ? (
+                                      {imgUrl ? (
                                         <img
-                                          src={item.product.imageUrl}
-                                          alt={item.product.name}
+                                          src={imgUrl}
+                                          alt={formattedName}
                                           className="w-full h-full object-contain p-1"
+                                          crossOrigin="anonymous"
+                                          onError={(e) => {
+                                            (e.target as HTMLElement).style.display = "none";
+                                          }}
                                         />
                                       ) : (
                                         <Package size={20} className="text-gray-300" />
@@ -694,7 +707,7 @@ export default function StepReview({
                                           #{index + 1}
                                         </span>
                                         <h5 className="font-bold text-gray-950 text-sm sm:text-base leading-snug break-words">
-                                          {item.product?.name ?? "Product"}
+                                          {formattedName}
                                         </h5>
                                       </div>
 
@@ -727,22 +740,18 @@ export default function StepReview({
                                     </div>
                                   </div>
 
-                                  {/* COLUMN 2 — INSTALLATION / DETAILS (25–30% -> md:col-span-3) */}
-                                  <div className="md:col-span-3 min-w-0 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100">
-                                    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-gray-400 mb-1">
-                                      <MapPin size={13} className="text-accent shrink-0" />
-                                      <span>Installation</span>
-                                    </div>
-                                    {item.notes && item.notes.trim() ? (
+                                  {/* COLUMN 2 — INSTALLATION / DETAILS (rendered ONLY if location exists) */}
+                                  {hasValidLocation ? (
+                                    <div className="md:col-span-3 min-w-0 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100">
+                                      <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-gray-400 mb-1">
+                                        <MapPin size={13} className="text-accent shrink-0" />
+                                        <span>Installation</span>
+                                      </div>
                                       <p className="text-xs sm:text-sm font-semibold text-gray-900 break-words leading-snug">
                                         {item.notes}
                                       </p>
-                                    ) : (
-                                      <p className="text-xs text-gray-400 italic">
-                                        Not specified
-                                      </p>
-                                    )}
-                                  </div>
+                                    </div>
+                                  ) : null}
 
                                   {/* COLUMN 3 — PRICE / ACTIONS (20–25% -> md:col-span-3) */}
                                   <div className="md:col-span-3 flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-2.5 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100 text-left md:text-right">

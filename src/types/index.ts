@@ -44,6 +44,8 @@ export interface ProductVariant {
   variantCode?: string | null;
   name?: string | null;
   code?: string | null;
+  imageUrl?: string | null;
+  imagePublicId?: string | null;
   automationTier: string | null;
   surfaceFinish: string | null;
   tierLabel?: string | null;

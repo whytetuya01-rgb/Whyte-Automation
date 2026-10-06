@@ -11,6 +11,7 @@ import {
   Check,
   ShieldCheck,
   Sliders,
+  Package,
   Award,
   Phone,
   Mail,
@@ -38,45 +39,165 @@ export interface ProposalPageSlice {
     | { type: "about_whyte" }
     | { type: "project_overview_and_scope" }
     | {
-      type: "room";
-      room: QuotationRoom;
-      roomIndex: number;
-      items: QuotationItem[];
-      isContinuation: boolean;
-      showRoomHeader: boolean;
-      showRoomFooter: boolean;
-    }
+        type: "switchboard_config_room";
+        room: QuotationRoom;
+        roomIndex: number;
+        items: QuotationItem[];
+        showSectionHeader: boolean;
+        showRoomHeader: boolean;
+        isContinuation: boolean;
+      }
+    | {
+        type: "room";
+        room: QuotationRoom;
+        roomIndex: number;
+        items: QuotationItem[];
+        isContinuation: boolean;
+        showSectionHeader?: boolean;
+        showRoomHeader: boolean;
+        showRoomFooter: boolean;
+      }
     | { type: "closing_and_financials" }
   >;
 }
 
-export function getItemTier(
-  item: QuotationItem,
-  quotation: Quotation
-): string | null {
-  return (
-    item.variantConfig?.tier ||
-    item.variantConfig?.automationTier ||
-    item.variantConfig?.series ||
-    item.productVariant?.automationTier ||
-    item.product?.automationTier ||
-    quotation.defaultTier ||
-    null
-  );
+/**
+ * Formats product name for customer proposal display.
+ * Strips technical/catalog descriptive suffixes such as:
+ * "Only Available in Acrylic", "(Only Available in Acrylic)", "Available in...", etc.
+ */
+export function formatProposalProductName(rawName: string | null | undefined): string {
+  if (!rawName || typeof rawName !== "string") return "Product";
+
+  let name = rawName.trim();
+
+  // Strip catalog suffix phrases (case-insensitive)
+  name = name.replace(/\s*[\(\[-]?\s*only\s+available\s+in\s+[^)\]\n\r]*[\)\]-]?/gi, "");
+  name = name.replace(/\s*[\(\[-]?\s*available\s+only\s+in\s+[^)\]\n\r]*[\)\]-]?/gi, "");
+  name = name.replace(/\s*[\(\[-]?\s*available\s+in\s+[^)\]\n\r]*[\)\]-]?/gi, "");
+  name = name.replace(/\s*[\(\[-]?\s*installation\s+location[^)\]\n\r]*[\)\]-]?/gi, "");
+
+  // Clean up trailing punctuation, hyphens, or spaces
+  name = name.replace(/[\s\.\,\-]+$/, "").trim();
+
+  return name || "Product";
+}
+
+export function getItemModuleSize(item: QuotationItem): string | null {
+  const val =
+    item.variantConfig?.moduleSize ||
+    item.variantConfig?.module ||
+    item.variantConfig?.size ||
+    item.product?.moduleSize;
+  if (
+    !val ||
+    typeof val !== "string" ||
+    val.toLowerCase() === "undefined" ||
+    val.toLowerCase() === "null"
+  ) {
+    return null;
+  }
+  return val.trim();
 }
 
 export function getItemFinish(
   item: QuotationItem,
   quotation: Quotation
 ): string | null {
-  return (
+  const val =
     item.variantConfig?.finish ||
     item.variantConfig?.surfaceFinish ||
     item.productVariant?.surfaceFinish ||
     item.product?.surfaceFinish ||
-    quotation.defaultFinish ||
-    null
-  );
+    quotation.defaultFinish;
+  if (
+    !val ||
+    typeof val !== "string" ||
+    val.toLowerCase() === "undefined" ||
+    val.toLowerCase() === "null"
+  ) {
+    return null;
+  }
+  return val.trim();
+}
+
+export function getItemColor(item: QuotationItem): string | null {
+  const val =
+    item.variantConfig?.color ||
+    item.variantConfig?.colour ||
+    item.productVariant?.config?.color;
+  if (
+    !val ||
+    typeof val !== "string" ||
+    val.toLowerCase() === "undefined" ||
+    val.toLowerCase() === "null"
+  ) {
+    return null;
+  }
+  return val.trim();
+}
+
+export function getItemTier(
+  item: QuotationItem,
+  quotation: Quotation
+): string | null {
+  const val =
+    item.variantConfig?.tier ||
+    item.variantConfig?.automationTier ||
+    item.variantConfig?.series ||
+    item.productVariant?.automationTier ||
+    item.product?.automationTier ||
+    quotation.defaultTier;
+  if (
+    !val ||
+    typeof val !== "string" ||
+    val.toLowerCase() === "undefined" ||
+    val.toLowerCase() === "null"
+  ) {
+    return null;
+  }
+  return val.trim();
+}
+
+/**
+ * Robust resolution of product image URLs.
+ * Handles Cloudinary full URLs, relative paths (/whyte_catalog_images/...),
+ * variant-specific images, and imagePublicId fallbacks.
+ */
+export function getItemImageUrl(item: QuotationItem): string | null {
+  let url = item.product?.imageUrl || item.productVariant?.imageUrl || null;
+
+  if (!url) {
+    const publicId = item.product?.imagePublicId || item.productVariant?.imagePublicId;
+    if (publicId && typeof publicId === "string" && publicId.trim()) {
+      const trimmedId = publicId.trim();
+      if (trimmedId.startsWith("http://") || trimmedId.startsWith("https://")) {
+        url = trimmedId;
+      } else {
+        const cloudName =
+          process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME ||
+          process.env.CLOUDINARY_CLOUD_NAME ||
+          "whyte-automation";
+        url = `https://res.cloudinary.com/${cloudName}/image/upload/${trimmedId}`;
+      }
+    }
+  }
+
+  if (!url && item.product?.notes && typeof item.product.notes === "string") {
+    const trimmedNotes = item.product.notes.trim();
+    if (trimmedNotes.startsWith("/") || trimmedNotes.includes("whyte_catalog_images")) {
+      url = trimmedNotes;
+    }
+  }
+
+  if (!url || typeof url !== "string") {
+    return null;
+  }
+
+  const cleanUrl = url.trim();
+  if (!cleanUrl) return null;
+
+  return cleanUrl;
 }
 
 /**
@@ -111,22 +232,18 @@ export function getRenderableProposalRooms(
 
 /**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
- * Generates an executive cover (P1), About Whyte (P2), Project & Scope (P3),
- * followed by compact room breakdowns with individual installation locations,
- * and concluding with the financial summary, terms, and Whyte contact info.
  */
 function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
   const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
 
-  // Usable vertical point budget for standard A4 page (height 1123px)
   const PAGE_CAPACITY = 940;
   const FOOTER_RESERVE = 55;
   const RUNNING_HEADER = 55;
 
   const getCapacity = () => PAGE_CAPACITY - RUNNING_HEADER - FOOTER_RESERVE;
 
-  // PAGE 1: Dedicated Executive Cover
+  // PAGE 1: Executive Cover
   pages.push({
     pageNumber: 1,
     totalPages: 0,
@@ -135,7 +252,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
     sections: [{ type: "cover" }],
   });
 
-  // PAGE 2: About Whyte & Premise Solutions
+  // PAGE 2: About Whyte
   pages.push({
     pageNumber: 2,
     totalPages: 0,
@@ -144,7 +261,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
     sections: [{ type: "about_whyte" }],
   });
 
-  // PAGE 3: Your Project Overview & Tactus Feature Highlights
+  // PAGE 3: Project Overview & Scope
   pages.push({
     pageNumber: 3,
     totalPages: 0,
@@ -157,22 +274,21 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
   let currentSections: ProposalPageSlice["sections"] = [];
   let currentHeight = 0;
 
-  // Process room-wise breakdown starting on Page 4 (only rooms with valid allocated devices)
+  // UNIFIED SECTION: PROPOSED PRODUCTS & SPECIFICATIONS
+  let isFirstProductRoomSection = true;
+
   for (let rIdx = 0; rIdx < rooms.length; rIdx++) {
     const room = rooms[rIdx];
     const items = room.items || [];
     const itemsLeft = [...items];
     let isFirstSlice = true;
 
-    // Skip empty rooms safely - no slice, no header, no placeholder
-    if (itemsLeft.length === 0) {
-      continue;
-    }
+    if (itemsLeft.length === 0) continue;
 
-    // Process items of this room
     while (itemsLeft.length > 0) {
-      const headerH = isFirstSlice ? 44 + 30 : 30;
-      const minItemH = itemsLeft[0]?.notes ? 48 : 38;
+      const showSectionHeader = isFirstProductRoomSection && isFirstSlice;
+      const headerH = (showSectionHeader ? 60 : 0) + (isFirstSlice ? 44 + 30 : 30);
+      const minItemH = 52;
 
       if (currentHeight + headerH + minItemH > getCapacity()) {
         pages.push({
@@ -192,7 +308,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
       while (itemsLeft.length > 0) {
         const item = itemsLeft[0];
-        const itemH = item.notes ? 48 : 38;
+        const itemH = 52;
         if (currentHeight + sliceH + itemH > getCapacity()) {
           break;
         }
@@ -203,8 +319,10 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
       const isLastSlice = itemsLeft.length === 0;
       if (isLastSlice) {
-        sliceH += 34; // Room subtotal banner
+        sliceH += 34;
       }
+
+      const hasSectionHeader = isFirstProductRoomSection && isFirstSlice;
 
       currentSections.push({
         type: "room",
@@ -212,16 +330,20 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
         roomIndex: rIdx,
         items: sliceItems,
         isContinuation: !isFirstSlice,
+        showSectionHeader: hasSectionHeader,
         showRoomHeader: isFirstSlice,
         showRoomFooter: isLastSlice,
       });
 
       currentHeight += sliceH;
       isFirstSlice = false;
+      if (hasSectionHeader) {
+        isFirstProductRoomSection = false;
+      }
     }
   }
 
-  // Financial Summary, Terms, Next Steps & Official Whyte Closing
+  // SECTION C: Closing, Financials, Terms & Contact
   const closingEstimateH = 490;
   if (currentHeight + closingEstimateH > getCapacity()) {
     pages.push({
@@ -268,7 +390,6 @@ export default function StepProposalPreview({
     [rawRooms]
   );
 
-  // Totals calculations - single source of truth from records
   const subtotal = useMemo(() => {
     return rawRooms.reduce((sum, r) => {
       return (
@@ -301,7 +422,6 @@ export default function StepProposalPreview({
     return 0;
   }, [quotation.discountType, quotation.discountValue, subtotal]);
 
-  // Authoritative GST calculation matching Review & Normalization
   const gstCalculations = useMemo(() => {
     return calculateQuotationGst(subtotal, discountAmount);
   }, [subtotal, discountAmount]);
@@ -315,7 +435,6 @@ export default function StepProposalPreview({
     grandTotal,
   } = gstCalculations;
 
-  // Extracted tiers and finishes present in proposal (from allocated products)
   const configuredTiers = useMemo(() => {
     const set = new Set<string>();
     if (quotation.defaultTier) set.add(quotation.defaultTier);
@@ -340,12 +459,10 @@ export default function StepProposalPreview({
     return Array.from(set);
   }, [renderableRooms, quotation]);
 
-  // Paginated proposal pages
   const proposalPages = useMemo(() => {
     return paginateQuotation(quotation);
   }, [quotation]);
 
-  // High-Resolution Multi-Page PDF Generation using Cached Local Assets
   const handleDownloadPDF = async () => {
     if (!quotation || pageRefs.current.length === 0) return;
     setDownloading(true);
@@ -371,6 +488,18 @@ export default function StepProposalPreview({
         const pageEl = pageRefs.current[i];
         if (!pageEl) continue;
 
+        // Ensure all images inside pageEl are completely loaded before capturing canvas
+        const images = Array.from(pageEl.querySelectorAll("img"));
+        await Promise.all(
+          images.map((img) => {
+            if (img.complete) return Promise.resolve();
+            return new Promise((resolve) => {
+              img.onload = resolve;
+              img.onerror = resolve;
+            });
+          })
+        );
+
         if (i > 0) {
           pdf.addPage("a4", "portrait");
         }
@@ -388,7 +517,7 @@ export default function StepProposalPreview({
       pdf.save(filename);
       toast.success("Proposal PDF downloaded!");
       markQuotationSent();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("PDF generation failed:", err);
       toast.error(
         "Failed to generate PDF. You can also use the Print button to Save as PDF."
@@ -554,7 +683,7 @@ export default function StepProposalPreview({
                   if (section.type === "cover") {
                     return (
                       <div key={sIdx} className="space-y-6">
-                        {/* Header Brand Bar - Space Efficient & Aligned */}
+                        {/* Header Brand Bar */}
                         <div className="flex items-center justify-between pb-3 sm:pb-3.5 border-b border-gray-200">
                           <div>
                             <WhyteLogo
@@ -689,7 +818,7 @@ export default function StepProposalPreview({
                           </p>
                         </div>
 
-                        {/* Proven Milestone Statistics (Official Website Figures) */}
+                        {/* Proven Milestone Statistics */}
                         <div className="grid grid-cols-5 gap-2 p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-center">
                           <div>
                             <p className="text-xl sm:text-2xl font-black font-mono text-gray-950">
@@ -974,7 +1103,7 @@ export default function StepProposalPreview({
                           </div>
                         </div>
 
-                        {/* Official Whyte Tactus Features (from whyte.co.in/touch-switch) */}
+                        {/* Official Whyte Tactus Features */}
                         <div className="space-y-2.5 pt-1">
                           <h3 className="text-xs font-bold uppercase tracking-wider text-gray-950">
                             Whyte Tactus Touch Series Technology
@@ -1045,12 +1174,13 @@ export default function StepProposalPreview({
                     );
                   }
 
-                  /* 4. ROOM-WISE PRODUCT BREAKDOWN (COMPACT CLEANUP) */
+                  /* 4. ROOM-WISE PRODUCT SUMMARY & SPECIFICATIONS (UNIFIED SINGLE CONTAINER FORMAT) */
                   if (section.type === "room") {
                     const {
                       room,
                       items,
                       isContinuation,
+                      showSectionHeader,
                       showRoomHeader,
                       showRoomFooter,
                     } = section;
@@ -1064,7 +1194,24 @@ export default function StepProposalPreview({
                     );
 
                     return (
-                      <div key={sIdx} className="space-y-2">
+                      <div key={sIdx} className="space-y-2.5">
+                        {/* Section Header Banner */}
+                        {showSectionHeader && (
+                          <div className="pb-2.5 border-b-2 border-gray-950 flex items-end justify-between mb-3">
+                            <div>
+                              <span className="text-[10px] uppercase tracking-widest text-accent font-bold block">
+                                Proposed Smart Equipment & Specifications
+                              </span>
+                              <h2 className="text-xl sm:text-2xl font-black text-gray-950 tracking-tight">
+                                PRODUCT SUMMARY & SPECIFICATIONS
+                              </h2>
+                            </div>
+                            <p className="text-[11px] text-gray-500 font-medium text-right max-w-xs">
+                              Room-wise equipment details, panel specifications & itemized pricing
+                            </p>
+                          </div>
+                        )}
+
                         {/* Room Header Banner */}
                         {showRoomHeader && (
                           <div className="bg-gray-50 px-4 py-2.5 rounded-t-xl border border-gray-200 flex items-center justify-between">
@@ -1107,62 +1254,118 @@ export default function StepProposalPreview({
                           </div>
                         )}
 
-                        {/* Compact Product Table: Product Name | Qty | Unit Price (No image, No Total column) */}
+                        {/* Compact Product Table: Product Name | Qty | Unit Price */}
                         {items.length > 0 && (
                           <div
-                            className={`border border-gray-200 overflow-hidden ${showRoomFooter ? "rounded-b-none" : "rounded-b-xl"
-                              }`}
+                            className={`border border-gray-200 overflow-hidden ${
+                              showRoomFooter ? "rounded-b-none" : "rounded-b-xl"
+                            }`}
                           >
                             <table className="w-full text-left border-collapse text-xs">
                               <thead>
                                 <tr className="bg-gray-50/80 border-b border-gray-200 text-[10px] uppercase font-bold text-gray-500 tracking-wider">
-                                  <th className="py-2.5 px-4">Product Name</th>
+                                  <th className="py-2.5 px-4">PRODUCT</th>
                                   <th className="py-2.5 px-4 w-20 text-center">
-                                    Qty
+                                    QTY
                                   </th>
                                   <th className="py-2.5 px-4 w-28 text-right">
-                                    Unit Price
+                                    UNIT PRICE
                                   </th>
                                 </tr>
                               </thead>
                               <tbody className="divide-y divide-gray-100">
                                 {items.map((item, itemIdx) => {
                                   const unitPrice = Number(item.unitPrice || 0);
+                                  const formattedName = formatProposalProductName(item.product?.name);
+                                  const moduleSize = getItemModuleSize(item);
+                                  const finish = getItemFinish(item, quotation);
+                                  const color = getItemColor(item);
+                                  const tier = getItemTier(item, quotation);
+                                  const sbLabel = item.sbNumber?.trim();
+                                  const imgUrl = getItemImageUrl(item);
+                                  const rawLoc = item.notes?.trim() || "";
+                                  const hasValidLocation =
+                                    Boolean(rawLoc) &&
+                                    !rawLoc.startsWith("/") &&
+                                    !rawLoc.includes("whyte_catalog_images") &&
+                                    !["unspecified", "not specified", "n/a", "unknown", "installation location not specified"].includes(rawLoc.toLowerCase());
 
                                   return (
                                     <tr
                                       key={item.id || itemIdx}
                                       className="hover:bg-gray-50/40 transition-colors"
                                     >
-                                      {/* Product Name & Exact Installation Location */}
-                                      <td className="py-2.5 px-4">
-                                        <p className="font-bold text-gray-950 text-xs sm:text-sm leading-snug">
-                                          {item.product?.name ?? "Product"}
-                                        </p>
-
-                                        {item.notes && item.notes.trim() ? (
-                                          <div className="mt-1 text-[11px] text-gray-600 leading-normal">
-                                            <span className="text-gray-400 font-medium">
-                                              Installation Location:{" "}
-                                            </span>
-                                            <span className="text-gray-900 font-medium">
-                                              {item.notes}
-                                            </span>
+                                      {/* Product Thumbnail & Clean Name & Location */}
+                                      <td className="py-2.5 px-4 align-middle">
+                                        <div className="flex items-center gap-3">
+                                          {/* Standardized 48px Tile container for EVERY product */}
+                                          <div className="w-12 h-12 shrink-0 rounded-xl border border-gray-200/90 bg-white shadow-2xs flex items-center justify-center p-1 overflow-hidden relative">
+                                            {imgUrl ? (
+                                              <img
+                                                src={imgUrl}
+                                                alt={formattedName}
+                                                className="max-h-full max-w-full object-contain"
+                                                crossOrigin="anonymous"
+                                                onError={(e) => {
+                                                  (e.target as HTMLElement).style.display = "none";
+                                                }}
+                                              />
+                                            ) : (
+                                              <Package size={18} className="text-gray-300" />
+                                            )}
                                           </div>
-                                        ) : (
-                                          <p className="text-[11px] text-gray-400 italic mt-0.5">
-                                            Installation location not specified
-                                          </p>
-                                        )}
+
+                                          <div className="min-w-0 flex-1 space-y-0.5">
+                                            <div className="flex items-center gap-2">
+                                              <p className="font-bold text-gray-950 text-xs sm:text-sm leading-snug">
+                                                {formattedName}
+                                              </p>
+                                              {sbLabel && (
+                                                <span className="font-mono text-[9px] font-bold text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded shrink-0">
+                                                  {sbLabel}
+                                                </span>
+                                              )}
+                                            </div>
+
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                              {moduleSize && (
+                                                <span className="text-[9px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80">
+                                                  {moduleSize}
+                                                </span>
+                                              )}
+                                              {finish && (
+                                                <span className="text-[9px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
+                                                  {finish}
+                                                </span>
+                                              )}
+                                              {color && (
+                                                <span className="text-[9px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
+                                                  {color}
+                                                </span>
+                                              )}
+                                              {tier && (
+                                                <span className="text-[9px] font-bold text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize">
+                                                  {tier}
+                                                </span>
+                                              )}
+                                              {hasValidLocation && (
+                                                <span className="text-[11px] text-gray-600 ml-1">
+                                                  <span className="text-gray-400 font-medium">Location: </span>
+                                                  <span className="font-medium text-gray-900">{item.notes}</span>
+                                                </span>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
                                       </td>
 
                                       {/* Qty */}
-                                      <td className="py-2.5 px-4 text-center font-mono font-bold text-gray-900 text-xs sm:text-sm align-top">
+                                      <td className="py-2.5 px-4 text-center font-mono font-bold text-gray-900 text-xs sm:text-sm align-middle">
                                         {item.quantity || 1}
                                       </td>
 
                                       {/* Unit Price */}
-                                      <td className="py-2.5 px-4 text-right font-mono text-gray-700 text-xs sm:text-sm align-top">
+                                      <td className="py-2.5 px-4 text-right font-mono text-gray-700 text-xs sm:text-sm align-middle">
                                         {formatCurrency(unitPrice)}
                                       </td>
                                     </tr>
@@ -1188,7 +1391,7 @@ export default function StepProposalPreview({
                     );
                   }
 
-                  /* 5. FINANCIAL SUMMARY, INVESTMENT CALLOUT, TERMS & OFFICIAL WHYTE CLOSING */
+                  /* 6. FINANCIAL SUMMARY, INVESTMENT CALLOUT, TERMS & OFFICIAL WHYTE CLOSING */
                   if (section.type === "closing_and_financials") {
                     return (
                       <div key={sIdx} className="space-y-4 pt-2">
@@ -1252,14 +1455,12 @@ export default function StepProposalPreview({
                               </div>
                               <div className="space-y-1 text-xs">
                                 <div className="flex justify-between items-center text-gray-600">
-                                  {/* <span className="text-gray-700 font-medium">CGST @ 9%</span> */}
                                   <span className="text-gray-700 font-medium">CGST</span>
                                   <span className="font-mono font-semibold text-gray-900">
                                     {formatCurrency(cgstAmount, { decimals: 2 })}
                                   </span>
                                 </div>
                                 <div className="flex justify-between items-center text-gray-600">
-                                  {/* <span className="text-gray-700 font-medium">SGST/UTGST @ 9%</span> */}
                                   <span className="text-gray-700 font-medium">SGST/UTGST</span>
                                   <span className="font-mono font-semibold text-gray-900">
                                     {formatCurrency(sgstAmount, { decimals: 2 })}
@@ -1341,8 +1542,8 @@ export default function StepProposalPreview({
                                 </strong>
                                 {quotation.validUntil
                                   ? `Valid until ${formatDate(
-                                    quotation.validUntil
-                                  )}`
+                                      quotation.validUntil
+                                    )}`
                                   : "Valid for 30 days from date of issue."}
                               </p>
                               {quotation.terms && (
