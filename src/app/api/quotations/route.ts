@@ -14,6 +14,7 @@ import {
   parseSearchQueryParam,
   parseStringQueryParam,
 } from "@/lib/validation/common";
+import { calculateQuotationGst } from "@/lib/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -97,13 +98,25 @@ function withDerivedTotals(quotation: Record<string, unknown>): Record<string, u
   const earningPct = Math.max(0, allocatedPct - customerPct);
   const earningAmount = Math.round(((subtotal * earningPct) / 100) * 100) / 100;
 
+  const gst = calculateQuotationGst(subtotal, discount);
+
+  const toNum = (v: any) => { if (v == null) return 0; if (typeof v === 'object' && v && typeof v.toString === 'function') return Number(v.toString()); const n = Number(v); return Number.isNaN(n) ? 0 : n; };
+  const toStr = (v: any) => { if (v == null) return null; if (typeof v === 'object' && v && typeof v.toString === 'function') return v.toString(); return String(v); };
   return {
     ...quotation,
+    discountValue: toStr(quotation.discountValue) ?? (toNum(quotation.discountValue) || null),
     roomsCount: roomCount,
     productsCount,
-    subtotal,
-    discountAmount: discount,
-    totalAmount: Math.max(0, subtotal - discount),
+    subtotal: gst.grossSubtotal,
+    discountAmount: gst.discountAmount,
+    netSubtotal: gst.netSubtotal,
+    cgstPercent: gst.cgstPercent,
+    cgstAmount: gst.cgstAmount,
+    sgstPercent: gst.sgstPercent,
+    sgstAmount: gst.sgstAmount,
+    totalGstAmount: gst.totalGstAmount,
+    totalAmount: gst.grandTotal,
+    grandTotal: gst.grandTotal,
     allocatedDiscountPercent: allocatedPct,
     customerDiscountPercent: customerPct,
     estimatedEarningPercent: earningPct,

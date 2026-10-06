@@ -8,6 +8,8 @@ import { useConfirm } from "@/components/providers/ConfirmProvider";
 import notify from "@/lib/notify";
 import { Select } from "@/components/ui/Select";
 
+import { getRoomFullTitle } from "@/lib/roomUtils";
+
 interface Props {
   quotation: Quotation;
   roomTypes: RoomType[];
@@ -36,7 +38,7 @@ export default function RoomPanel({
   const confirm = useConfirm();
 
   const getRoomName = (room: QuotationRoom) =>
-    room.customName ?? room.roomType?.name ?? "Room";
+    getRoomFullTitle(room, quotation.rooms);
 
   const handleDeleteRoom = async (room: QuotationRoom) => {
     await confirm({

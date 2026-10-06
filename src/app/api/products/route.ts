@@ -408,6 +408,7 @@ export async function POST(req: Request) {
         surfaceFinish: null,
         unit: productData.unit ?? "pcs",
         imageUrl: productData.imageUrl,
+        imagePublicId: productData.imagePublicId,
         moduleSize: productData.moduleSize,
         notes: productData.notes,
         sortOrder: productData.sortOrder ?? 0,

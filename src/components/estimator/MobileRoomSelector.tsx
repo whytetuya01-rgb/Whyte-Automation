@@ -2,6 +2,7 @@
 import { Quotation, QuotationRoom } from "@/types";
 import { Plus } from "lucide-react";
 import { getRoomIcon } from "@/lib/utils";
+import { getRoomFullTitle } from "@/lib/roomUtils";
 
 interface Props {
   quotation: Quotation;
@@ -12,7 +13,7 @@ interface Props {
 
 export default function MobileRoomSelector({ quotation, activeRoomId, onSelectRoom, onAddRoomClick }: Props) {
   const getRoomName = (room: QuotationRoom) =>
-    room.customName ?? room.roomType?.name ?? "Room";
+    getRoomFullTitle(room, quotation.rooms);
 
   return (
     <div className="lg:hidden w-full bg-slate-50 border-b border-gray-150 py-2.5 px-4 overflow-x-auto scrollbar-none flex items-center gap-2">

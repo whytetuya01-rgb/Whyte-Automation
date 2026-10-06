@@ -126,6 +126,7 @@ export default function ProductForm({
     unit: product?.unit ?? "pcs",
     notes: product?.notes ?? "",
     imageUrl: product?.imageUrl ?? "",
+    imagePublicId: product?.imagePublicId ?? "",
     isActive: product?.isActive ?? true,
     sortOrder: product?.sortOrder ?? 0,
   });
@@ -536,12 +537,33 @@ export default function ProductForm({
       });
 
       if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to upload image");
+        const errorData = (await res.json().catch(() => null)) as
+          | { error?: { message?: string } | string }
+          | null;
+        const rawMessage =
+          typeof errorData?.error === "string"
+            ? errorData.error
+            : errorData?.error?.message;
+        throw new Error(rawMessage || "Failed to upload image");
       }
 
-      const data = await res.json();
-      setForm((prev) => ({ ...prev, imageUrl: data.url }));
+      // The API wraps mutations as { success, data: { url, publicId } }.
+      const payload = (await res.json()) as {
+        data?: { url?: string; publicId?: string };
+        url?: string;
+        publicId?: string;
+      };
+      const uploadedUrl = payload.data?.url ?? payload.url;
+      const uploadedPublicId = payload.data?.publicId ?? payload.publicId ?? null;
+      if (!uploadedUrl) {
+        throw new Error("Upload succeeded but no image URL was returned.");
+      }
+
+      setForm((prev) => ({
+        ...prev,
+        imageUrl: uploadedUrl,
+        imagePublicId: uploadedPublicId ?? "",
+      }));
       notify.success("Image uploaded", "Product image uploaded successfully.");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Image upload failed";
@@ -551,18 +573,31 @@ export default function ProductForm({
     }
   };
 
+  const [errors, setErrors] = useState<{
+    name?: string;
+    categoryId?: string;
+  }>({});
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const newErrors: typeof errors = {};
+
     if (!form.name.trim()) {
-      notify.error("Validation error", "Product name is required.");
-      return;
+      newErrors.name = "Product name is required.";
     }
 
     if (!form.categoryId) {
-      notify.error("Validation error", "Please select a Category.");
+      newErrors.categoryId = "Please select a Category.";
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      notify.error("Validation Error", "Please fill in all required fields highlighted below.");
       return;
     }
+
+    setErrors({});
 
     // Validate editable variant rows on create
     if (!isEdit) {
@@ -585,6 +620,7 @@ export default function ProductForm({
         unit: form.unit.trim() || "pcs",
         notes: form.notes.trim() || null,
         imageUrl: form.imageUrl.trim() || null,
+        imagePublicId: form.imagePublicId.trim() || null,
         isActive: form.isActive,
         sortOrder: Number(form.sortOrder) || 0,
       };
@@ -629,7 +665,7 @@ export default function ProductForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <form onSubmit={handleSubmit} noValidate className="space-y-6">
       {/* ============================================================== */}
       {/* SECTION 1: PRIMARY PRODUCT IDENTITY / CONFIGURATION            */}
       {/* ============================================================== */}
@@ -656,7 +692,7 @@ export default function ProductForm({
               {form.imageUrl && (
                 <button
                   type="button"
-                  onClick={() => setForm((prev) => ({ ...prev, imageUrl: "" }))}
+                  onClick={() => setForm((prev) => ({ ...prev, imageUrl: "", imagePublicId: "" }))}
                   className="absolute top-1 right-1 h-5 w-5 rounded-full bg-neutral-900/80 text-white flex items-center justify-center hover:bg-neutral-900 transition-colors"
                   title="Remove image"
                 >
@@ -705,9 +741,12 @@ export default function ProductForm({
             </label>
             <Input
               value={form.name}
-              onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, name: e.target.value }));
+                if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
+              }}
               placeholder="e.g. Touch 2 Switch 1 Socket (6A)"
-              required
+              error={errors.name}
               className="font-medium"
             />
           </div>
@@ -743,10 +782,11 @@ export default function ProductForm({
             </label>
             <Select
               value={form.categoryId}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, categoryId: e.target.value }))
-              }
-              required
+              onChange={(e) => {
+                setForm((prev) => ({ ...prev, categoryId: e.target.value }));
+                if (errors.categoryId) setErrors((prev) => ({ ...prev, categoryId: undefined }));
+              }}
+              error={errors.categoryId}
             >
               <option value="">Select a Category</option>
               {flatCats.map((cat) => (
@@ -1472,7 +1512,7 @@ export default function ProductForm({
               Additional Information
             </h3>
             <p className="text-[11px] text-neutral-400 mt-0.5">
-              Description, Catalog Notes, Unit, Sort Order, Active Status
+              Description, Catalog Notes, Active Status
             </p>
           </div>
           <div className="h-6 w-6 rounded flex items-center justify-center text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors">
@@ -1512,38 +1552,6 @@ export default function ProductForm({
                   setForm((prev) => ({ ...prev, notes: e.target.value }))
                 }
                 placeholder="e.g. Catalog: Tactus_4, Source Page: 1"
-              />
-            </div>
-
-            {/* Unit */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-neutral-700">
-                Unit of Measure
-              </label>
-              <Input
-                value={form.unit}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, unit: e.target.value }))
-                }
-                placeholder="e.g. pcs, set, meter"
-              />
-            </div>
-
-            {/* Sort Order */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-neutral-700 flex items-center gap-1.5">
-                <Hash className="h-3.5 w-3.5 text-neutral-500" />
-                Sort Order
-              </label>
-              <Input
-                type="number"
-                value={form.sortOrder}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    sortOrder: parseInt(e.target.value, 10) || 0,
-                  }))
-                }
               />
             </div>
 

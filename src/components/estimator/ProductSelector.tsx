@@ -2,6 +2,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Product, Category, QuotationRoom } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
+import { getRoomFullTitle } from "@/lib/roomUtils";
 import CategoryFilter from "./CategoryFilter";
 import ProductCard from "./ProductCard";
 import ItemRow from "./ItemRow";
@@ -138,7 +139,7 @@ export default function ProductSelector({
         <div className="flex items-center justify-between">
           <div>
             <h2 className="font-bold text-gray-900 text-sm md:text-base lg:text-lg tracking-tight">
-              {activeRoom.customName ?? activeRoom.roomType?.name ?? "Room"}
+              {getRoomFullTitle(activeRoom, allRooms)}
             </h2>
             <p className="text-xs md:text-sm text-gray-400">
               {activeRoom.items.length} items • {formatCurrency(roomSubtotal)}

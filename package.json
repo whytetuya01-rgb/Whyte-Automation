@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "import:catalog": "node scripts/run-script.js scripts/import-final-catalog-to-mongodb.ts"
+    "import:catalog": "node scripts/run-script.js scripts/import-final-catalog-to-mongodb.ts",
+    "migrate:product-images": "node scripts/run-script.js scripts/migrate-product-images-to-cloudinary.ts",
+    "verify:product-images": "node scripts/run-script.js scripts/verify-product-images.ts"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.10",

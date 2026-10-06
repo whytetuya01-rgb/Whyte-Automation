@@ -24,13 +24,23 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-export function formatCurrency(amount: number | string): string {
+export function formatCurrency(
+  amount: number | string,
+  options?: { decimals?: number }
+): string {
   const num = Number(amount);
-  if (isNaN(num)) return "₹0";
+  if (isNaN(num)) return options?.decimals === 2 ? "₹0.00" : "₹0";
+  const fractionDigits =
+    options?.decimals !== undefined
+      ? options.decimals
+      : num % 1 !== 0
+      ? 2
+      : 0;
   return new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
   }).format(num);
 }
 

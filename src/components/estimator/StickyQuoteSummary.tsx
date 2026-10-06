@@ -4,6 +4,8 @@ import { formatCurrency, getRoomIcon } from "@/lib/utils";
 import { ChevronUp, ChevronDown, ShoppingBag, Eye } from "lucide-react";
 import Link from "next/link";
 
+import { getRoomFullTitle } from "@/lib/roomUtils";
+
 interface Props {
   quotation: Quotation;
   activeRoom: QuotationRoom | null;
@@ -31,7 +33,7 @@ export default function StickyQuoteSummary({ quotation, activeRoom, isOpen, onTo
   const totalItems = quotation.rooms.reduce((s, r) => s + r.items.length, 0);
 
   const activeRoomName = activeRoom
-    ? activeRoom.customName ?? activeRoom.roomType?.name ?? "Room"
+    ? getRoomFullTitle(activeRoom, quotation.rooms)
     : "No Room";
 
   const activeRoomItemsCount = activeRoom?.items.length ?? 0;

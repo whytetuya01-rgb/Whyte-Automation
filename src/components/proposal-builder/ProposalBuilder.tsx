@@ -28,6 +28,8 @@ import {
   normalizeRoomTypes,
   normalizeHouseTypes,
 } from "@/lib/quotationNormalization";
+import { isMultiFloorHouseType } from "@/lib/roomUtils";
+import { calculateIntelligentDefaultFloor } from "@/lib/floorAssignment";
 
 function extractErrorMessage(err: any, fallback: string): string {
   if (!err) return fallback;
@@ -303,9 +305,31 @@ export default function ProposalBuilder({
   };
 
   // Step 2: Room Operations
-  const handleAddRoom = async (roomTypeId: number | null, customName?: string) => {
+  const handleAddRoom = async (
+    roomTypeId: number | null,
+    customName?: string,
+    subArea?: string
+  ) => {
     if (!quotation?.id) return;
     setSaveStatus("saving");
+
+    let roomName = customName || "";
+    if (!roomName && roomTypeId) {
+      const foundType = roomTypes.find((r) => Number(r.id ?? (r as any)._id) === Number(roomTypeId));
+      roomName = foundType?.name || "";
+    }
+
+    const isMultiFloor = isMultiFloorHouseType(
+      houseTypes.find((h) => Number(h.id ?? (h as any)._id) === Number(quotation.houseTypeId))
+    );
+
+    const finalFloor = calculateIntelligentDefaultFloor({
+      roomName,
+      existingRooms: quotation.rooms || [],
+      isMultiFloor,
+      explicitFloorContext: subArea,
+    });
+
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/rooms`, {
         method: "POST",
@@ -313,6 +337,7 @@ export default function ProposalBuilder({
         body: JSON.stringify({
           roomTypeId,
           customName: customName || null,
+          subArea: finalFloor,
           sortOrder: (quotation.rooms?.length ?? 0) * 10,
         }),
       });
@@ -332,6 +357,50 @@ export default function ProposalBuilder({
       toast.success(`Space "${createdRoom.customName ?? "Room"}" added`);
     } catch (e: any) {
       toast.error(extractErrorMessage(e, "Failed to add room"));
+      setSaveStatus("unsaved");
+    }
+  };
+
+  const handleUpdateRoom = async (
+    roomId: number,
+    data: Partial<{
+      roomTypeId: number | null;
+      customName: string | null;
+      subArea: string | null;
+      notes: string | null;
+      sortOrder: number;
+    }>
+  ) => {
+    if (!quotation?.id) return;
+
+    // Optimistically update local quotation state for immediate UI regrouping
+    setQuotation((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        rooms: (prev.rooms || []).map((r) =>
+          Number(r.id ?? (r as any)._id) === Number(roomId) ? { ...r, ...data } : r
+        ),
+      };
+    });
+
+    setSaveStatus("saving");
+    try {
+      const res = await fetch(`/api/quotations/${quotation.id}/rooms/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to update space"));
+      }
+      await refreshQuotation();
+      setSaveStatus("saved");
+    } catch (e: any) {
+      toast.error(extractErrorMessage(e, "Failed to update space"));
+      await refreshQuotation();
       setSaveStatus("unsaved");
     }
   };
@@ -637,6 +706,7 @@ export default function ProposalBuilder({
             roomTypes={roomTypes}
             houseTypes={houseTypes}
             onAddRoom={handleAddRoom}
+            onUpdateRoom={handleUpdateRoom}
             onDeleteRoom={handleDeleteRoom}
             onContinue={() => navigateToStep(3)}
             onBack={() => navigateToStep(1)}
@@ -654,6 +724,7 @@ export default function ProposalBuilder({
             onAddItem={handleAddItem}
             onUpdateItem={handleUpdateItem}
             onDeleteItem={handleDeleteItem}
+            onUpdateRoom={handleUpdateRoom}
             onUpdateRoomNotes={handleUpdateRoomNotes}
             onContinue={() => navigateToStep(4)}
             onBack={() => navigateToStep(2)}

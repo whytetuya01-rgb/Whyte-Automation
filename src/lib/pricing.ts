@@ -15,6 +15,25 @@ export interface VariantPricingCalculation {
 export const DEFAULT_TAX_PERCENT = 18;
 export const DEFAULT_PURCHASE_TAX_PERCENT = 18;
 export const DEFAULT_COST = 0;
+export const QUOTATION_CGST_PERCENT = 9;
+export const QUOTATION_SGST_PERCENT = 9;
+export const QUOTATION_TOTAL_GST_PERCENT = 18;
+export const QUOTATION_CGST_RATE = 0.09; // 9% CGST
+export const QUOTATION_SGST_RATE = 0.09; // 9% SGST
+export const QUOTATION_TOTAL_GST_RATE = 0.18; // 18% Total GST
+export const QUOTATION_GST_RATE = 0.09; // 9% individual tax component rate
+
+export interface QuotationGstCalculation {
+  grossSubtotal: number;
+  discountAmount: number;
+  netSubtotal: number;
+  cgstPercent: number;
+  cgstAmount: number;
+  sgstPercent: number;
+  sgstAmount: number;
+  totalGstAmount: number;
+  grandTotal: number;
+}
 
 /**
  * Rounds a number to exactly two decimal places safely.
@@ -22,6 +41,50 @@ export const DEFAULT_COST = 0;
 export function round2(num: number): number {
   if (!Number.isFinite(num) || Number.isNaN(num)) return 0;
   return Math.round((num + Number.EPSILON) * 100) / 100;
+}
+
+/**
+ * Authoritative quotation GST calculation for Review / Summary and Proposal.
+ * Single source of truth calculation:
+ *   grossSubtotal = existing calculated subtotal
+ *   discountAmount = existing calculated discount
+ *   netSubtotal = Math.max(0, grossSubtotal - discountAmount)
+ *   cgstAmount = round2(netSubtotal * 0.09) (CGST @ 9%)
+ *   sgstAmount = round2(netSubtotal * 0.09) (SGST @ 9%)
+ *   grandTotal = round2(netSubtotal + cgstAmount + sgstAmount)
+ *
+ * Example:
+ *   Gross Subtotal = ₹20,000
+ *   Discount = ₹2,000
+ *   Net Subtotal = ₹18,000
+ *   CGST @ 9% = ₹1,620
+ *   SGST @ 9% = ₹1,620
+ *   Grand Total = ₹21,240
+ */
+export function calculateQuotationGst(
+  grossSubtotalInput: unknown,
+  discountAmountInput: unknown
+): QuotationGstCalculation {
+  const grossSubtotal = Math.max(0, round2(parseFinancialNumber(grossSubtotalInput, 0)));
+  const rawDiscount = Math.max(0, round2(parseFinancialNumber(discountAmountInput, 0)));
+  const discountAmount = Math.min(rawDiscount, grossSubtotal);
+  const netSubtotal = round2(Math.max(0, grossSubtotal - discountAmount));
+  const cgstAmount = round2(netSubtotal * QUOTATION_CGST_RATE);
+  const sgstAmount = round2(netSubtotal * QUOTATION_SGST_RATE);
+  const totalGstAmount = round2(cgstAmount + sgstAmount);
+  const grandTotal = round2(netSubtotal + cgstAmount + sgstAmount);
+
+  return {
+    grossSubtotal,
+    discountAmount,
+    netSubtotal,
+    cgstPercent: QUOTATION_CGST_PERCENT,
+    cgstAmount,
+    sgstPercent: QUOTATION_SGST_PERCENT,
+    sgstAmount,
+    totalGstAmount,
+    grandTotal,
+  };
 }
 
 /**

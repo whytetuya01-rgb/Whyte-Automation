@@ -74,6 +74,7 @@ export interface Product {
   price?: string;                 // optional legacy display field; variant is source of truth
   unit: string;
   imageUrl: string | null;
+  imagePublicId?: string | null;
   moduleSize?: string | null;
   notes: string | null;
   isActive: boolean;
@@ -136,6 +137,12 @@ export interface Quotation {
   discountValue: string | null;
   discountAmount?: number;
   subtotal?: number;
+  netSubtotal?: number;
+  cgstPercent?: number;
+  cgstAmount?: number;
+  sgstPercent?: number;
+  sgstAmount?: number;
+  totalGstAmount?: number;
   totalAmount?: number;
   grandTotal?: number;
   productsCount?: number;

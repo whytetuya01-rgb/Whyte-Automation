@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from "react";
 import { QuotationItem, QuotationRoom } from "@/types";
 import { formatCurrency } from "@/lib/utils";
+import { getRoomFullTitle } from "@/lib/roomUtils";
 import { Trash2, Minus, Plus, MessageSquareText } from "lucide-react";
 import { Select } from "@/components/ui/Select";
 
@@ -152,7 +153,7 @@ export default function ItemRow({ item, currentRoomId, allRooms, onUpdate, onDel
                     triggerClassName="h-7 rounded-md text-[11px] sm:text-xs text-gray-600 px-2 border-gray-200"
                     options={allRooms.map((room) => ({
                       value: String(room.id),
-                      label: room.customName ?? room.roomType?.name ?? "Room",
+                      label: getRoomFullTitle(room, allRooms),
                     }))}
                   />
                 </div>

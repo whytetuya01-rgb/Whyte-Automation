@@ -60,23 +60,26 @@ export default async function HomePage() {
       const rooms = Array.isArray(q.rooms) ? q.rooms : [];
       const roomsCount = rooms.length;
       const productsCount = rooms.reduce(
-        (sum: number, r: any) =>
-          sum + (Array.isArray(r.items) ? r.items.reduce((s: number, i: any) => s + (i.quantity || 1), 0) : 0),
+        (sum: number, r: any) => sum + (Array.isArray(r.items) ? r.items.reduce((s: number, i: any) => s + (i.quantity || 1), 0) : 0),
         0
       );
       const subtotal = rooms.reduce(
-        (sum: number, r: any) =>
-          sum + (Array.isArray(r.items) ? r.items.reduce((s: number, i: any) => s + (i.quantity || 1) * Number(i.unitPrice || 0), 0) : 0),
+        (sum: number, r: any) => sum + (Array.isArray(r.items) ? r.items.reduce((s: number, i: any) => s + (i.quantity || 1) * Number(i.unitPrice || 0), 0) : 0),
         0
       );
+      const toNum = (v: any) => {
+        if (v == null) return 0;
+        if (typeof v === 'object' && v && typeof v.toString === 'function') return Number(v.toString());
+        const n = Number(v);
+        return Number.isNaN(n) ? 0 : n;
+      };
       let discount = 0;
-      if (q.discountType === "percentage") {
-        discount = (subtotal * Number(q.discountValue || 0)) / 100;
-      } else if (q.discountType === "fixed") {
-        discount = Number(q.discountValue || 0);
+      if (q.discountType === 'percentage') {
+        discount = (subtotal * toNum(q.discountValue)) / 100;
+      } else if (q.discountType === 'fixed') {
+        discount = toNum(q.discountValue);
       }
       const totalAmount = Math.max(0, subtotal - discount);
-
       return {
         id: q.id || q._id,
         quotationNumber: q.quotationNumber,
@@ -86,21 +89,21 @@ export default async function HomePage() {
         clientAddress: q.clientAddress ?? null,
         houseTypeId: q.houseTypeId ?? null,
         houseType: q.houseType ? { id: q.houseType.id || q.houseType._id, name: q.houseType.name } : null,
-        status: q.status || "draft",
+        status: q.status || 'draft',
         notes: q.notes ?? null,
         discountType: q.discountType ?? null,
-        discountValue: q.discountValue ?? null,
+        discountValue: toNum(q.discountValue) || null,
         createdAt: q.createdAt ? new Date(q.createdAt).toISOString() : new Date().toISOString(),
         updatedAt: q.updatedAt ? new Date(q.updatedAt).toISOString() : undefined,
         roomsCount,
         productsCount,
         totalAmount,
         dealerId: q.dealerId ?? null,
-        dealerName: q.dealer?.name || (q.dealer ? `${q.dealer.firstName || ""} ${q.dealer.lastName || ""}`.trim() : null),
-        allocatedDiscountPercent: q.allocatedDiscountPercent ?? 0,
-        customerDiscountPercent: q.customerDiscountPercent ?? 0,
-        estimatedEarningPercent: q.estimatedEarningPercent ?? 0,
-        estimatedEarningAmount: q.estimatedEarningAmount ?? 0,
+        dealerName: q.dealer?.name || (q.dealer ? ((q.dealer.firstName||'')+' '+(q.dealer.lastName||'')).trim() : null),
+        allocatedDiscountPercent: toNum(q.allocatedDiscountPercent),
+        customerDiscountPercent: toNum(q.customerDiscountPercent),
+        estimatedEarningPercent: toNum(q.estimatedEarningPercent),
+        estimatedEarningAmount: toNum(q.estimatedEarningAmount),
         clonedFromQuotationId: q.clonedFromQuotationId ?? null,
         sentAt: q.sentAt ? new Date(q.sentAt).toISOString() : null,
         approvedAt: q.approvedAt ? new Date(q.approvedAt).toISOString() : null,

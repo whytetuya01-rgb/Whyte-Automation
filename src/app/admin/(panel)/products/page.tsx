@@ -1,45 +1,27 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useCallback, Suspense } from "react";
+import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import Link from "next/link";
-import { Product, Category, ProductVariant } from "@/types";
-import { formatCurrency } from "@/lib/utils";
-import {
-  Plus,
-  Pencil,
-  Trash2,
-  Search,
-  RefreshCw,
-  Package,
-  Layers,
-  Cpu,
-  Eye,
-  X,
-  CheckCircle2,
-  ChevronRight,
-  ChevronDown,
-  ChevronUp,
-} from "lucide-react";
+import { Plus, RefreshCw } from "lucide-react";
+import { Product, Category } from "@/types";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
-import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import Modal from "@/components/shared/Modal";
 import ProductForm from "@/components/admin/ProductForm";
 import ProductVariantsEditModal from "@/components/admin/ProductVariantsEditModal";
 import Pagination from "@/components/shared/Pagination";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
-import { Button, Input, Select } from "@/components/ui";
-
-const TYPE_CONFIG: Record<string, { label: string; badge: string }> = {
-  switch_board: { label: "Switch Board", badge: "bg-blue-50 text-blue-700 border-blue-200" },
-  accessory: { label: "Accessory", badge: "bg-neutral-100 text-neutral-700 border-neutral-200" },
-  curtain: { label: "Curtain", badge: "bg-purple-50 text-purple-700 border-purple-200" },
-  smart_lock: { label: "Smart Lock", badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
-  vdp: { label: "VDP", badge: "bg-cyan-50 text-cyan-700 border-cyan-200" },
-  other: { label: "Other", badge: "bg-neutral-100 text-neutral-600 border-neutral-200" },
-};
+import { Button } from "@/components/ui";
+import ProductCatalogStats from "@/components/admin/products/ProductCatalogStats";
+import ProductCatalogToolbar, {
+  type CatalogFilterKey,
+} from "@/components/admin/products/ProductCatalogToolbar";
+import ProductCatalogList from "@/components/admin/products/ProductCatalogList";
+import {
+  PRODUCT_TYPE_FILTERS,
+  type CatalogStatCard,
+} from "@/components/admin/products/catalogPresentation";
 
 function flattenCategories(cats: Category[], prefix = ""): { id: number; name: string }[] {
   let result: { id: number; name: string }[] = [];
@@ -274,24 +256,66 @@ function ProductsPageContent() {
     search || type !== "all" || status !== "all" || category !== "all" || hasVariants !== "all"
   );
 
+  // One definition drives the summary strip; the component owns the icon and
+  // colour treatment so both stay consistent across metrics.
+  const statCards: CatalogStatCard[] = [
+    { id: "products", label: "Total Products", value: displayTotalProducts, tone: "neutral" },
+    { id: "active", label: "Active Products", value: displayTotalActive, tone: "success" },
+    { id: "variants", label: "Total Variants", value: displayTotalVariants, tone: "accent" },
+    { id: "categories", label: "Categories", value: displayTotalCategories, tone: "info" },
+  ];
+
+  const handleFilterChange = useCallback(
+    (key: CatalogFilterKey, value: string) => {
+      updateQuery({ [key]: value, page: 1 });
+    },
+    [updateQuery]
+  );
+
+  const handleClearAllFilters = useCallback(() => {
+    setSearchInput("");
+    updateQuery({
+      search: null,
+      type: null,
+      status: null,
+      category: null,
+      hasVariants: null,
+      sort: null,
+      page: 1,
+    });
+  }, [updateQuery]);
+
+  const handleSearchSubmit = useCallback(() => {
+    updateQuery({ search: searchInput, page: 1 });
+  }, [updateQuery, searchInput]);
+
+  const handleClearSearch = useCallback(() => {
+    setSearchInput("");
+    updateQuery({ search: null, page: 1 });
+  }, [updateQuery]);
+
+  const resultSummary = loading
+    ? "Loading…"
+    : `${total} ${total === 1 ? "product" : "products"}`;
+
   return (
-    <div className="space-y-5 pb-12">
+    <div className="catalog-root space-y-3.5 pb-10">
       {/* Top Header & Actions */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-neutral-900 tracking-tight">Products</h1>
-          <p className="text-sm text-neutral-500 mt-0.5">
-            TreeTable catalog view: Products (parent rows) and sellable configurations (child rows).
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-neutral-900">Products</h1>
+          <p className="mt-0.5 text-xs text-neutral-500">
+            Catalog management — each product with its sellable configurations.
           </p>
         </div>
 
-        <div className="flex items-center gap-2.5">
+        <div className="flex shrink-0 items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             onClick={fetchProducts}
             disabled={loading}
-            className="gap-1.5 text-neutral-700 bg-white"
+            className="h-9 gap-1.5 text-xs"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
@@ -303,560 +327,62 @@ function ProductsPageContent() {
               setEditingProduct(null);
               setShowProductModal(true);
             }}
-            className="gap-1.5 shadow-xs"
+            className="h-9 gap-1.5 text-xs"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-3.5 w-3.5" />
             Add Product
           </Button>
         </div>
       </div>
 
-      {/* Summary Stat Cards (Catalog-Wide Totals) */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-        <div className="rounded-xl border border-neutral-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-neutral-500 uppercase tracking-wider">
-              Total Products
-            </span>
-            <Package className="h-4 w-4 text-neutral-400" />
-          </div>
-          <span className="text-2xl font-bold text-neutral-900 mt-1 block tracking-tight">
-            {displayTotalProducts}
-          </span>
+      {/* Catalog summary */}
+      <ProductCatalogStats items={statCards} />
+
+      {/* Search, filters and configuration tabs */}
+      <ProductCatalogToolbar
+        searchInput={searchInput}
+        onSearchInputChange={setSearchInput}
+        onSearchSubmit={handleSearchSubmit}
+        onClearSearch={handleClearSearch}
+        category={category}
+        type={type}
+        status={status}
+        sort={sort}
+        hasVariants={hasVariants}
+        onFilterChange={handleFilterChange}
+        categoryOptions={flatCategories}
+        typeOptions={PRODUCT_TYPE_FILTERS}
+        onClearAll={handleClearAllFilters}
+        hasActiveFilters={hasActiveFilters}
+        resultSummary={resultSummary}
+      />
+
+      {/* Catalog items */}
+      {loading ? (
+        <div className="flex h-72 flex-col items-center justify-center gap-3 rounded-xl border border-neutral-200/80 bg-white">
+          <LoadingSpinner size="md" />
+          <p className="text-xs font-medium text-neutral-500">Loading catalog products...</p>
         </div>
+      ) : (
+        <ProductCatalogList
+          products={products}
+          expandedProductIds={expandedProductIds}
+          onToggleExpand={toggleExpand}
+          onEdit={(product) => {
+            setEditingProduct(product);
+            setShowProductModal(true);
+          }}
+          onEditVariants={setEditingVariantsProduct}
+          onDelete={handleDeleteProduct}
+          onToggleStatus={handleToggleProductStatus}
+          onClearFilters={handleClearAllFilters}
+          hasActiveFilters={hasActiveFilters}
+        />
+      )}
 
-        <div className="rounded-xl border border-neutral-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-neutral-500 uppercase tracking-wider">
-              Active Products
-            </span>
-            <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-          </div>
-          <span className="text-2xl font-bold text-emerald-600 mt-1 block tracking-tight">
-            {displayTotalActive}
-          </span>
-        </div>
-
-        <div className="rounded-xl border border-neutral-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-neutral-500 uppercase tracking-wider">
-              Total Variants
-            </span>
-            <Layers className="h-4 w-4 text-blue-500" />
-          </div>
-          <span className="text-2xl font-bold text-blue-600 mt-1 block tracking-tight">
-            {displayTotalVariants}
-          </span>
-        </div>
-
-        <div className="rounded-xl border border-neutral-200/80 bg-white p-4 shadow-2xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-neutral-500 uppercase tracking-wider">
-              Categories
-            </span>
-            <Cpu className="h-4 w-4 text-neutral-400" />
-          </div>
-          <span className="text-2xl font-bold text-neutral-900 mt-1 block tracking-tight">
-            {displayTotalCategories}
-          </span>
-        </div>
-      </div>
-
-      {/* Unified Search and Filter Toolbar */}
-      <div className="rounded-xl border border-neutral-200/80 bg-white p-3.5 shadow-2xs space-y-3">
-        {/* Controls Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
-          {/* Search Input */}
-          <div className="lg:col-span-2 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
-            <Input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  updateQuery({ search: searchInput, page: 1 });
-                }
-              }}
-              placeholder="Search products, codes or variant SKU..."
-              className="pl-9 pr-8 text-xs h-9 bg-neutral-50/50 focus:bg-white"
-            />
-            {searchInput && (
-              <button
-                type="button"
-                onClick={() => {
-                  setSearchInput("");
-                  updateQuery({ search: null, page: 1 });
-                }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 p-0.5"
-                title="Clear search"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Category Filter */}
-          <div>
-            <Select
-              value={category}
-              onChange={(e) => updateQuery({ category: e.target.value, page: 1 })}
-              className="text-xs h-9 bg-neutral-50/50"
-            >
-              <option value="all">Category: All</option>
-              {flatCategories.map((c) => (
-                <option key={c.id} value={String(c.id)}>
-                  {c.name}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          {/* Type Filter */}
-          <div>
-            <Select
-              value={type}
-              onChange={(e) => updateQuery({ type: e.target.value, page: 1 })}
-              className="text-xs h-9 bg-neutral-50/50"
-            >
-              <option value="all">Type: All</option>
-              {Object.entries(TYPE_CONFIG).map(([key, cfg]) => (
-                <option key={key} value={key}>
-                  {cfg.label}
-                </option>
-              ))}
-            </Select>
-          </div>
-
-          {/* Status Filter */}
-          <div>
-            <Select
-              value={status}
-              onChange={(e) => updateQuery({ status: e.target.value, page: 1 })}
-              className="text-xs h-9 bg-neutral-50/50"
-            >
-              <option value="all">Status: All</option>
-              <option value="active">Active Only</option>
-              <option value="inactive">Inactive Only</option>
-            </Select>
-          </div>
-
-          {/* Sort Filter */}
-          <div>
-            <Select
-              value={sort}
-              onChange={(e) => updateQuery({ sort: e.target.value, page: 1 })}
-              className="text-xs h-9 bg-neutral-50/50"
-            >
-              <option value="sortOrder_asc">Sort: Catalog Order</option>
-              <option value="name_asc">Name: A to Z</option>
-              <option value="name_desc">Name: Z to A</option>
-              <option value="newest">Newest First</option>
-              <option value="oldest">Oldest First</option>
-            </Select>
-          </div>
-        </div>
-
-        {/* Secondary Filter Line */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 border-t border-neutral-100 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-neutral-400 font-medium">Configurations:</span>
-            <div className="inline-flex rounded-lg border border-neutral-200 bg-neutral-50/60 p-0.5">
-              {[
-                { label: "All Products", value: "all" },
-                { label: "With Variants", value: "yes" },
-                { label: "No Variants", value: "no" },
-              ].map((item) => (
-                <button
-                  key={item.value}
-                  type="button"
-                  onClick={() => updateQuery({ hasVariants: item.value, page: 1 })}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                    hasVariants === item.value
-                      ? "bg-white text-neutral-900 shadow-2xs font-semibold"
-                      : "text-neutral-600 hover:text-neutral-900"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {hasActiveFilters && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSearchInput("");
-                updateQuery({
-                  search: null,
-                  type: null,
-                  status: null,
-                  category: null,
-                  hasVariants: null,
-                  sort: null,
-                  page: 1,
-                });
-              }}
-              className="h-7 text-xs text-neutral-500 hover:text-neutral-900 gap-1"
-            >
-              <X className="h-3 w-3" />
-              Clear all filters
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Main TreeTable Container */}
-      <div className="rounded-xl border border-neutral-200/80 bg-white shadow-2xs overflow-hidden">
-        {loading ? (
-          <div className="flex h-72 flex-col items-center justify-center gap-3">
-            <LoadingSpinner size="md" />
-            <p className="text-xs font-medium text-neutral-500">Loading catalog products...</p>
-          </div>
-        ) : products.length === 0 ? (
-          <div className="py-16 text-center">
-            <Package className="h-10 w-10 text-neutral-300 mx-auto mb-2" />
-            <h3 className="text-sm font-semibold text-neutral-800">No products found</h3>
-            <p className="text-xs text-neutral-400 mt-1 max-w-sm mx-auto">
-              No products match your current search and filter criteria.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              {/* Approved Black Table Header */}
-              <thead className="bg-neutral-900 text-white font-semibold text-xs tracking-wider uppercase">
-                <tr className="border-b border-neutral-800">
-                  <th className="py-3.5 px-4 w-[110px]">IMAGE</th>
-                  <th className="py-3.5 px-4 w-[380px]">PRODUCT FAMILY</th>
-                  <th className="py-3.5 px-4 w-[150px]">TYPE</th>
-                  <th className="py-3.5 px-4 w-[150px]">VARIANTS</th>
-                  <th className="py-3.5 px-4 text-center w-[110px]">STATUS</th>
-                  <th className="py-3.5 px-4 text-right w-[150px]">ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100 text-neutral-700">
-                {products.map((p) => {
-                  const typeCfg = TYPE_CONFIG[p.type] || TYPE_CONFIG.other;
-                  const variants = p.variants || [];
-                  const variantCount = variants.length;
-                  const isExpanded = expandedProductIds.has(p.id);
-
-                  return (
-                    <React.Fragment key={p.id}>
-                      {/* PARENT PRODUCT ROW (WHITE) */}
-                      <tr
-                        className={`transition-colors bg-white hover:bg-neutral-50/60 ${
-                          isExpanded ? "bg-neutral-50/40" : ""
-                        }`}
-                      >
-                        {/* 1. IMAGE: [expand/collapse] [image] */}
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-2">
-                            {/* Expand/Collapse Chevron Button */}
-                            <button
-                              type="button"
-                              onClick={() => toggleExpand(p.id)}
-                              className="h-6 w-6 shrink-0 rounded flex items-center justify-center text-neutral-400 hover:text-neutral-900 hover:bg-neutral-200/60 transition-colors"
-                              title={isExpanded ? "Collapse variants" : "Expand variants"}
-                              aria-label={isExpanded ? "Collapse variants" : "Expand variants"}
-                            >
-                              {isExpanded ? (
-                                <ChevronDown className="h-4 w-4 text-neutral-900" />
-                              ) : (
-                                <ChevronRight className="h-4 w-4 text-neutral-500" />
-                              )}
-                            </button>
-
-                            {/* Product Image Thumbnail */}
-                            <div className="h-12 w-12 shrink-0 rounded-lg border border-neutral-200/80 bg-neutral-50 overflow-hidden flex items-center justify-center shadow-2xs p-0.5">
-                              {p.imageUrl ? (
-                                <img
-                                  src={p.imageUrl}
-                                  alt={p.name}
-                                  className="h-full w-full object-contain"
-                                  onError={(e) => {
-                                    (e.target as HTMLElement).style.display = "none";
-                                  }}
-                                />
-                              ) : (
-                                <Package className="h-5 w-5 text-neutral-300" />
-                              )}
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* 2. PRODUCT FAMILY: Product Name, Catalog/family, Product description/sub-information */}
-                        <td className="py-3 px-4">
-                          <div className="min-w-0">
-                            {/* Product Name (Primary Clickable Element) */}
-                            <Link
-                              href={`/admin/products/${p.id}`}
-                              className="font-bold text-sm text-neutral-900 hover:text-blue-600 transition-colors truncate block"
-                              title={p.name}
-                            >
-                              {p.name}
-                            </Link>
-
-                            {/* Catalog / Family Information */}
-                            {p.notes && (
-                              <p className="text-xs font-semibold text-neutral-600 mt-0.5">
-                                {p.notes}
-                              </p>
-                            )}
-
-                            {/* Sub-information / Description */}
-                            <p className="text-[11px] text-neutral-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
-                              <span>
-                                Code:{" "}
-                                <strong className="text-neutral-600 font-mono">
-                                  {p.code ? p.code : "Not assigned"}
-                                </strong>
-                              </span>
-                              <span>•</span>
-                              <span>
-                                Module:{" "}
-                                <strong className="text-neutral-600">
-                                  {p.moduleSize ? p.moduleSize : "No size"}
-                                </strong>
-                              </span>
-                              <span>•</span>
-                              <span>{p.category?.name || "Uncategorized"}</span>
-                            </p>
-                          </div>
-                        </td>
-
-                        {/* 3. TYPE: [Type] Badge */}
-                        <td className="py-3 px-4">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-100 text-neutral-700 border border-neutral-200">
-                            {typeCfg.label}
-                          </span>
-                        </td>
-
-                        {/* 4. VARIANTS: [X variants ▼] neutral chip */}
-                        <td className="py-3 px-4">
-                          <button
-                            type="button"
-                            onClick={() => toggleExpand(p.id)}
-                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
-                              isExpanded
-                                ? "bg-neutral-100 text-neutral-900 border-neutral-300"
-                                : "bg-white text-neutral-700 border-neutral-200 hover:bg-neutral-100 hover:border-neutral-300"
-                            }`}
-                            title={isExpanded ? "Click to collapse" : "Click to expand"}
-                          >
-                            <span>{variantCount} {variantCount === 1 ? "variant" : "variants"}</span>
-                            {isExpanded ? (
-                              <ChevronUp className="h-3.5 w-3.5" />
-                            ) : (
-                              <ChevronDown className="h-3.5 w-3.5" />
-                            )}
-                          </button>
-                        </td>
-
-                        {/* 5. STATUS: [Active] / [Inactive] Badge */}
-                        <td className="py-3 px-4 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleProductStatus(p)}
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-medium border transition-colors ${
-                              p.isActive
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
-                                : "bg-neutral-100 text-neutral-500 border-neutral-200 hover:bg-neutral-200"
-                            }`}
-                            title="Click to toggle status"
-                          >
-                            {p.isActive ? "Active" : "Inactive"}
-                          </button>
-                        </td>
-
-                        {/* 6. ACTIONS: [View] [Edit] [Edit Variants] [Delete] */}
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-1.5 flex-wrap sm:flex-nowrap">
-                            <Link href={`/admin/products/${p.id}`}>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs text-neutral-600 hover:text-neutral-900"
-                                title="View Product Details"
-                              >
-                                View
-                              </Button>
-                            </Link>
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setEditingProduct(p);
-                                setShowProductModal(true);
-                              }}
-                              className="h-7 px-2 text-xs text-neutral-600 hover:text-neutral-900"
-                              title="Edit Product"
-                            >
-                              Edit
-                            </Button>
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setEditingVariantsProduct(p)}
-                              className="h-7 px-2 text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-medium"
-                              title="Edit Variants"
-                            >
-                              Edit Variants
-                            </Button>
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteProduct(p)}
-                              className="h-7 px-2 text-xs text-red-600 hover:text-red-700 hover:bg-red-50"
-                              title="Delete Product"
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-
-                      {/* WHEN EXPANDED: VARIANTS (X) SUB-TABLE */}
-                      {isExpanded && (
-                        <tr className="bg-neutral-50/50">
-                          <td colSpan={6} className="p-3.5 pl-8 md:pl-16 pr-4">
-                            {/* Nested Container with subtle left accent/border */}
-                            <div className="rounded-xl border border-neutral-200 bg-white overflow-hidden shadow-xs border-l-4 border-l-blue-600">
-                              {/* Variant Section Header */}
-                              <div className="px-4 py-2.5 bg-neutral-900 text-white flex items-center justify-between border-b border-neutral-800">
-                                <span className="text-xs font-bold uppercase tracking-wider text-white">
-                                  VARIANTS ({variantCount})
-                                </span>
-                                <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                  {variants.filter((v) => v.isActive).length} Active
-                                </span>
-                              </div>
-
-                              {variantCount === 0 ? (
-                                <div className="p-6 text-center text-xs text-neutral-400 italic">
-                                  No variants assigned to this product.
-                                </div>
-                              ) : (
-                                <div className="overflow-x-auto">
-                                  <table className="w-full text-left text-xs border-collapse table-fixed">
-                                    {/* Dedicated dark table header without individual actions */}
-                                    <thead className="bg-neutral-800 text-neutral-200 uppercase text-[10px] font-semibold tracking-wider">
-                                      <tr className="border-b border-neutral-700">
-                                        <th className="py-2.5 px-3.5 w-12 text-center">#</th>
-                                        <th className="py-2.5 px-3.5 w-[240px]">VARIANT DISPLAY NAME</th>
-                                        <th className="py-2.5 px-3.5 w-[220px]">TIER &amp; FINISH</th>
-                                        <th className="py-2.5 px-3.5 w-[200px]">VARIANT CODE / SKU</th>
-                                        <th className="py-2.5 px-3.5 w-[140px] text-right">PRICE</th>
-                                        <th className="py-2.5 px-3.5 w-[120px] text-center">STATUS</th>
-                                      </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-neutral-100 text-neutral-700 bg-white">
-                                      {variants.map((v, vIndex) => {
-                                        const autoTier = v.automationTier || "";
-                                        const finish = v.surfaceFinish || "";
-                                        const tierLabel = formatTierLabel(autoTier);
-                                        const finishLabel = formatFinishLabel(finish);
-                                        const parts: string[] = [];
-                                        if (tierLabel) parts.push(tierLabel);
-                                        if (finishLabel) parts.push(finishLabel);
-                                        const vDisplayName = parts.length > 0 ? parts.join(" · ") : (v.name || "Standard");
-                                        const vCode = v.variantCode || v.code || (v.config as any)?.variantCode || (v.config as any)?.code;
-
-                                        return (
-                                          <tr
-                                            key={v.id}
-                                            className="hover:bg-neutral-50/80 transition-colors"
-                                          >
-                                            {/* 1. # */}
-                                            <td className="py-2.5 px-3.5 text-center text-neutral-400 font-mono text-[11px]">
-                                              {vIndex + 1}
-                                            </td>
-
-                                            {/* 2. VARIANT DISPLAY NAME */}
-                                            <td className="py-2.5 px-3.5 font-semibold text-neutral-900">
-                                              {vDisplayName}
-                                            </td>
-
-                                            {/* 3. TIER & FINISH */}
-                                            <td className="py-2.5 px-3.5">
-                                              {!tierLabel && !finishLabel ? (
-                                                <span className="text-[11px] text-neutral-400 italic">
-                                                  Not applicable
-                                                </span>
-                                              ) : (
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                  {tierLabel ? (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200">
-                                                      {tierLabel}
-                                                    </span>
-                                                  ) : (
-                                                    <span className="text-[11px] text-neutral-400 italic">No tier</span>
-                                                  )}
-                                                  {finishLabel ? (
-                                                    <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-medium bg-neutral-100 text-neutral-700 border border-neutral-200">
-                                                      {finishLabel}
-                                                    </span>
-                                                  ) : (
-                                                    <span className="text-[11px] text-neutral-400 italic">No finish</span>
-                                                  )}
-                                                </div>
-                                              )}
-                                            </td>
-
-                                            {/* 4. VARIANT CODE / SKU */}
-                                            <td className="py-2.5 px-3.5 font-mono text-neutral-800">
-                                              {vCode ? (
-                                                <span className="bg-neutral-100 px-2 py-0.5 rounded border border-neutral-200 text-[11px] font-medium inline-block">
-                                                  {vCode}
-                                                </span>
-                                              ) : (
-                                                <span className="text-neutral-400 italic">Not assigned</span>
-                                              )}
-                                            </td>
-
-                                            {/* 5. PRICE */}
-                                            <td className="py-2.5 px-3.5 text-right font-semibold text-neutral-900">
-                                              {Number.isFinite(Number(v.price)) ? formatCurrency(v.price) : "—"}
-                                            </td>
-
-                                            {/* 6. STATUS */}
-                                            <td className="py-2.5 px-3.5 text-center">
-                                              <span
-                                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
-                                                  v.isActive
-                                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                                                    : "bg-neutral-100 text-neutral-500 border-neutral-200"
-                                                }`}
-                                              >
-                                                {v.isActive ? "Active" : "Inactive"}
-                                              </span>
-                                            </td>
-                                          </tr>
-                                        );
-                                      })}
-                                    </tbody>
-                                  </table>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </React.Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Server-Side Pagination Component (Zero NaN, Full Numeric Safety) */}
-        {!loading && total > 0 && (
+      {/* Server-Side Pagination (Zero NaN, Full Numeric Safety) */}
+      {!loading && total > 0 && (
+        <div className="rounded-xl border border-neutral-200/80 bg-white px-2 py-1 shadow-2xs">
           <Pagination
             page={page}
             pageSize={pageSize}
@@ -866,15 +392,15 @@ function ProductsPageContent() {
             onPageSizeChange={(s) => updateQuery({ pageSize: s, page: 1 })}
             entityName="products"
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Product Create / Edit Modal */}
       <Modal
         isOpen={showProductModal}
         onClose={() => setShowProductModal(false)}
         title={editingProduct ? "Edit Product" : "Create New Product"}
-        size="lg"
+        size="4xl"
       >
         <ProductForm
           product={editingProduct}
@@ -894,7 +420,7 @@ function ProductsPageContent() {
           product={editingVariantsProduct}
           onClose={() => setEditingVariantsProduct(null)}
           onVariantsChange={(updatedVariants) => {
-            // Update the product's variant list in the TreeTable without
+            // Update the product's variant list in the catalog without
             // closing the Edit Variants modal.
             setProducts((prev) =>
               prev.map((item) =>
@@ -911,9 +437,6 @@ function ProductsPageContent() {
           }}
         />
       )}
-
-      {/* Delete Product Confirmation — uses the global ConfirmProvider portal,
-          so it can never be trapped inside another modal's stacking context. */}
     </div>
   );
 }

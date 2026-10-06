@@ -55,60 +55,88 @@ export type WhyteLogoSize =
 interface WhyteLogoSizeConfig {
   className: string;
   hintWidth: number;
+  heightPx?: number;
+  maxWidthPx?: number;
 }
 
 export const WHYTE_LOGO_SIZES: Record<WhyteLogoSize, WhyteLogoSizeConfig> = {
   header: {
-    className: "h-6 sm:h-7 md:h-7.5 w-auto max-w-[135px]",
-    hintWidth: 140,
+    className: "h-6 sm:h-6.5 md:h-[26px] w-auto max-w-[120px]",
+    hintWidth: 120,
+    heightPx: 26,
+    maxWidthPx: 120,
   },
   sidebar: {
-    className: "h-6 sm:h-6.5 w-auto max-w-[120px]",
-    hintWidth: 120,
+    className: "h-6 sm:h-[24px] w-auto max-w-[110px]",
+    hintWidth: 110,
+    heightPx: 24,
+    maxWidthPx: 110,
   },
   login: {
-    className: "h-6.5 sm:h-7.5 w-auto max-w-[145px]",
+    className: "h-[26px] sm:h-[30px] w-auto max-w-[145px]",
     hintWidth: 145,
+    heightPx: 28,
+    maxWidthPx: 145,
   },
   auth: {
-    className: "h-6.5 sm:h-7.5 w-auto max-w-[145px]",
+    className: "h-[26px] sm:h-[30px] w-auto max-w-[145px]",
     hintWidth: 145,
+    heightPx: 28,
+    maxWidthPx: 145,
   },
   loader: {
     className: "w-full h-auto max-w-[210px]",
     hintWidth: 210,
+    heightPx: 48,
+    maxWidthPx: 210,
   },
   "document-cover": {
-    className: "h-7.5 sm:h-8.5 w-auto max-w-[150px]",
-    hintWidth: 150,
+    className: "h-[22px] sm:h-[24px] w-auto max-w-[105px]",
+    hintWidth: 105,
+    heightPx: 24,
+    maxWidthPx: 105,
   },
   "document-header": {
-    className: "h-4.5 sm:h-5 w-auto max-w-[95px]",
-    hintWidth: 95,
+    className: "h-[16px] sm:h-[18px] w-auto max-w-[80px]",
+    hintWidth: 80,
+    heightPx: 18,
+    maxWidthPx: 80,
   },
   "document-footer": {
-    className: "h-5 sm:h-5.5 w-auto max-w-[105px]",
-    hintWidth: 105,
+    className: "h-5 sm:h-[20px] w-auto max-w-[95px]",
+    hintWidth: 95,
+    heightPx: 20,
+    maxWidthPx: 95,
   },
   xs: {
-    className: "h-4.5 w-auto max-w-[80px]",
-    hintWidth: 80,
+    className: "h-4 w-auto max-w-[70px]",
+    hintWidth: 70,
+    heightPx: 16,
+    maxWidthPx: 70,
   },
   sm: {
-    className: "h-5.5 w-auto max-w-[100px]",
-    hintWidth: 100,
+    className: "h-5 w-auto max-w-[90px]",
+    hintWidth: 90,
+    heightPx: 20,
+    maxWidthPx: 90,
   },
   md: {
-    className: "h-6.5 sm:h-7 w-auto max-w-[130px]",
-    hintWidth: 130,
+    className: "h-6 w-auto max-w-[110px]",
+    hintWidth: 110,
+    heightPx: 24,
+    maxWidthPx: 110,
   },
   lg: {
-    className: "h-8 w-auto max-w-[150px]",
-    hintWidth: 150,
+    className: "h-7 w-auto max-w-[130px]",
+    hintWidth: 130,
+    heightPx: 28,
+    maxWidthPx: 130,
   },
   xl: {
-    className: "h-9 sm:h-10 w-auto max-w-[180px]",
-    hintWidth: 180,
+    className: "h-8 w-auto max-w-[150px]",
+    hintWidth: 150,
+    heightPx: 32,
+    maxWidthPx: 150,
   },
 };
 
@@ -120,6 +148,7 @@ export interface WhyteLogoProps {
   theme?: WhyteLogoTheme;
   alt?: string;
   className?: string;
+  style?: React.CSSProperties;
   /**
    * Semantic size variant tailored for standard UI contexts.
    * Defaults to 'md' when not specified.
@@ -151,6 +180,7 @@ export default function WhyteLogo({
   theme = "light",
   alt = "Whyte Automations",
   className,
+  style,
   size = "md",
   width,
   height,
@@ -174,6 +204,15 @@ export default function WhyteLogo({
       {...(unoptimized ? { unoptimized: true } : {})}
       {...(loading ? { loading } : {})}
       {...(sizes ? { sizes } : {})}
+      style={{
+        width: "auto",
+        height: height ? `${height}px` : sizeConfig?.heightPx ? `${sizeConfig.heightPx}px` : undefined,
+        maxWidth: sizeConfig?.maxWidthPx ? `${sizeConfig.maxWidthPx}px` : undefined,
+        maxHeight: "100%",
+        objectFit: "contain",
+        aspectRatio: "4305 / 1000",
+        ...style,
+      }}
       className={cn(
         "aspect-[4305/1000] object-contain shrink-0",
         sizeConfig?.className,

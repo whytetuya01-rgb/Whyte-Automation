@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, Product, Category } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
+import { calculateQuotationGst } from "@/lib/pricing";
+import { getRoomDisplayName, getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
 import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
 
@@ -96,11 +98,10 @@ function CategoryPillScroller({
         <button
           type="button"
           onClick={() => onSelectCategory(null)}
-          className={`h-8 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition border select-none inline-flex items-center justify-center ${
-            selectedCategoryId === null
-              ? "bg-gray-950 text-white border-accent/40 shadow-xs ring-1 ring-accent/25"
-              : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-950 hover:bg-gray-50/60"
-          }`}
+          className={`h-8 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition border select-none inline-flex items-center justify-center ${selectedCategoryId === null
+            ? "bg-gray-950 text-white border-accent/40 shadow-xs ring-1 ring-accent/25"
+            : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-950 hover:bg-gray-50/60"
+            }`}
         >
           All Categories
         </button>
@@ -110,11 +111,10 @@ function CategoryPillScroller({
             key={c.id}
             type="button"
             onClick={() => onSelectCategory(c.id)}
-            className={`h-8 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition border select-none inline-flex items-center justify-center ${
-              selectedCategoryId === c.id
-                ? "bg-gray-950 text-white border-accent/40 shadow-xs ring-1 ring-accent/25"
-                : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-950 hover:bg-gray-50/60"
-            }`}
+            className={`h-8 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition border select-none inline-flex items-center justify-center ${selectedCategoryId === c.id
+              ? "bg-gray-950 text-white border-accent/40 shadow-xs ring-1 ring-accent/25"
+              : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-950 hover:bg-gray-50/60"
+              }`}
           >
             {c.name}
           </button>
@@ -206,6 +206,7 @@ export default function StepReview({
   const [productTypeFilter, setProductTypeFilter] = useState("all");
 
   const rooms = quotation.rooms || [];
+  const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
 
   // Calculations (unitPrice multiplied by quantity)
   const subtotal = useMemo(() => {
@@ -233,11 +234,39 @@ export default function StepReview({
     discountType === "percentage"
       ? (subtotal * discountVal) / 100
       : discountType === "fixed"
-      ? discountVal
-      : 0;
+        ? discountVal
+        : 0;
 
-  const clampedDiscount = Math.min(discountAmount, subtotal);
-  const grandTotal = Math.max(0, subtotal - clampedDiscount);
+  const gstCalculations = useMemo(() => {
+    return calculateQuotationGst(subtotal, discountAmount);
+  }, [subtotal, discountAmount]);
+
+  const {
+    grossSubtotal,
+    discountAmount: clampedDiscount,
+    netSubtotal,
+    cgstAmount,
+    sgstAmount,
+    grandTotal,
+  } = gstCalculations;
+
+  // Category breakdown for device categorization clarity
+  const categoryBreakdown = useMemo(() => {
+    const map = new Map<string, { count: number; subtotal: number }>();
+    rooms.forEach((r) => {
+      (r.items || []).forEach((item) => {
+        const catName =
+          item.product?.category?.name ||
+          (categories.find((c) => Number(c.id ?? (c as any)._id) === Number(item.product?.categoryId))?.name) ||
+          "Automation";
+        const current = map.get(catName) || { count: 0, subtotal: 0 };
+        current.count += item.quantity || 1;
+        current.subtotal += (item.quantity || 1) * Number(item.unitPrice || 0);
+        map.set(catName, current);
+      });
+    });
+    return Array.from(map.entries()).map(([name, data]) => ({ name, ...data }));
+  }, [rooms, categories]);
 
   // Earning calculation for dealer quotations
   const earningPercent = allocatedPercent > 0 && discountType === "percentage"
@@ -348,8 +377,8 @@ export default function StepReview({
     const price = firstVariant ? Number(firstVariant.price) : 0;
     const variantLabel = firstVariant
       ? (firstVariant.automationTier || firstVariant.surfaceFinish
-          ? [firstVariant.automationTier, firstVariant.surfaceFinish].filter(Boolean).join(" + ")
-          : null)
+        ? [firstVariant.automationTier, firstVariant.surfaceFinish].filter(Boolean).join(" + ")
+        : null)
       : null;
 
     if (selectorState.mode === "add") {
@@ -389,8 +418,8 @@ export default function StepReview({
     const price = variant ? Number(variant.price) : 0;
     const variantLabel = variant
       ? (variant.automationTier || variant.surfaceFinish
-          ? [variant.automationTier, variant.surfaceFinish].filter(Boolean).join(" + ")
-          : Object.values(config).filter(Boolean).join(" + "))
+        ? [variant.automationTier, variant.surfaceFinish].filter(Boolean).join(" + ")
+        : Object.values(config).filter(Boolean).join(" + "))
       : null;
 
     if (mode === "add") {
@@ -486,7 +515,7 @@ export default function StepReview({
 
             {/* Spaces Summary Pills */}
             <div className="pt-3 border-t border-gray-100">
-              <p className="text-[10px] text-gray-400 uppercase font-semibold mb-2">Automated Spaces</p>
+              <p className="text-[10px] text-gray-400 uppercase font-semibold mb-2">Automated Spaces ({rooms.length})</p>
               <div className="flex flex-wrap gap-2">
                 {rooms.map((r) => {
                   const Icon = getRoomIcon(r.customName ?? r.roomType?.name ?? "Room");
@@ -497,255 +526,298 @@ export default function StepReview({
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-50 border border-gray-200 text-xs font-semibold text-gray-800"
                     >
                       <Icon size={13} className="text-gray-500" />
-                      <span>{r.customName ?? r.roomType?.name}</span>
+                      <span>{getRoomFullTitle(r, rooms)}</span>
                       <span className="text-[11px] font-mono text-gray-400">({count})</span>
                     </div>
                   );
                 })}
               </div>
             </div>
+
+            {/* Device Categorization Pills */}
+            {categoryBreakdown.length > 0 && (
+              <div className="pt-3 border-t border-gray-100">
+                <p className="text-[10px] text-gray-400 uppercase font-semibold mb-2">
+                  Device Categories ({categoryBreakdown.length})
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {categoryBreakdown.map((cat) => (
+                    <div
+                      key={cat.name}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-50 border border-gray-200 text-xs font-semibold text-gray-800"
+                    >
+                      <Package size={13} className="text-accent shrink-0" />
+                      <span>{cat.name}</span>
+                      <span className="text-[11px] font-mono text-gray-500">({cat.count})</span>
+                      <span className="text-[11px] font-mono font-bold text-gray-900 ml-0.5">
+                        • {formatCurrency(cat.subtotal)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Products Grouped by Room */}
-          <div className="space-y-4">
+          {/* Products Grouped by Floor / Space */}
+          <div className="space-y-6">
             <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold px-1">
-              Configured Products Grouped by Space
+              {isMultiFloor ? "Configured Products Grouped Floorwise" : "Configured Products by Space"}
             </h3>
 
-            {rooms.map((room) => {
-              const roomSubtotal = (room.items || []).reduce(
-                (acc, i) => acc + (i.quantity || 1) * Number(i.unitPrice || 0),
-                0
-              );
-              const roomProductCount = (room.items || []).reduce(
-                (acc, i) => acc + (i.quantity || 1),
-                0
-              );
-              const Icon = getRoomIcon(room.customName ?? room.roomType?.name ?? "Room");
-
-              return (
-                <div
-                  key={room.id}
-                  className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-none"
-                >
-                  {/* Room Header with [ + Add Product ] */}
-                  <div className="px-5 py-3.5 bg-gray-50/70 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-gray-950 text-white flex items-center justify-center shrink-0">
-                        <Icon size={15} />
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-gray-950 text-sm sm:text-base">
-                          {room.customName ?? room.roomType?.name}
-                        </h4>
-                        <p className="text-[11px] text-gray-400">
-                          {roomProductCount} {roomProductCount === 1 ? "product" : "products"} configured
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between sm:justify-end gap-3.5">
-                      <span className="font-mono font-bold text-gray-950 text-sm">
-                        {formatCurrency(roomSubtotal)}
-                      </span>
-
-                      {/* Add Product Button */}
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleOpenAddModal(
-                            room.id,
-                            room.customName ?? room.roomType?.name ?? "Space"
-                          )
-                        }
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-950 text-white text-xs font-semibold hover:bg-gray-800 transition active:scale-95 shadow-xs"
-                      >
-                        <Plus size={13} strokeWidth={2.5} />
-                        <span>Add Product</span>
-                      </button>
-                    </div>
+            {groupRoomsByFloor(rooms).map((group) => (
+              <div key={group.floor} className="space-y-4 pt-1">
+                {isMultiFloor && (
+                  <div className="flex items-center gap-2 bg-gray-950 text-white px-4 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider shadow-xs">
+                    <Building size={15} className="text-accent" />
+                    <span>Floor / Location: {group.floor}</span>
+                    <span className="text-[10px] font-bold text-accent-light bg-accent/20 border border-accent/30 px-2 py-0.5 rounded-full ml-auto">
+                      {group.rooms.length} {group.rooms.length === 1 ? "space" : "spaces"}
+                    </span>
                   </div>
+                )}
 
-                  {/* Room Notes (if any) */}
-                  {room.notes && (
-                    <div className="px-5 py-2.5 bg-amber-50/40 border-b border-amber-100 text-xs text-amber-900">
-                      <span className="font-semibold">Space Note: </span>
-                      {room.notes}
-                    </div>
-                  )}
+                {group.rooms.map((room) => {
+                  const roomSubtotal = (room.items || []).reduce(
+                    (acc, i) => acc + (i.quantity || 1) * Number(i.unitPrice || 0),
+                    0
+                  );
+                  const roomProductCount = (room.items || []).reduce(
+                    (acc, i) => acc + (i.quantity || 1),
+                    0
+                  );
+                  const Icon = getRoomIcon(room.customName ?? room.roomType?.name ?? "Room");
 
-                  {/* Room Items */}
-                  {(!room.items || room.items.length === 0) ? (
-                    <div className="p-6 text-center text-xs text-gray-400">
-                      <ShoppingBag size={20} className="mx-auto mb-1 opacity-40 text-gray-400" />
-                      <p className="font-medium text-gray-600">No products added to this space yet.</p>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          handleOpenAddModal(
-                            room.id,
-                            room.customName ?? room.roomType?.name ?? "Space"
-                          )
-                        }
-                        className="mt-2 text-xs font-semibold text-gray-950 underline hover:text-gray-700"
-                      >
-                        + Add product now
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-gray-100">
-                      {room.items.map((item, index) => {
-                        const itemId = Number(item.id ?? (item as any)._id);
-                        const qty = Number(item.quantity) || 1;
-                        const unitPrice = Number(item.unitPrice || 0);
-                        const linePrice = qty * unitPrice;
-                        const roomId = Number(room.id ?? (room as any)._id);
-
-                        return (
-                          <div
-                            key={itemId}
-                            className="p-4 sm:p-5 hover:bg-gray-50/60 transition-colors"
-                          >
-                            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-                              {/* COLUMN 1 — PRODUCT INFORMATION (45–50% -> md:col-span-6) */}
-                              <div className="md:col-span-6 flex items-start gap-3.5 min-w-0">
-                                {/* Product Image / Icon */}
-                                <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden mt-0.5">
-                                  {item.product?.imageUrl ? (
-                                    <img
-                                      src={item.product.imageUrl}
-                                      alt={item.product.name}
-                                      className="w-full h-full object-contain p-1"
-                                    />
-                                  ) : (
-                                    <Package size={20} className="text-gray-300" />
-                                  )}
-                                </div>
-
-                                {/* Information Hierarchy */}
-                                <div className="min-w-0 flex-1 space-y-1">
-                                  <div className="flex items-baseline gap-2">
-                                    <span className="text-xs font-mono font-bold text-accent shrink-0">
-                                      #{index + 1}
-                                    </span>
-                                    <h5 className="font-bold text-gray-950 text-sm sm:text-base leading-snug break-words">
-                                      {item.product?.name ?? "Product"}
-                                    </h5>
-                                  </div>
-
-                                  {/* Product Code & Configuration / Tier / Finish */}
-                                  <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
-                                    {item.product?.code && (
-                                      <span className="font-mono text-xs text-gray-400 font-medium">
-                                        {item.product.code}
-                                      </span>
-                                    )}
-                                    {item.product?.code && item.variantLabel && (
-                                      <span className="text-gray-300">•</span>
-                                    )}
-                                    {item.variantLabel && (
-                                      <span className="font-semibold text-accent-foreground bg-accent-light px-2 py-0.5 rounded text-[11px] border border-accent-border/60">
-                                        {item.variantLabel}
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* Unit Price */}
-                                  <p className="text-xs font-medium text-gray-500 font-mono">
-                                    {qty > 1 ? `Qty: ${qty} · ` : ""}{formatCurrency(unitPrice)} each
-                                  </p>
-                                </div>
-                              </div>
-
-                              {/* COLUMN 2 — INSTALLATION / DETAILS (25–30% -> md:col-span-3) */}
-                              <div className="md:col-span-3 min-w-0 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100">
-                                <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-gray-400 mb-1">
-                                  <MapPin size={13} className="text-accent shrink-0" />
-                                  <span>Installation</span>
-                                </div>
-                                {item.notes && item.notes.trim() ? (
-                                  <p className="text-xs sm:text-sm font-semibold text-gray-900 break-words leading-snug">
-                                    {item.notes}
-                                  </p>
-                                ) : (
-                                  <p className="text-xs text-gray-400 italic">
-                                    Not specified
-                                  </p>
-                                )}
-                              </div>
-
-                              {/* COLUMN 3 — PRICE / ACTIONS (20–25% -> md:col-span-3) */}
-                              <div className="md:col-span-3 flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-2.5 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100 text-left md:text-right">
-                                <div>
-                                  <span className="md:hidden text-[10px] uppercase font-bold text-gray-400 block">Price</span>
-                                  <p className="font-mono font-black text-gray-950 text-base sm:text-lg">
-                                    {formatCurrency(linePrice)}
-                                  </p>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                  {/* Quantity Stepper */}
-                                  <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50/70 overflow-hidden">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (qty > 1) {
-                                          onUpdateItem(itemId, { quantity: qty - 1 });
-                                        } else {
-                                          onDeleteItem(itemId);
-                                        }
-                                      }}
-                                      className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
-                                      title={qty > 1 ? "Decrease quantity" : "Remove product"}
-                                    >
-                                      <Minus size={11} />
-                                    </button>
-                                    <span className="w-5 text-center text-xs font-mono font-bold text-gray-900">
-                                      {qty}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => onUpdateItem(itemId, { quantity: qty + 1 })}
-                                      className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
-                                      title="Increase quantity"
-                                    >
-                                      <Plus size={11} />
-                                    </button>
-                                  </div>
-
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleOpenChangeModal(
-                                        item,
-                                        roomId,
-                                        room.customName ?? room.roomType?.name ?? "Space"
-                                      )
-                                    }
-                                    className="px-2.5 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-accent-light hover:text-accent-foreground hover:border-accent-border transition active:scale-95 shadow-2xs"
-                                  >
-                                    Change
-                                  </button>
-
-                                  <button
-                                    type="button"
-                                    onClick={() => onDeleteItem(itemId)}
-                                    className="p-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition active:scale-95 shadow-2xs"
-                                    title="Remove product"
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
+                  return (
+                    <div
+                      key={room.id}
+                      className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-none"
+                    >
+                      {/* Room Header with [ + Add Product ] */}
+                      <div className="px-5 py-3.5 bg-gray-50/70 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-xl bg-gray-950 text-white flex items-center justify-center shrink-0">
+                            <Icon size={15} />
                           </div>
-                        );
-                      })}
+                          <div>
+                            <h4 className="font-bold text-gray-950 text-sm sm:text-base">
+                              {getRoomFullTitle(room, rooms)}
+                            </h4>
+                            <p className="text-[11px] text-gray-400">
+                              {roomProductCount} {roomProductCount === 1 ? "product" : "products"} configured
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between sm:justify-end gap-3.5">
+                          <span className="font-mono font-bold text-gray-950 text-sm">
+                            {formatCurrency(roomSubtotal)}
+                          </span>
+
+                          {/* Add Product Button */}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleOpenAddModal(
+                                room.id,
+                                room.customName ?? room.roomType?.name ?? "Space"
+                              )
+                            }
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-950 text-white text-xs font-semibold hover:bg-gray-800 transition active:scale-95 shadow-xs"
+                          >
+                            <Plus size={13} strokeWidth={2.5} />
+                            <span>Add Product</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Room Notes (if any) */}
+                      {room.notes && (
+                        <div className="px-5 py-2.5 bg-amber-50/40 border-b border-amber-100 text-xs text-amber-900">
+                          <span className="font-semibold">Space Note: </span>
+                          {room.notes}
+                        </div>
+                      )}
+
+                      {/* Room Items */}
+                      {(!room.items || room.items.length === 0) ? (
+                        <div className="p-6 text-center text-xs text-gray-400">
+                          <ShoppingBag size={20} className="mx-auto mb-1 opacity-40 text-gray-400" />
+                          <p className="font-medium text-gray-600">No products added to this space yet.</p>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleOpenAddModal(
+                                room.id,
+                                room.customName ?? room.roomType?.name ?? "Space"
+                              )
+                            }
+                            className="mt-2 text-xs font-semibold text-gray-950 underline hover:text-gray-700"
+                          >
+                            + Add product now
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-gray-100">
+                          {room.items.map((item, index) => {
+                            const itemId = Number(item.id ?? (item as any)._id);
+                            const qty = Number(item.quantity) || 1;
+                            const unitPrice = Number(item.unitPrice || 0);
+                            const linePrice = qty * unitPrice;
+                            const roomId = Number(room.id ?? (room as any)._id);
+
+                            return (
+                              <div
+                                key={itemId}
+                                className="p-4 sm:p-5 hover:bg-gray-50/60 transition-colors"
+                              >
+                                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
+                                  {/* COLUMN 1 — PRODUCT INFORMATION (45–50% -> md:col-span-6) */}
+                                  <div className="md:col-span-6 flex items-start gap-3.5 min-w-0">
+                                    {/* Product Image / Icon */}
+                                    <div className="w-12 h-12 rounded-xl bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden mt-0.5">
+                                      {item.product?.imageUrl ? (
+                                        <img
+                                          src={item.product.imageUrl}
+                                          alt={item.product.name}
+                                          className="w-full h-full object-contain p-1"
+                                        />
+                                      ) : (
+                                        <Package size={20} className="text-gray-300" />
+                                      )}
+                                    </div>
+
+                                    {/* Information Hierarchy */}
+                                    <div className="min-w-0 flex-1 space-y-1">
+                                      <div className="flex items-baseline gap-2">
+                                        <span className="text-xs font-mono font-bold text-accent shrink-0">
+                                          #{index + 1}
+                                        </span>
+                                        <h5 className="font-bold text-gray-950 text-sm sm:text-base leading-snug break-words">
+                                          {item.product?.name ?? "Product"}
+                                        </h5>
+                                      </div>
+
+                                      {/* Product Category, Code & Configuration / Tier / Finish */}
+                                      <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">
+                                        {(item.product?.category?.name || categories.find((c) => Number(c.id ?? (c as any)._id) === Number(item.product?.categoryId))?.name) && (
+                                          <span className="text-[10px] font-bold uppercase tracking-wider text-gray-700 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                                            {item.product?.category?.name || categories.find((c) => Number(c.id ?? (c as any)._id) === Number(item.product?.categoryId))?.name}
+                                          </span>
+                                        )}
+                                        {item.product?.code && (
+                                          <span className="font-mono text-xs text-gray-400 font-medium">
+                                            {item.product.code}
+                                          </span>
+                                        )}
+                                        {((item.product?.category?.name || categories.find((c) => Number(c.id ?? (c as any)._id) === Number(item.product?.categoryId))?.name) || item.product?.code) && item.variantLabel && (
+                                          <span className="text-gray-300">•</span>
+                                        )}
+                                        {item.variantLabel && (
+                                          <span className="font-semibold text-accent-foreground bg-accent-light px-2 py-0.5 rounded text-[11px] border border-accent-border/60">
+                                            {item.variantLabel}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* Unit Price */}
+                                      <p className="text-xs font-medium text-gray-500 font-mono">
+                                        {qty > 1 ? `Qty: ${qty} · ` : ""}{formatCurrency(unitPrice)} each
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  {/* COLUMN 2 — INSTALLATION / DETAILS (25–30% -> md:col-span-3) */}
+                                  <div className="md:col-span-3 min-w-0 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100">
+                                    <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider font-bold text-gray-400 mb-1">
+                                      <MapPin size={13} className="text-accent shrink-0" />
+                                      <span>Installation</span>
+                                    </div>
+                                    {item.notes && item.notes.trim() ? (
+                                      <p className="text-xs sm:text-sm font-semibold text-gray-900 break-words leading-snug">
+                                        {item.notes}
+                                      </p>
+                                    ) : (
+                                      <p className="text-xs text-gray-400 italic">
+                                        Not specified
+                                      </p>
+                                    )}
+                                  </div>
+
+                                  {/* COLUMN 3 — PRICE / ACTIONS (20–25% -> md:col-span-3) */}
+                                  <div className="md:col-span-3 flex flex-row md:flex-col items-center md:items-end justify-between md:justify-center gap-2.5 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100 text-left md:text-right">
+                                    <div>
+                                      <span className="md:hidden text-[10px] uppercase font-bold text-gray-400 block">Price</span>
+                                      <p className="font-mono font-black text-gray-950 text-base sm:text-lg">
+                                        {formatCurrency(linePrice)}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                      {/* Quantity Stepper */}
+                                      <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50/70 overflow-hidden">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            if (qty > 1) {
+                                              onUpdateItem(itemId, { quantity: qty - 1 });
+                                            } else {
+                                              onDeleteItem(itemId);
+                                            }
+                                          }}
+                                          className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
+                                          title={qty > 1 ? "Decrease quantity" : "Remove product"}
+                                        >
+                                          <Minus size={11} />
+                                        </button>
+                                        <span className="w-5 text-center text-xs font-mono font-bold text-gray-900">
+                                          {qty}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() => onUpdateItem(itemId, { quantity: qty + 1 })}
+                                          className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
+                                          title="Increase quantity"
+                                        >
+                                          <Plus size={11} />
+                                        </button>
+                                      </div>
+
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleOpenChangeModal(
+                                            item,
+                                            roomId,
+                                            room.customName ?? room.roomType?.name ?? "Space"
+                                          )
+                                        }
+                                        className="px-2.5 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-accent-light hover:text-accent-foreground hover:border-accent-border transition active:scale-95 shadow-2xs"
+                                      >
+                                        Change
+                                      </button>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => onDeleteItem(itemId)}
+                                        className="p-1.5 rounded-lg border border-gray-200 text-xs font-semibold text-gray-400 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition active:scale-95 shadow-2xs"
+                                        title="Remove product"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
+                  );
+                })}
+              </div>
+            ))}
           </div>
         </div>
 
@@ -763,16 +835,45 @@ export default function StepReview({
             </div>
 
             {/* Quick Metrics */}
-            <div className="grid grid-cols-2 gap-2.5 py-2.5 px-3 bg-gray-50/70 rounded-xl border border-gray-100 text-xs">
+            <div className="grid grid-cols-3 gap-2 py-2.5 px-3 bg-gray-50/70 rounded-xl border border-gray-100 text-xs text-center">
               <div>
-                <p className="text-[10px] text-gray-400 uppercase font-semibold">Total Spaces</p>
+                <p className="text-[10px] text-gray-400 uppercase font-semibold">Spaces</p>
                 <p className="text-base font-bold font-mono text-gray-950">{rooms.length}</p>
               </div>
               <div>
-                <p className="text-[10px] text-gray-400 uppercase font-semibold">Total Devices</p>
+                <p className="text-[10px] text-gray-400 uppercase font-semibold">Categories</p>
+                <p className="text-base font-bold font-mono text-gray-950">{categoryBreakdown.length}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-gray-400 uppercase font-semibold">Devices</p>
                 <p className="text-base font-bold font-mono text-gray-950">{totalDevices}</p>
               </div>
             </div>
+
+            {/* Category Breakdown (Multi-category Overview) */}
+            {categoryBreakdown.length > 1 && (
+              <div className="space-y-1.5 p-3 rounded-xl bg-gray-50/50 border border-gray-200/70 text-xs">
+                <div className="flex items-center justify-between pb-1 border-b border-gray-200/50">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-gray-500">
+                    Category Breakdown
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-400">
+                    {categoryBreakdown.length} Categories
+                  </span>
+                </div>
+                <div className="space-y-1 pt-0.5">
+                  {categoryBreakdown.map((cat) => (
+                    <div key={cat.name} className="flex justify-between items-center text-[11px] text-gray-600">
+                      <span className="truncate pr-2">{cat.name}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="font-mono text-gray-400">×{cat.count}</span>
+                        <span className="font-mono font-semibold text-gray-900">{formatCurrency(cat.subtotal)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Lock Notice if approved/delivered */}
             {isLocked && (
@@ -817,9 +918,8 @@ export default function StepReview({
                       value={discountVal}
                       onChange={(e) => setDiscountVal(Number(e.target.value))}
                       placeholder={discountType === "percentage" ? "10%" : "₹5000"}
-                      className={`w-24 h-9 px-2.5 border rounded-lg text-xs font-mono font-bold bg-white focus:outline-none ${
-                        discountExceedsAllocation ? "border-red-400 text-red-600" : "border-gray-200 focus:border-gray-950"
-                      }`}
+                      className={`w-24 h-9 px-2.5 border rounded-lg text-xs font-mono font-bold bg-white focus:outline-none ${discountExceedsAllocation ? "border-red-400 text-red-600" : "border-gray-200 focus:border-gray-950"
+                        }`}
                     />
                   )}
 
@@ -857,30 +957,95 @@ export default function StepReview({
               </p>
             </div>
 
-            {/* Pricing Math Breakdown */}
-            <div className="space-y-2.5 text-sm pt-2">
-              <div className="flex justify-between text-gray-600">
-                <span>Subtotal</span>
-                <span className="font-mono font-bold text-gray-900">
-                  {formatCurrency(subtotal)}
+            {/* Price Summary */}
+            <div className="space-y-3.5 pt-1">
+              <div className="border-b border-gray-100 pb-1.5 flex items-center justify-between">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                  Price Summary
                 </span>
               </div>
-              {clampedDiscount > 0 && (
-                <div className="flex justify-between text-emerald-600 font-semibold">
-                  <span>
-                    Discount ({discountType === "percentage" ? `${discountVal}%` : "Fixed"})
+
+              {/* Subtotal and Discount Rows */}
+              <div className="space-y-2 text-xs sm:text-sm">
+                <div className="flex justify-between items-center text-gray-600">
+                  <span className="font-medium text-gray-600">Subtotal</span>
+                  <span className="font-mono font-medium text-gray-900">
+                    {formatCurrency(grossSubtotal, { decimals: 2 })}
                   </span>
-                  <span className="font-mono">− {formatCurrency(clampedDiscount)}</span>
                 </div>
-              )}
-              <div className="pt-3 border-t border-gray-200 flex justify-between items-center">
-                <div>
-                  <span className="text-base font-extrabold text-gray-950 block">Grand Total</span>
-                  <span className="text-[11px] text-gray-400">Estimated Project Investment</span>
+                <div className="flex justify-between items-center text-gray-600">
+                  <span className="flex items-center gap-1.5 font-medium text-gray-600">
+                    <span>Discount</span>
+                    {clampedDiscount > 0 && discountType === "percentage" && (
+                      <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        {discountVal}%
+                      </span>
+                    )}
+                  </span>
+                  <span className={`font-mono font-medium ${clampedDiscount > 0 ? "text-emerald-600" : "text-gray-900"}`}>
+                    {clampedDiscount > 0
+                      ? `-${formatCurrency(clampedDiscount, { decimals: 2 })}`
+                      : formatCurrency(0, { decimals: 2 })}
+                  </span>
                 </div>
-                <span className="text-2xl font-black font-mono text-gray-950">
-                  {formatCurrency(grandTotal)}
-                </span>
+              </div>
+
+              {/* Net Subtotal - visually more important than Subtotal */}
+              <div className="pt-2 border-t border-gray-100">
+                <div className="flex justify-between items-baseline py-1">
+                  <div>
+                    <span className="text-xs sm:text-sm font-bold text-gray-950 block">Net Subtotal</span>
+                    <span className="text-[10px] text-gray-400 font-medium">Untaxed Amount</span>
+                  </div>
+                  <span className="font-mono font-bold text-gray-950 text-sm sm:text-base">
+                    {formatCurrency(netSubtotal, { decimals: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Tax Summary */}
+              <div className="p-3.5 rounded-xl bg-gray-50/70 border border-gray-200/60 space-y-2.5">
+                <div className="flex items-center justify-between pb-1.5 border-b border-gray-200/50">
+                  <span className="text-[10px] uppercase font-bold tracking-wider text-gray-500">
+                    Tax Summary
+                  </span>
+                  <span className="text-[10px] font-mono font-bold text-accent px-1.5 py-0.5 rounded bg-accent/5 border border-accent/20">
+                    GST
+                  </span>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex justify-between items-center text-gray-600">
+                    {/* <span className="font-medium text-gray-700">CGST @ 9%</span> */}
+                    <span className="font-medium text-gray-700">CGST</span>
+                    <span className="font-mono font-semibold text-gray-900">
+                      {formatCurrency(cgstAmount, { decimals: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center text-gray-600">
+                    {/* <span className="font-medium text-gray-700">SGST/UTGST @ 9%</span> */}
+                    <span className="font-medium text-gray-700">SGST/UTGST </span>
+                    <span className="font-mono font-semibold text-gray-900">
+                      {formatCurrency(sgstAmount, { decimals: 2 })}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Grand Total */}
+              <div className="pt-3 border-t-2 border-gray-950/15">
+                <div className="flex justify-between items-baseline gap-2">
+                  <div>
+                    <span className="text-xs uppercase tracking-wider font-extrabold text-gray-950 block">
+                      Grand Total
+                    </span>
+                    <span className="text-[10px] text-gray-400">
+                      Estimated Project Investment
+                    </span>
+                  </div>
+                  <span className="text-2xl font-black font-mono text-gray-950 tracking-tight">
+                    {formatCurrency(grandTotal, { decimals: 2 })}
+                  </span>
+                </div>
               </div>
             </div>
 

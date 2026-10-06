@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Image from "next/image";
 import {
   Search,
@@ -12,6 +12,8 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   AlertCircle,
   ArrowLeft,
   ArrowRight,
@@ -31,6 +33,13 @@ import {
   ProductVariant,
 } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
+import {
+  getRoomDisplayName,
+  getRoomFullTitle,
+  groupRoomsByFloor,
+  isMultiFloorHouseType,
+} from "@/lib/roomUtils";
+import { getEffectiveFloorForRoom } from "@/lib/floorAssignment";
 import { getCategoryConfig, formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import {
   filterProductCatalog,
@@ -55,6 +64,7 @@ interface Props {
   ) => Promise<void>;
   onUpdateItem: (itemId: number, data: any) => Promise<void>;
   onDeleteItem: (itemId: number) => Promise<void>;
+  onUpdateRoom?: (roomId: number, data: Partial<QuotationRoom>) => Promise<void>;
   onUpdateRoomNotes: (roomId: number, notes: string) => Promise<void>;
   onContinue: () => void;
   onBack: () => void;
@@ -79,6 +89,92 @@ export default function StepProductConfig({
     rooms.find((r) => Number(r.id ?? (r as any)._id) === Number(activeRoomId)) ||
     rooms[0] ||
     null;
+
+  // Property multi-floor status
+  const isMultiFloor = useMemo(() => {
+    return isMultiFloorHouseType(quotation.houseType);
+  }, [quotation.houseType]);
+
+  // Active Rooms horizontal scroll state & refs
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const roomRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const updateScrollButtons = () => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const scrollLeft = el.scrollLeft;
+    const maxScroll = el.scrollWidth - el.clientWidth;
+    setCanScrollLeft(scrollLeft > 2);
+    setCanScrollRight(maxScroll > 2 && maxScroll - scrollLeft > 2);
+  };
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    updateScrollButtons();
+
+    const ro = new ResizeObserver(() => {
+      updateScrollButtons();
+    });
+
+    ro.observe(el);
+    if (el.firstElementChild) {
+      ro.observe(el.firstElementChild);
+    }
+
+    el.addEventListener("scroll", updateScrollButtons, { passive: true });
+    window.addEventListener("resize", updateScrollButtons, { passive: true });
+
+    const timer = setTimeout(updateScrollButtons, 100);
+
+    return () => {
+      ro.disconnect();
+      el.removeEventListener("scroll", updateScrollButtons);
+      window.removeEventListener("resize", updateScrollButtons);
+      clearTimeout(timer);
+    };
+  }, [rooms]);
+
+  const handleScrollActiveRooms = (direction: "left" | "right") => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const scrollAmount = 300;
+    el.scrollBy({
+      left: direction === "left" ? -scrollAmount : scrollAmount,
+      behavior: "smooth",
+    });
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      updateScrollButtons();
+      if (Date.now() - startTime > 600) clearInterval(interval);
+    }, 50);
+  };
+
+  // Auto scroll active room pill into view
+  useEffect(() => {
+    if (activeRoomId && roomRefs.current[Number(activeRoomId)]) {
+      const pill = roomRefs.current[Number(activeRoomId)];
+      const container = scrollContainerRef.current;
+      if (pill && container) {
+        pill.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "nearest",
+        });
+        const timer = setTimeout(updateScrollButtons, 300);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [activeRoomId]);
+
+  // Live Overview rooms grouped by floor
+  const floorGroups = useMemo(() => {
+    return groupRoomsByFloor(rooms, isMultiFloor);
+  }, [rooms, isMultiFloor]);
 
   // Filter State
   const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
@@ -402,73 +498,153 @@ export default function StepProductConfig({
       </div>
 
       {/* 2. Active Space Selection Bar */}
-      <div className="bg-white rounded-2xl border border-gray-200 p-3 shadow-none">
-        <div className="flex items-center justify-between mb-2 px-1">
-          <span className="text-[10px] uppercase tracking-wider text-gray-400 font-bold">
-            Select Active Room ({rooms.length} Spaces)
+      <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 shadow-none max-w-full overflow-hidden">
+        {/* Header row */}
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[10px] uppercase tracking-widest text-gray-400 font-bold">
+            Select Active Room ({rooms.length} {rooms.length === 1 ? "Space" : "Spaces"})
           </span>
-          <span className="text-xs text-gray-500 font-medium hidden sm:inline">
-            Active: <strong className="text-gray-900">{currentRoom?.customName ?? currentRoom?.roomType?.name}</strong>
-          </span>
+          {currentRoom && (
+            <span className="text-xs text-gray-500 font-medium hidden sm:inline">
+              Active:{" "}
+              <strong className="text-gray-900 font-semibold">
+                {getRoomDisplayName(currentRoom, rooms)}
+              </strong>
+              <span className="text-gray-400 font-normal">
+                {" · "}
+                {getEffectiveFloorForRoom(currentRoom, rooms, isMultiFloor)}
+              </span>
+            </span>
+          )}
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
-          {rooms.map((room) => {
-            const currentId = Number(currentRoom?.id ?? (currentRoom as any)?._id);
-            const roomId = Number(room.id ?? (room as any)._id);
-            const isCurrent = Boolean(currentId && roomId === currentId);
-            const IconComp = getRoomIcon(room.customName ?? room.roomType?.name ?? "Room");
-            const roomSub = (room.items || []).reduce(
-              (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
-              0
-            );
-            const roomProdCount = (room.items || []).reduce(
-              (acc, i) => acc + (Number(i.quantity) || 1),
-              0
-            );
+        {/* Scroll row: arrows + viewport */}
+        <div className="flex items-center gap-2 w-full min-w-0">
+          {/* Left Arrow */}
+          <button
+            type="button"
+            disabled={!canScrollLeft}
+            onClick={() => handleScrollActiveRooms("left")}
+            aria-label="Scroll active rooms left"
+            className={`shrink-0 w-7 h-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center transition-all cursor-pointer select-none ${
+              canScrollLeft
+                ? "text-gray-700 hover:bg-gray-50 hover:border-gray-300 shadow-xs"
+                : "text-gray-300 opacity-40 cursor-not-allowed"
+            }`}
+          >
+            <ChevronLeft size={14} strokeWidth={2.5} />
+          </button>
 
-            return (
-              <button
-                key={roomId}
-                type="button"
-                onClick={() => onSelectRoom(roomId)}
-                className={`flex items-center gap-2.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all shrink-0 border select-none ${
-                  isCurrent
-                    ? "bg-gray-950 text-white border-accent/40 shadow-xs ring-1 ring-accent/25"
-                    : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50 hover:border-gray-300"
-                }`}
-              >
-                <div
-                  className={`w-6 h-6 rounded-lg flex items-center justify-center shrink-0 ${
-                    isCurrent ? "bg-white/15 text-accent" : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  <IconComp size={14} />
-                </div>
-                <span className="truncate max-w-[120px] sm:max-w-[150px]">
-                  {room.customName ?? room.roomType?.name}
-                </span>
+          {/* Scrollable viewport — this is the element with overflow-x:auto */}
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden scrollbar-none"
+          >
+            {/* Inner track — width:max-content keeps all pills in one row */}
+            <div className="flex flex-nowrap gap-2 w-max pb-0.5 pr-4">
+              {rooms.map((room) => {
+                const currentId = Number(currentRoom?.id ?? (currentRoom as any)?._id);
+                const roomId = Number(room.id ?? (room as any)._id);
+                const isCurrent = Boolean(currentId && roomId === currentId);
+                const IconComp = getRoomIcon(room.customName ?? room.roomType?.name ?? "Room");
+                const roomDisplayName = getRoomDisplayName(room, rooms);
+                const roomFloor = getEffectiveFloorForRoom(room, rooms, isMultiFloor);
+                const roomSub = (room.items || []).reduce(
+                  (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
+                  0
+                );
+                const roomProdCount = (room.items || []).reduce(
+                  (acc, i) => acc + (Number(i.quantity) || 1),
+                  0
+                );
 
-                <span
-                  className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full ${
-                    isCurrent ? "bg-accent/20 text-accent-light border border-accent/30 font-bold" : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  {roomProdCount}
-                </span>
-
-                {roomSub > 0 && (
-                  <span
-                    className={`font-mono text-[11px] hidden md:inline ${
-                      isCurrent ? "text-gray-300" : "text-gray-500"
+                return (
+                  <button
+                    key={roomId}
+                    ref={(el) => {
+                      roomRefs.current[roomId] = el;
+                    }}
+                    type="button"
+                    onClick={() => onSelectRoom(roomId)}
+                    aria-label={`${roomDisplayName}, ${roomFloor}, ${roomProdCount} devices`}
+                    className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border select-none flex-none shrink-0 cursor-pointer transition-all duration-150 ${
+                      isCurrent
+                        ? "bg-gray-950 border-accent/40 shadow-xs ring-1 ring-accent/25 text-white"
+                        : "bg-white border-gray-200 text-gray-800 hover:border-gray-300 hover:bg-gray-50/70"
                     }`}
                   >
-                    • {formatCurrency(roomSub)}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+                    {/* Room Icon */}
+                    <div
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                        isCurrent
+                          ? "bg-white/10 text-accent"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                    >
+                      <IconComp size={15} />
+                    </div>
+
+                    {/* Room Name + Floor */}
+                    <div className="flex flex-col items-start text-left">
+                      <span
+                        className={`text-xs font-semibold leading-snug whitespace-nowrap ${
+                          isCurrent ? "text-white" : "text-gray-900"
+                        }`}
+                      >
+                        {roomDisplayName}
+                      </span>
+                      <span
+                        className={`text-[10px] font-normal leading-none mt-0.5 whitespace-nowrap ${
+                          isCurrent ? "text-gray-400" : "text-gray-500"
+                        }`}
+                      >
+                        {roomFloor}
+                      </span>
+                    </div>
+
+                    {/* Device Count Badge */}
+                    <span
+                      className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded-full shrink-0 ${
+                        isCurrent
+                          ? "bg-white/15 text-white border border-white/20"
+                          : roomProdCount > 0
+                          ? "bg-accent/10 text-accent border border-accent/20"
+                          : "bg-gray-100 text-gray-500 border border-gray-200/80"
+                      }`}
+                    >
+                      {roomProdCount}
+                    </span>
+
+                    {/* Price (desktop-only, only when items exist) */}
+                    {roomSub > 0 && (
+                      <span
+                        className={`font-mono text-[11px] font-medium hidden xl:inline shrink-0 ${
+                          isCurrent ? "text-gray-400" : "text-gray-500"
+                        }`}
+                      >
+                        • {formatCurrency(roomSub)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Right Arrow */}
+          <button
+            type="button"
+            disabled={!canScrollRight}
+            onClick={() => handleScrollActiveRooms("right")}
+            aria-label="Scroll active rooms right"
+            className={`shrink-0 w-7 h-7 rounded-lg border border-gray-200 bg-white flex items-center justify-center transition-all cursor-pointer select-none ${
+              canScrollRight
+                ? "text-gray-700 hover:bg-gray-50 hover:border-gray-300 shadow-xs"
+                : "text-gray-300 opacity-40 cursor-not-allowed"
+            }`}
+          >
+            <ChevronRight size={14} strokeWidth={2.5} />
+          </button>
         </div>
       </div>
 
@@ -762,8 +938,12 @@ export default function StepProductConfig({
                   <span className="font-extrabold text-accent flex items-center gap-1">
                     <MapPin size={11} className="text-accent shrink-0" />
                     <strong className="text-gray-950 font-bold">
-                      {currentRoom.customName ?? currentRoom.roomType?.name}
+                      {getRoomDisplayName(currentRoom, rooms)}
                     </strong>
+                    <span className="text-gray-500 font-medium">
+                      {" · "}
+                      {getEffectiveFloorForRoom(currentRoom, rooms, isMultiFloor)}
+                    </span>
                   </span>
                 </div>
               )}
@@ -1089,47 +1269,69 @@ export default function StepProductConfig({
               </div>
             </div>
 
-            {/* Room Breakdown Scrollable List */}
-            <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1 scrollbar-thin">
-              {rooms.map((room) => {
-                const currentId = Number(currentRoom?.id ?? (currentRoom as any)?._id);
-                const roomId = Number(room.id ?? (room as any)._id);
-                const sub = (room.items || []).reduce(
-                  (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
-                  0
-                );
-                const isCurrent = Boolean(currentId && roomId === currentId);
-                const prodCount = (room.items || []).reduce(
-                  (acc, i) => acc + (Number(i.quantity) || 1),
-                  0
-                );
-
-                return (
-                  <div
-                    key={roomId}
-                    onClick={() => onSelectRoom(roomId)}
-                    className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center justify-between text-xs select-none ${
-                      isCurrent
-                        ? "bg-gray-950 text-white border-gray-950 shadow-xs"
-                        : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50/50"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="font-semibold truncate">
-                        {room.customName ?? room.roomType?.name}
-                      </span>
-                      <span
-                        className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
-                          isCurrent ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
-                        }`}
-                      >
-                        {prodCount} {prodCount === 1 ? "device" : "devices"}
-                      </span>
-                    </div>
-                    <span className="font-mono font-bold shrink-0">{formatCurrency(sub)}</span>
+            {/* Room Breakdown Scrollable List (Floor Grouped) */}
+            <div className="space-y-3 max-h-[240px] overflow-y-auto pr-1 scrollbar-thin">
+              {floorGroups.map((group) => (
+                <div key={group.floor} className="space-y-1">
+                  <div className="flex items-center justify-between px-1 py-0.5 text-[10px] font-extrabold text-gray-400 uppercase tracking-wider border-b border-gray-100/80">
+                    <span>{group.floor}</span>
+                    <span className="font-mono text-[9px] font-bold bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded">
+                      {group.rooms.length} {group.rooms.length === 1 ? "Space" : "Spaces"}
+                    </span>
                   </div>
-                );
-              })}
+                  <div className="space-y-1 pt-0.5">
+                    {group.rooms.map((room) => {
+                      const currentId = Number(currentRoom?.id ?? (currentRoom as any)?._id);
+                      const roomId = Number(room.id ?? (room as any)._id);
+                      const sub = (room.items || []).reduce(
+                        (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
+                        0
+                      );
+                      const isCurrent = Boolean(currentId && roomId === currentId);
+                      const prodCount = (room.items || []).reduce(
+                        (acc, i) => acc + (Number(i.quantity) || 1),
+                        0
+                      );
+
+                      return (
+                        <div
+                          key={roomId}
+                          onClick={() => onSelectRoom(roomId)}
+                          className={`p-2.5 rounded-xl border transition cursor-pointer flex items-center justify-between text-xs select-none ${
+                            isCurrent
+                              ? "bg-gray-950 text-white border-gray-950 shadow-xs"
+                              : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50/50"
+                          }`}
+                        >
+                          <div className="flex flex-col min-w-0 pr-1">
+                            <span className="font-semibold truncate">
+                              {getRoomDisplayName(room, rooms)}
+                            </span>
+                            <span
+                              className={`text-[10px] truncate ${
+                                isCurrent ? "text-gray-300" : "text-gray-400"
+                              }`}
+                            >
+                              {getEffectiveFloorForRoom(room, rooms, isMultiFloor)}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                                isCurrent ? "bg-white/20 text-white" : "bg-gray-100 text-gray-600"
+                              }`}
+                            >
+                              {prodCount}
+                            </span>
+                            <span className="font-mono font-bold text-xs">{formatCurrency(sub)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
 
             {/* Estimated Total & Continue Action */}
@@ -1162,8 +1364,11 @@ export default function StepProductConfig({
                   <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">
                     Added Products
                   </h3>
-                  <p className="text-sm font-extrabold text-gray-950 mt-0.5">
-                    {currentRoom.customName ?? currentRoom.roomType?.name}
+                  <p className="text-sm font-extrabold text-gray-950 mt-0.5 flex items-center gap-1 flex-wrap">
+                    <span>{getRoomDisplayName(currentRoom, rooms)}</span>
+                    <span className="text-xs font-normal text-gray-400">
+                      · {getEffectiveFloorForRoom(currentRoom, rooms, isMultiFloor)}
+                    </span>
                   </p>
                 </div>
 

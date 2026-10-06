@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { Quotation } from "@/types";
 import { formatCurrency, getProductTotals } from "@/lib/utils";
+import { getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
 import { Select } from "@/components/ui/Select";
 
 type DiscountTypeValue = "percentage" | "fixed" | "none";
@@ -61,23 +62,45 @@ export default function QuotationSummary({ quotation, onUpdateDiscount }: Props)
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 md:p-5 lg:p-6 space-y-3 md:space-y-4">
-        {/* Room Subtotals */}
-        {quotation.rooms.map((room) => {
-          const subtotal = room.items.reduce(
-            (s, i) => s + i.quantity * Number(i.unitPrice), 0
-          );
-          if (subtotal === 0) return null;
-          const roomName = room.customName ?? room.roomType?.name ?? "Room";
-          return (
-            <div key={room.id} className="flex justify-between items-center text-sm md:text-base">
-              <span className="text-gray-600 truncate mr-2">
-                {room.roomType?.icon && <span className="mr-1">{room.roomType.icon}</span>}
-                {roomName}
-              </span>
-              <span className="font-medium text-gray-900 shrink-0">{formatCurrency(subtotal)}</span>
+        {/* Room Subtotals Grouped Floorwise */}
+        {(() => {
+          const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
+          return groupRoomsByFloor(quotation.rooms).map((group) => {
+            const groupSubtotal = group.rooms.reduce(
+              (gSum, r) => gSum + r.items.reduce((s, i) => s + i.quantity * Number(i.unitPrice), 0),
+              0
+            );
+            if (groupSubtotal === 0) return null;
+
+            return (
+              <div key={group.floor} className="space-y-1 pb-1.5 border-b border-gray-100 last:border-0">
+                {isMultiFloor && (
+                  <div className="flex items-center justify-between text-[11px] uppercase tracking-wider font-bold text-gray-500 bg-gray-50 px-2 py-1 rounded">
+                    <span>🏢 {group.floor}</span>
+                    <span className="font-mono font-semibold text-gray-700">{formatCurrency(groupSubtotal)}</span>
+                  </div>
+                )}
+                <div className="pl-2 space-y-1">
+                {group.rooms.map((room) => {
+                  const subtotal = room.items.reduce(
+                    (s, i) => s + i.quantity * Number(i.unitPrice), 0
+                  );
+                  if (subtotal === 0) return null;
+                  const roomName = getRoomFullTitle(room, quotation.rooms);
+                  return (
+                    <div key={room.id} className="flex justify-between items-center text-xs md:text-sm">
+                      <span className="text-gray-600 truncate mr-2">
+                        {roomName}
+                      </span>
+                      <span className="font-medium text-gray-900 shrink-0">{formatCurrency(subtotal)}</span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
-        })}
+        });
+      })()}
 
         {totalItems === 0 && (
           <p className="text-center text-gray-400 text-xs md:text-sm py-4 md:py-6">No items added yet</p>

@@ -18,7 +18,9 @@ import {
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, Company } from "@/types";
 import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
+import { getRoomFullTitle } from "@/lib/roomUtils";
 import WhyteLogo from "@/components/shared/WhyteLogo";
+import { calculateQuotationGst } from "@/lib/pricing";
 
 interface Props {
   quotation: Quotation;
@@ -36,14 +38,14 @@ export interface ProposalPageSlice {
     | { type: "about_whyte" }
     | { type: "project_overview_and_scope" }
     | {
-        type: "room";
-        room: QuotationRoom;
-        roomIndex: number;
-        items: QuotationItem[];
-        isContinuation: boolean;
-        showRoomHeader: boolean;
-        showRoomFooter: boolean;
-      }
+      type: "room";
+      room: QuotationRoom;
+      roomIndex: number;
+      items: QuotationItem[];
+      isContinuation: boolean;
+      showRoomHeader: boolean;
+      showRoomFooter: boolean;
+    }
     | { type: "closing_and_financials" }
   >;
 }
@@ -78,13 +80,43 @@ export function getItemFinish(
 }
 
 /**
+ * Safe filter for rooms that have at least one allocated device with quantity > 0.
+ * Completely excludes rooms with 0 allocated devices, empty arrays, or quantity 0.
+ */
+export function getRenderableProposalRooms(
+  rooms: QuotationRoom[] | null | undefined
+): QuotationRoom[] {
+  if (!rooms || !Array.isArray(rooms)) return [];
+
+  return rooms
+    .filter((room): room is QuotationRoom => {
+      if (!room || typeof room !== "object") return false;
+      const items = room.items;
+      if (!Array.isArray(items) || items.length === 0) return false;
+      return items.some((item) => {
+        if (!item || typeof item !== "object") return false;
+        const qty = Number(item.quantity);
+        return !isNaN(qty) && qty > 0;
+      });
+    })
+    .map((room) => ({
+      ...room,
+      items: (room.items || []).filter((item) => {
+        if (!item || typeof item !== "object") return false;
+        const qty = Number(item.quantity);
+        return !isNaN(qty) && qty > 0;
+      }),
+    }));
+}
+
+/**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  * Generates an executive cover (P1), About Whyte (P2), Project & Scope (P3),
  * followed by compact room breakdowns with individual installation locations,
  * and concluding with the financial summary, terms, and Whyte contact info.
  */
 function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
-  const rooms = quotation.rooms || [];
+  const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
 
   // Usable vertical point budget for standard A4 page (height 1123px)
@@ -125,38 +157,15 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
   let currentSections: ProposalPageSlice["sections"] = [];
   let currentHeight = 0;
 
-  // Process room-wise breakdown starting on Page 4
+  // Process room-wise breakdown starting on Page 4 (only rooms with valid allocated devices)
   for (let rIdx = 0; rIdx < rooms.length; rIdx++) {
     const room = rooms[rIdx];
     const items = room.items || [];
     const itemsLeft = [...items];
     let isFirstSlice = true;
 
-    // Room with 0 items
+    // Skip empty rooms safely - no slice, no header, no placeholder
     if (itemsLeft.length === 0) {
-      const roomH = 55;
-      if (currentHeight + roomH > getCapacity()) {
-        pages.push({
-          pageNumber: currentPage,
-          totalPages: 0,
-          isFirstPage: false,
-          isLastPage: false,
-          sections: currentSections,
-        });
-        currentPage++;
-        currentSections = [];
-        currentHeight = 0;
-      }
-      currentSections.push({
-        type: "room",
-        room,
-        roomIndex: rIdx,
-        items: [],
-        isContinuation: false,
-        showRoomHeader: true,
-        showRoomFooter: true,
-      });
-      currentHeight += roomH;
       continue;
     }
 
@@ -213,7 +222,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
   }
 
   // Financial Summary, Terms, Next Steps & Official Whyte Closing
-  const closingEstimateH = 440;
+  const closingEstimateH = 490;
   if (currentHeight + closingEstimateH > getCapacity()) {
     pages.push({
       pageNumber: currentPage,
@@ -253,11 +262,15 @@ export default function StepProposalPreview({
   const [copied, setCopied] = useState(false);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  const rooms = quotation.rooms || [];
+  const rawRooms = useMemo(() => quotation.rooms || [], [quotation.rooms]);
+  const renderableRooms = useMemo(
+    () => getRenderableProposalRooms(rawRooms),
+    [rawRooms]
+  );
 
   // Totals calculations - single source of truth from records
   const subtotal = useMemo(() => {
-    return rooms.reduce((sum, r) => {
+    return rawRooms.reduce((sum, r) => {
       return (
         sum +
         (r.items || []).reduce(
@@ -266,13 +279,13 @@ export default function StepProposalPreview({
         )
       );
     }, 0);
-  }, [rooms]);
+  }, [rawRooms]);
 
   const totalProducts = useMemo(() => {
-    return rooms.reduce((sum, r) => {
+    return renderableRooms.reduce((sum, r) => {
       return sum + (r.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
     }, 0);
-  }, [rooms]);
+  }, [renderableRooms]);
 
   const hasDiscount = Boolean(
     quotation.discountType && Number(quotation.discountValue) > 0
@@ -288,33 +301,44 @@ export default function StepProposalPreview({
     return 0;
   }, [quotation.discountType, quotation.discountValue, subtotal]);
 
-  const clampedDiscount = Math.min(discountAmount, subtotal);
-  const finalTotal = Math.max(0, subtotal - clampedDiscount);
+  // Authoritative GST calculation matching Review & Normalization
+  const gstCalculations = useMemo(() => {
+    return calculateQuotationGst(subtotal, discountAmount);
+  }, [subtotal, discountAmount]);
 
-  // Extracted tiers and finishes present in proposal
+  const {
+    grossSubtotal,
+    discountAmount: clampedDiscount,
+    netSubtotal,
+    cgstAmount,
+    sgstAmount,
+    grandTotal,
+  } = gstCalculations;
+
+  // Extracted tiers and finishes present in proposal (from allocated products)
   const configuredTiers = useMemo(() => {
     const set = new Set<string>();
     if (quotation.defaultTier) set.add(quotation.defaultTier);
-    rooms.forEach((r) => {
+    renderableRooms.forEach((r) => {
       (r.items || []).forEach((i) => {
         const t = getItemTier(i, quotation);
         if (t) set.add(t);
       });
     });
     return Array.from(set);
-  }, [rooms, quotation]);
+  }, [renderableRooms, quotation]);
 
   const configuredFinishes = useMemo(() => {
     const set = new Set<string>();
     if (quotation.defaultFinish) set.add(quotation.defaultFinish);
-    rooms.forEach((r) => {
+    renderableRooms.forEach((r) => {
       (r.items || []).forEach((i) => {
         const f = getItemFinish(i, quotation);
         if (f) set.add(f);
       });
     });
     return Array.from(set);
-  }, [rooms, quotation]);
+  }, [renderableRooms, quotation]);
 
   // Paginated proposal pages
   const proposalPages = useMemo(() => {
@@ -442,7 +466,7 @@ export default function StepProposalPreview({
           <button
             type="button"
             onClick={handlePrint}
-            disabled={rooms.length === 0}
+            disabled={renderableRooms.length === 0}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
           >
             <Printer size={14} />
@@ -453,7 +477,7 @@ export default function StepProposalPreview({
           <button
             type="button"
             onClick={handleDownloadPDF}
-            disabled={downloading || rooms.length === 0}
+            disabled={downloading || renderableRooms.length === 0}
             className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 transition active:scale-[0.99] shadow-sm disabled:opacity-50"
           >
             <Download size={14} />
@@ -463,7 +487,7 @@ export default function StepProposalPreview({
       </div>
 
       {/* Main Centered A4 Document Canvas */}
-      {rooms.length === 0 ? (
+      {renderableRooms.length === 0 ? (
         <div className="bg-white max-w-xl mx-auto rounded-2xl border border-gray-200 p-12 text-center text-gray-400 space-y-3">
           <ShieldCheck size={36} className="mx-auto text-gray-300" />
           <h3 className="text-base font-bold text-gray-900">
@@ -505,6 +529,7 @@ export default function StepProposalPreview({
                         theme="light"
                         alt="WHYTE"
                         size="document-header"
+                        style={{ height: "18px", maxWidth: "80px", width: "auto" }}
                         unoptimized
                         loading="eager"
                       />
@@ -529,13 +554,14 @@ export default function StepProposalPreview({
                   if (section.type === "cover") {
                     return (
                       <div key={sIdx} className="space-y-6">
-                        {/* Header Brand Bar */}
-                        <div className="flex items-center justify-between pb-4 border-b border-gray-200">
+                        {/* Header Brand Bar - Space Efficient & Aligned */}
+                        <div className="flex items-center justify-between pb-3 sm:pb-3.5 border-b border-gray-200">
                           <div>
                             <WhyteLogo
                               theme="light"
                               alt="WHYTE Automations"
                               size="document-cover"
+                              style={{ height: "24px", maxWidth: "105px", width: "auto" }}
                               unoptimized
                               loading="eager"
                             />
@@ -631,10 +657,10 @@ export default function StepProposalPreview({
                               Total Investment
                             </p>
                             <p className="font-black font-mono text-gray-950 text-sm mt-0.5">
-                              {formatCurrency(finalTotal)}
+                              {formatCurrency(grandTotal, { decimals: 2 })}
                             </p>
                             <p className="text-[10px] text-gray-500">
-                              {rooms.length} Spaces • {totalProducts} Devices
+                              {renderableRooms.length} Spaces • {totalProducts} Devices
                             </p>
                           </div>
                         </div>
@@ -858,34 +884,41 @@ export default function StepProposalPreview({
                         {/* Selected Automated Spaces */}
                         <div className="space-y-2.5">
                           <h3 className="text-xs font-bold uppercase tracking-wider text-gray-950">
-                            Configured Spaces ({rooms.length} Spaces)
+                            Configured Spaces ({renderableRooms.length}{" "}
+                            {renderableRooms.length === 1 ? "Space" : "Spaces"})
                           </h3>
-                          <div className="flex flex-wrap gap-2">
-                            {rooms.map((r) => {
-                              const roomId = Number(r.id ?? (r as any)._id);
-                              const Icon = getRoomIcon(
-                                r.customName ?? r.roomType?.name ?? "Room"
-                              );
-                              const count = (r.items || []).reduce(
-                                (acc, i) => acc + (Number(i.quantity) || 1),
-                                0
-                              );
-                              return (
-                                <div
-                                  key={roomId}
-                                  className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs"
-                                >
-                                  <Icon size={13} className="text-accent" />
-                                  <span className="font-semibold text-gray-900">
-                                    {r.customName ?? r.roomType?.name}
-                                  </span>
-                                  <span className="font-mono text-[10px] bg-accent-light text-accent-foreground border border-accent-border/60 px-1.5 py-0.5 rounded font-bold">
-                                    {count} {count === 1 ? "device" : "devices"}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                          </div>
+                          {renderableRooms.length > 0 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {renderableRooms.map((r: QuotationRoom) => {
+                                const roomId = Number(r.id ?? (r as any)._id);
+                                const Icon = getRoomIcon(
+                                  r.customName ?? r.roomType?.name ?? "Room"
+                                );
+                                const count = (r.items || []).reduce(
+                                  (acc: number, i: QuotationItem) => acc + (Number(i.quantity) || 1),
+                                  0
+                                );
+                                return (
+                                  <div
+                                    key={roomId}
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs"
+                                  >
+                                    <Icon size={13} className="text-accent" />
+                                    <span className="font-semibold text-gray-900">
+                                      {getRoomFullTitle(r, renderableRooms)}
+                                    </span>
+                                    <span className="font-mono text-[10px] bg-accent-light text-accent-foreground border border-accent-border/60 px-1.5 py-0.5 rounded font-bold">
+                                      {count} {count === 1 ? "device" : "devices"}
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-400 italic">
+                              No spaces configured with active products
+                            </div>
+                          )}
                         </div>
 
                         {/* Automation Scope */}
@@ -905,7 +938,7 @@ export default function StepProposalPreview({
                               <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
                               <span>
                                 Individual room-wise product specification and
-                                quantity mapping ({rooms.length} automated
+                                quantity mapping ({renderableRooms.length} automated
                                 spaces).
                               </span>
                             </p>
@@ -1038,7 +1071,7 @@ export default function StepProposalPreview({
                             <div className="flex items-center gap-2">
                               <Icon size={14} className="text-accent" />
                               <h3 className="font-extrabold text-gray-950 text-xs sm:text-sm uppercase tracking-wider">
-                                {room.customName ?? room.roomType?.name}
+                                {getRoomFullTitle(room, renderableRooms)}
                               </h3>
                               <span className="text-[10px] font-mono text-accent-foreground bg-accent-light px-2 py-0.5 rounded border border-accent-border/60">
                                 {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)}{" "}
@@ -1057,7 +1090,7 @@ export default function StepProposalPreview({
                         {isContinuation && (
                           <div className="bg-gray-50/80 px-4 py-1.5 rounded-t-xl border border-gray-200 text-xs font-semibold text-gray-700 flex items-center justify-between">
                             <span>
-                              {room.customName ?? room.roomType?.name}{" "}
+                              {getRoomFullTitle(room, renderableRooms)}{" "}
                               (Continued)
                             </span>
                             <span className="font-mono text-[11px] text-gray-500">
@@ -1074,19 +1107,11 @@ export default function StepProposalPreview({
                           </div>
                         )}
 
-                        {/* Empty Room Message - Compact */}
-                        {items.length === 0 && showRoomHeader && (
-                          <div className="px-4 py-2.5 text-xs text-gray-400 italic border-x border-b border-gray-200 rounded-b-xl bg-white">
-                            No devices configured
-                          </div>
-                        )}
-
                         {/* Compact Product Table: Product Name | Qty | Unit Price (No image, No Total column) */}
                         {items.length > 0 && (
                           <div
-                            className={`border border-gray-200 overflow-hidden ${
-                              showRoomFooter ? "rounded-b-none" : "rounded-b-xl"
-                            }`}
+                            className={`border border-gray-200 overflow-hidden ${showRoomFooter ? "rounded-b-none" : "rounded-b-xl"
+                              }`}
                           >
                             <table className="w-full text-left border-collapse text-xs">
                               <thead>
@@ -1169,51 +1194,92 @@ export default function StepProposalPreview({
                       <div key={sIdx} className="space-y-4 pt-2">
                         {/* Financial Summary */}
                         <div className="space-y-2">
-                          <div className="pb-1 border-b border-gray-200">
+                          <div className="pb-1 border-b border-gray-200 flex items-center justify-between">
                             <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-gray-950">
                               Financial Summary
                             </h3>
+                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                              Investment Overview
+                            </span>
                           </div>
 
-                          <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 space-y-2 text-xs">
-                            <div className="flex justify-between text-gray-600">
-                              <span>Equipment Subtotal</span>
-                              <span className="font-mono font-bold text-gray-900">
-                                {formatCurrency(subtotal)}
+                          <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 space-y-2.5 text-xs">
+                            {/* Subtotal */}
+                            <div className="flex justify-between items-center text-gray-600">
+                              <span className="font-medium text-gray-600">Subtotal</span>
+                              <span className="font-mono font-medium text-gray-900">
+                                {formatCurrency(grossSubtotal, { decimals: 2 })}
                               </span>
                             </div>
 
-                            {hasDiscount ? (
-                              <div className="flex justify-between text-emerald-600 font-semibold">
-                                <span>
-                                  Project Discount (
-                                  {quotation.discountType === "percentage"
-                                    ? `${quotation.discountValue}%`
-                                    : "Fixed"}
-                                  )
-                                </span>
-                                <span className="font-mono">
-                                  − {formatCurrency(clampedDiscount)}
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="flex justify-between text-gray-500">
-                                <span>Project Discount</span>
-                                <span>Discount: No Discount</span>
-                              </div>
-                            )}
+                            {/* Discount */}
+                            <div className="flex justify-between items-center text-gray-600">
+                              <span className="flex items-center gap-1.5 font-medium text-gray-600">
+                                <span>Discount</span>
+                                {hasDiscount && quotation.discountType === "percentage" && (
+                                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                    {quotation.discountValue}%
+                                  </span>
+                                )}
+                              </span>
+                              <span className={`font-mono font-medium ${clampedDiscount > 0 ? "text-emerald-600" : "text-gray-900"}`}>
+                                {clampedDiscount > 0
+                                  ? `-${formatCurrency(clampedDiscount, { decimals: 2 })}`
+                                  : formatCurrency(0, { decimals: 2 })}
+                              </span>
+                            </div>
 
-                            <div className="pt-3 border-t border-gray-200 flex justify-between items-center">
+                            {/* Net Subtotal */}
+                            <div className="pt-2 border-t border-gray-200/80 flex justify-between items-baseline py-0.5">
                               <div>
-                                <span className="text-sm font-black text-gray-950 block">
+                                <span className="font-bold text-gray-950 block text-xs sm:text-sm">Net Subtotal</span>
+                                <span className="text-[10px] text-gray-400 font-medium">Taxable amount after discount</span>
+                              </div>
+                              <span className="font-mono font-bold text-gray-950 text-sm sm:text-base">
+                                {formatCurrency(netSubtotal, { decimals: 2 })}
+                              </span>
+                            </div>
+
+                            {/* Tax Summary Box */}
+                            <div className="p-3 rounded-lg bg-white border border-gray-200/80 space-y-1.5">
+                              <div className="flex items-center justify-between pb-1 border-b border-gray-100">
+                                <span className="text-[10px] uppercase font-bold tracking-wider text-gray-500">
+                                  Tax Summary
+                                </span>
+                                <span className="text-[10px] font-mono font-bold text-accent px-1.5 py-0.5 rounded bg-accent/5 border border-accent/20">
+                                  GST
+                                </span>
+                              </div>
+                              <div className="space-y-1 text-xs">
+                                <div className="flex justify-between items-center text-gray-600">
+                                  {/* <span className="text-gray-700 font-medium">CGST @ 9%</span> */}
+                                  <span className="text-gray-700 font-medium">CGST</span>
+                                  <span className="font-mono font-semibold text-gray-900">
+                                    {formatCurrency(cgstAmount, { decimals: 2 })}
+                                  </span>
+                                </div>
+                                <div className="flex justify-between items-center text-gray-600">
+                                  {/* <span className="text-gray-700 font-medium">SGST/UTGST @ 9%</span> */}
+                                  <span className="text-gray-700 font-medium">SGST/UTGST</span>
+                                  <span className="font-mono font-semibold text-gray-900">
+                                    {formatCurrency(sgstAmount, { decimals: 2 })}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Grand Total */}
+                            <div className="pt-2.5 border-t-2 border-gray-950/20 flex justify-between items-baseline">
+                              <div>
+                                <span className="text-sm font-black uppercase tracking-wider text-gray-950 block">
                                   Grand Total
                                 </span>
                                 <span className="text-[10px] text-gray-400">
-                                  * Final pricing based on configured items
+                                  Total Investment (Incl. Taxes)
                                 </span>
                               </div>
-                              <span className="text-2xl font-black font-mono text-gray-950">
-                                {formatCurrency(finalTotal)}
+                              <span className="text-2xl font-black font-mono text-gray-950 tracking-tight">
+                                {formatCurrency(grandTotal, { decimals: 2 })}
                               </span>
                             </div>
                           </div>
@@ -1225,11 +1291,10 @@ export default function StepProposalPreview({
                             ESTIMATED PROJECT INVESTMENT
                           </p>
                           <p className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-gray-950">
-                            {formatCurrency(finalTotal)}
+                            {formatCurrency(grandTotal, { decimals: 2 })}
                           </p>
                           <p className="text-[11px] text-gray-500">
-                            Final pricing is based on the products and
-                            configuration selected in this proposal.
+                            Final pricing is based on the products and configuration selected in this proposal.
                           </p>
                         </div>
 
@@ -1276,8 +1341,8 @@ export default function StepProposalPreview({
                                 </strong>
                                 {quotation.validUntil
                                   ? `Valid until ${formatDate(
-                                      quotation.validUntil
-                                    )}`
+                                    quotation.validUntil
+                                  )}`
                                   : "Valid for 30 days from date of issue."}
                               </p>
                               {quotation.terms && (

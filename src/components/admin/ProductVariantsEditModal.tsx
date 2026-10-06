@@ -696,7 +696,7 @@ export default function ProductVariantsEditModal({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Edit Variants" size="4xl">
-      <form onSubmit={handleSave} className="space-y-4">
+      <form onSubmit={handleSave} noValidate className="space-y-4">
         {/* ── Product context banner ── */}
         <div className="rounded-xl border border-neutral-200 bg-neutral-50/80 p-3.5 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">

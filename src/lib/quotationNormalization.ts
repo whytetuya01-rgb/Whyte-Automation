@@ -1,5 +1,6 @@
 import type { Quotation, QuotationRoom, QuotationItem, Category, RoomType, HouseType, Product, ProductVariant } from "@/types";
 import { serializeVariant } from "@/lib/productVariantService";
+import { calculateQuotationGst } from "@/lib/pricing";
 
 /**
  * Normalizes a product variant to guarantee a plain, server-safe shape:
@@ -59,6 +60,7 @@ export function normalizeProduct(product: any): Product {
     ...(priceStr ? { price: priceStr } : {}),
     unit: product.unit ? String(product.unit) : "pcs",
     imageUrl: product.imageUrl ? String(product.imageUrl) : null,
+    imagePublicId: product.imagePublicId ? String(product.imagePublicId) : null,
     moduleSize: product.moduleSize ? String(product.moduleSize) : null,
     notes: product.notes ? String(product.notes) : null,
     isActive: product.isActive !== false,
@@ -263,6 +265,9 @@ export function normalizeQuotation(quotation: any): Quotation & {
   discountAmount: number;
   totalAmount: number;
   productsCount: number;
+  netSubtotal: number;
+  cgstAmount: number;
+  sgstAmount: number;
 } {
   if (!quotation || typeof quotation !== "object") return quotation;
 
@@ -290,11 +295,7 @@ export function normalizeQuotation(quotation: any): Quotation & {
 
   // Financial calculations
   const discountType = quotation.discountType ?? "none";
-  const rawDiscountVal = quotation.discountValue !== undefined && quotation.discountValue !== null
-    ? (typeof quotation.discountValue === "object" && "$numberDecimal" in quotation.discountValue
-        ? Number(quotation.discountValue.$numberDecimal)
-        : Number(quotation.discountValue))
-    : 0;
+  const rawDiscountVal = (() => { const v: any = quotation.discountValue; if (v == null) return 0; if (typeof v === 'object' && v && '$numberDecimal' in (v as any)) return Number((v as any).$numberDecimal); if (typeof v === 'object' && typeof (v as any).toString === 'function') return Number((v as any).toString()); const n = Number(v); return isNaN(n) ? 0 : n; })();
 
   const customerPct = Number(
     quotation.customerDiscountPercent !== undefined && quotation.customerDiscountPercent !== null
@@ -311,7 +312,7 @@ export function normalizeQuotation(quotation: any): Quotation & {
     discountAmount = Math.min(subtotal, Math.round(rawDiscountVal * 100) / 100);
   }
 
-  const totalAmount = Math.max(0, Math.round((subtotal - discountAmount) * 100) / 100);
+  const gst = calculateQuotationGst(subtotal, discountAmount);
 
   const allocatedPct = Number(quotation.allocatedDiscountPercent || 0);
   const earningPct = Math.max(0, allocatedPct - customerPct);
@@ -324,14 +325,20 @@ export function normalizeQuotation(quotation: any): Quotation & {
     houseTypeId,
     houseType,
     rooms,
-    subtotal: Math.round(subtotal * 100) / 100,
+    subtotal: gst.grossSubtotal,
     productsCount,
     totalProducts: productsCount,
     discountType,
     discountValue: rawDiscountVal.toString(),
-    discountAmount,
-    totalAmount,
-    grandTotal: totalAmount,
+    discountAmount: gst.discountAmount,
+    netSubtotal: gst.netSubtotal,
+    cgstPercent: gst.cgstPercent,
+    cgstAmount: gst.cgstAmount,
+    sgstPercent: gst.sgstPercent,
+    sgstAmount: gst.sgstAmount,
+    totalGstAmount: gst.totalGstAmount,
+    totalAmount: gst.grandTotal,
+    grandTotal: gst.grandTotal,
     allocatedDiscountPercent: allocatedPct,
     customerDiscountPercent: customerPct,
     estimatedEarningPercent: earningPct,
@@ -340,3 +347,56 @@ export function normalizeQuotation(quotation: any): Quotation & {
     estimatedEarning: earningAmount,
   };
 }
+
+
+export function serializeQuotationForClient(q: any): any {
+  if (!q || typeof q !== 'object') return q;
+  const toNum = (v: any) => {
+    if (v == null) return 0;
+    if (typeof v === 'object' && v && typeof v.toString === 'function') return Number(v.toString());
+    const n = Number(v);
+    return Number.isNaN(n) ? 0 : n;
+  };
+  const toStr = (v: any) => {
+    if (v == null) return null;
+    if (typeof v === 'object' && v && typeof v.toString === 'function') return (v as any).toString();
+    return String(v);
+  };
+  const toIso = (d: any) => {
+    if (d == null) return null;
+    if (d instanceof Date) return d.toISOString();
+    try { return new Date(d).toISOString(); } catch { return null; }
+  };
+  const gst = calculateQuotationGst(q.subtotal, q.discountAmount);
+  return {
+    ...q,
+    id: q.id ?? q._id ?? '',
+    discountValue: toStr(q.discountValue),
+    totalAmount: toNum(q.totalAmount ?? q.grandTotal ?? gst.grandTotal),
+    grandTotal: toNum(q.grandTotal ?? q.totalAmount ?? gst.grandTotal),
+    subtotal: toNum(q.subtotal ?? gst.grossSubtotal),
+    discountAmount: toNum(q.discountAmount ?? gst.discountAmount),
+    netSubtotal: toNum(q.netSubtotal ?? gst.netSubtotal),
+    cgstPercent: toNum(q.cgstPercent ?? gst.cgstPercent),
+    cgstAmount: toNum(q.cgstAmount ?? gst.cgstAmount),
+    sgstPercent: toNum(q.sgstPercent ?? gst.sgstPercent),
+    sgstAmount: toNum(q.sgstAmount ?? gst.sgstAmount),
+    totalGstAmount: toNum(q.totalGstAmount ?? gst.totalGstAmount),
+    productsCount: toNum(q.productsCount ?? q.totalProducts ?? 0),
+    roomsCount: toNum(q.roomsCount ?? 0),
+    allocatedDiscountPercent: toNum(q.allocatedDiscountPercent),
+    customerDiscountPercent: toNum(q.customerDiscountPercent),
+    estimatedEarningPercent: toNum(q.estimatedEarningPercent ?? q.earningPercent),
+    estimatedEarningAmount: toNum(q.estimatedEarningAmount ?? q.estimatedEarning),
+    createdAt: toIso(q.createdAt),
+    updatedAt: toIso(q.updatedAt),
+    sentAt: toIso(q.sentAt),
+    approvedAt: toIso(q.approvedAt),
+    deliveredAt: toIso(q.deliveredAt),
+    rejectedAt: toIso(q.rejectedAt),
+    validUntil: toIso(q.validUntil),
+    houseType: q.houseType ? { id: Number(q.houseType.id ?? q.houseType._id ?? 0), name: String(q.houseType.name ?? '') } : null,
+  };
+}
+
+

@@ -97,6 +97,20 @@
   background-color: #FFF6F8 !important;
 }
 
+/* Product catalog overrides the tinted admin row hover with neutral greys so a long
+   product list does not read as one continuous pink block. Scoped to
+   .catalog-variants so every other admin table keeps its brand hover. */
+.admin-theme .catalog-variants tbody tr:hover {
+  background-color: #f8fafc !important;
+}
+
+/* Respect users who prefer reduced motion inside the catalog. */
+@media (prefers-reduced-motion: reduce) {
+  .admin-theme .catalog-root * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
 .admin-theme tbody tr.selected,
 .admin-theme tbody tr[data-selected="true"] {
   background-color: #FCEAF0 !important;

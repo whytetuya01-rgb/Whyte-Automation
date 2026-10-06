@@ -13,6 +13,7 @@ export interface IProduct {
   surfaceFinish: string | null;
   unit: string;
   imageUrl: string | null;
+  imagePublicId?: string | null;
   moduleSize: string | null;
   notes: string | null;
   isActive: boolean;
@@ -44,6 +45,7 @@ const ProductSchema = new Schema<IProductDocument>(
     surfaceFinish: { type: String, default: null, trim: true, index: true },
     unit: { type: String, default: "pcs", trim: true },
     imageUrl: { type: String, default: null },
+    imagePublicId: { type: String, default: null },
     moduleSize: { type: String, default: null },
     notes: { type: String, default: null },
     isActive: { type: Boolean, default: true, index: true },

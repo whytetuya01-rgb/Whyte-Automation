@@ -11,6 +11,7 @@ import {
   normalizeRoomTypes,
   normalizeHouseTypes,
   normalizeProducts,
+  serializeQuotationForClient,
 } from "@/lib/quotationNormalization";
 
 export const dynamic = "force-dynamic";
@@ -103,7 +104,7 @@ export default async function QuotationPage(props: PageProps) {
   }
 
   // Fast plain JSON normalization for client component hydration
-  const quotation = normalizeQuotation(JSON.parse(JSON.stringify(qDoc)));
+  const quotation = serializeQuotationForClient(normalizeQuotation(JSON.parse(JSON.stringify(qDoc))));
   const houseTypes = normalizeHouseTypes(JSON.parse(JSON.stringify(htDocs)));
   const products = normalizeProducts(pDocs);
   const categories = normalizeCategories(JSON.parse(JSON.stringify(cDocs)));
