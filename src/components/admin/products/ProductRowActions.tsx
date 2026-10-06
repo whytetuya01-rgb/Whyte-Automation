@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 interface ProductRowActionsProps {
   productId: number;
   productName: string;
-  /** Collapsing the row closes its overflow menu, so no orphan panel is left behind. */
   isExpanded: boolean;
   onView: () => void;
   onEdit: () => void;
@@ -13,15 +12,6 @@ interface ProductRowActionsProps {
   onDelete: () => void;
 }
 
-/**
- * Row actions with an explicit hierarchy:
- *   primary     — Edit Variants (theme accent, always visible)
- *   secondary   — View / Edit (neutral, labelled from xl up)
- *   destructive — Delete (red, last in reading order)
- *
- * Below xl the secondary and destructive actions collapse into a "More" menu.
- * No action is ever removed: everything stays one click away at every width.
- */
 export default function ProductRowActions({
   productId,
   productName,
@@ -39,7 +29,6 @@ export default function ProductRowActions({
     if (!isExpanded) setIsMenuOpen(false);
   }, [isExpanded]);
 
-  // Close on outside click or Escape.
   useEffect(() => {
     if (!isMenuOpen) return;
 
@@ -61,66 +50,53 @@ export default function ProductRowActions({
   }, [isMenuOpen]);
 
   const buttonClass =
-    "inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors duration-150";
-  const menuItemClass =
-    "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs font-medium transition-colors duration-150";
+    "inline-flex h-8 items-center gap-1.5 rounded-xl px-2.5 text-xs font-semibold transition-all duration-150 cursor-pointer";
 
   return (
-    <div ref={containerRef} className="relative flex items-center gap-1">
-      {/* Primary — the action admins use most */}
-      <button
-        type="button"
-        onClick={onEditVariants}
-        title={`Edit variants of ${productName}`}
-        className={cn(
-          buttonClass,
-          "bg-admin-primary-soft text-admin-primary-foreground ring-1 ring-inset ring-admin-primary-border",
-          "hover:bg-admin-primary hover:text-white hover:ring-admin-primary"
-        )}
-      >
-        <Layers className="h-3.5 w-3.5" aria-hidden="true" />
-        <span className="hidden lg:inline">Edit Variants</span>
-        <span className="lg:hidden">Variants</span>
-      </button>
-
-      {/* Secondary — labelled once there is horizontal room */}
+    <div ref={containerRef} className="relative flex items-center gap-1.5">
+      {/* Primary: View Details */}
       <button
         type="button"
         onClick={onView}
-        title={`View ${productName}`}
+        title={`View details of ${productName}`}
         className={cn(
           buttonClass,
-          "hidden text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 xl:inline-flex"
+          "bg-neutral-900 text-white hover:bg-neutral-800 shadow-2xs"
         )}
       >
         <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-        View
+        <span>View</span>
       </button>
 
+      {/* Secondary: Edit Product */}
       <button
         type="button"
         onClick={onEdit}
         title={`Edit ${productName}`}
         className={cn(
           buttonClass,
-          "hidden text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 xl:inline-flex"
+          "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 hover:text-neutral-900 border border-neutral-200/80"
         )}
       >
         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-        Edit
+        <span className="hidden sm:inline">Edit</span>
       </button>
 
+      {/* Variant Action: Edit Variants */}
       <button
         type="button"
-        onClick={onDelete}
-        title={`Delete ${productName}`}
-        className={cn(buttonClass, "hidden text-red-500 hover:bg-red-50 hover:text-red-600 xl:inline-flex")}
+        onClick={onEditVariants}
+        title={`Edit variants of ${productName}`}
+        className={cn(
+          buttonClass,
+          "bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-200/60"
+        )}
       >
-        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-        Delete
+        <Layers className="h-3.5 w-3.5" aria-hidden="true" />
+        <span className="hidden md:inline">Variants</span>
       </button>
 
-      {/* Overflow — compact path for tablet and mobile */}
+      {/* Overflow Menu for Delete */}
       <button
         type="button"
         onClick={() => setIsMenuOpen((open) => !open)}
@@ -128,14 +104,13 @@ export default function ProductRowActions({
         aria-expanded={isMenuOpen}
         aria-controls={menuId}
         aria-label={`More actions for ${productName}`}
-        title="More actions"
+        title="More options"
         className={cn(
-          buttonClass,
-          "text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900 xl:hidden",
+          "inline-flex h-8 w-8 items-center justify-center rounded-xl text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 transition-colors",
           isMenuOpen && "bg-neutral-100 text-neutral-900"
         )}
       >
-        <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
       </button>
 
       {isMenuOpen && (
@@ -143,7 +118,7 @@ export default function ProductRowActions({
           id={menuId}
           role="menu"
           aria-label={`Actions for ${productName}`}
-          className="absolute right-0 top-full z-dropdown mt-1 w-48 animate-fadeIn rounded-xl border border-neutral-200 bg-white p-1 shadow-lg shadow-neutral-900/5"
+          className="absolute right-0 top-full z-30 mt-1.5 w-44 rounded-xl border border-neutral-200 bg-white p-1 shadow-lg text-xs"
         >
           <button
             type="button"
@@ -152,10 +127,10 @@ export default function ProductRowActions({
               setIsMenuOpen(false);
               onView();
             }}
-            className={cn(menuItemClass, "text-neutral-700 hover:bg-neutral-100")}
+            className="flex w-full items-center gap-2 px-3 py-2 rounded-lg text-neutral-700 hover:bg-neutral-50 transition-colors"
           >
-            <Eye className="h-3.5 w-3.5 text-neutral-400" aria-hidden="true" />
-            View product
+            <Eye className="h-3.5 w-3.5 text-neutral-400" />
+            View Product
           </button>
 
           <button
@@ -165,10 +140,10 @@ export default function ProductRowActions({
               setIsMenuOpen(false);
               onEdit();
             }}
-            className={cn(menuItemClass, "text-neutral-700 hover:bg-neutral-100")}
+            className="flex w-full items-center gap-2 px-3 py-2 rounded-lg text-neutral-700 hover:bg-neutral-50 transition-colors"
           >
-            <Pencil className="h-3.5 w-3.5 text-neutral-400" aria-hidden="true" />
-            Edit details
+            <Pencil className="h-3.5 w-3.5 text-neutral-400" />
+            Edit Product
           </button>
 
           <button
@@ -178,13 +153,13 @@ export default function ProductRowActions({
               setIsMenuOpen(false);
               onEditVariants();
             }}
-            className={cn(menuItemClass, "text-neutral-700 hover:bg-neutral-100")}
+            className="flex w-full items-center gap-2 px-3 py-2 rounded-lg text-neutral-700 hover:bg-neutral-50 transition-colors"
           >
-            <Layers className="h-3.5 w-3.5 text-neutral-400" aria-hidden="true" />
-            Edit variants
+            <Layers className="h-3.5 w-3.5 text-neutral-400" />
+            Edit Variants
           </button>
 
-          <div className="my-1 h-px bg-neutral-100" role="separator" />
+          <div className="my-1 border-t border-neutral-100" />
 
           <button
             type="button"
@@ -193,10 +168,10 @@ export default function ProductRowActions({
               setIsMenuOpen(false);
               onDelete();
             }}
-            className={cn(menuItemClass, "text-red-600 hover:bg-red-50")}
+            className="flex w-full items-center gap-2 px-3 py-2 rounded-lg text-red-600 hover:bg-red-50 transition-colors"
           >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            Delete product
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete Product
           </button>
         </div>
       )}

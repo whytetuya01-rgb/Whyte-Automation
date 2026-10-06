@@ -269,7 +269,7 @@ export default function HouseTypesPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto pb-16 space-y-5">
+    <div className="w-full space-y-5 pb-16">
 
       {/* ─── 1. PAGE HEADER ───────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">

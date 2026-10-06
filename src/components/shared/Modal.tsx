@@ -22,18 +22,38 @@ export default function Modal({
 }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!isOpen) return;
 
     const previousActive = document.activeElement as HTMLElement | null;
-    const hasAutoFocus = !!dialogRef.current?.querySelector("[autofocus]");
-    if (!hasAutoFocus) closeButtonRef.current?.focus();
+
+    // Focus autoFocus element if exists, or close button initially on open
+    const timer = setTimeout(() => {
+      const hasAutoFocus = !!dialogRef.current?.querySelector("[autofocus]");
+      if (!hasAutoFocus) {
+        closeButtonRef.current?.focus();
+      }
+    }, 0);
+
+    return () => {
+      clearTimeout(timer);
+      previousActive?.focus();
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -53,7 +73,7 @@ export default function Modal({
         lastElement.focus();
       } else if (!event.shiftKey && document.activeElement === lastElement) {
         event.preventDefault();
-        firstElement.focus();
+        lastElement.focus();
       }
     };
 
@@ -61,9 +81,8 @@ export default function Modal({
 
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
-      previousActive?.focus();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

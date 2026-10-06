@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import React, { useState, useMemo } from "react";
 import { RoomType } from "@/types";
 import {
   Plus,
@@ -31,7 +31,10 @@ function RoomTypeForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const RoomIcon = useMemo(() => getRoomIcon(name.trim() || "Room"), [name]);
+  const roomIconElement = useMemo(() => {
+    const Icon = getRoomIcon(name.trim() || "Room");
+    return React.createElement(Icon, { className: "h-6 w-6 text-pink-400" });
+  }, [name]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,7 +83,7 @@ function RoomTypeForm({
       {/* Icon Preview Box */}
       <div className="rounded-2xl border border-neutral-200/80 bg-neutral-50/70 p-4 flex items-center gap-4">
         <div className="h-12 w-12 shrink-0 rounded-xl bg-neutral-900 text-white flex items-center justify-center shadow-2xs">
-          <RoomIcon className="h-6 w-6 text-pink-400" />
+          {roomIconElement}
         </div>
         <div>
           <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400 block">
@@ -189,7 +192,7 @@ export default function RoomTypesPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto pb-16 space-y-5">
+    <div className="w-full space-y-5 pb-16">
       {/* ─── 1. PAGE HEADER ───────────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
         <div>

@@ -46,15 +46,9 @@ const CONFIGURATION_TABS: CatalogFilterOption[] = [
   { value: "no", label: "No variants" },
 ];
 
-/** Compact, consistent control height across the whole toolbar. */
 const CONTROL_TRIGGER =
-  "h-9 rounded-lg text-xs font-medium shadow-none border-neutral-200 bg-white hover:border-neutral-300 hover:bg-neutral-50 px-2.5";
+  "h-9 rounded-xl text-xs font-semibold shadow-none border-neutral-200 bg-white hover:border-neutral-300 px-3";
 
-/**
- * Catalog toolbar: one wide search, four compact filters and a segmented
- * control for the configuration filter. All filters stay controlled by the page
- * (URL state) — this component only renders and reports intent.
- */
 export default function ProductCatalogToolbar({
   searchInput,
   onSearchInputChange,
@@ -83,9 +77,9 @@ export default function ProductCatalogToolbar({
   ];
 
   return (
-    <section className="rounded-xl border border-neutral-200/80 bg-white shadow-2xs">
-      <div className="flex flex-wrap items-center gap-2 p-2.5">
-        {/* Search — the widest control, so it anchors the toolbar. */}
+    <section className="rounded-2xl border border-neutral-200/80 bg-white p-3 shadow-xs space-y-2.5">
+      <div className="flex flex-wrap items-center gap-2.5">
+        {/* Search Input */}
         <div className="relative min-w-[240px] flex-1">
           <Input
             value={searchInput}
@@ -93,25 +87,26 @@ export default function ProductCatalogToolbar({
             onKeyDown={(event) => {
               if (event.key === "Enter") onSearchSubmit();
             }}
-            placeholder="Search products, codes or variant SKU..."
+            placeholder="Search products, SKU..."
             aria-label="Search catalog"
-            leftIcon={<Search className="h-3.5 w-3.5" />}
+            leftIcon={<Search className="h-3.5 w-3.5 text-neutral-400" />}
             rightIcon={
               searchInput ? (
                 <button
                   type="button"
                   onClick={onClearSearch}
                   aria-label="Clear search"
-                  className="rounded p-0.5 text-neutral-400 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-700"
+                  className="rounded-lg p-0.5 text-neutral-400 hover:text-neutral-700"
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               ) : null
             }
-            className="h-9 rounded-lg border-neutral-200 bg-neutral-50/60 pl-9 pr-9 text-xs shadow-none hover:border-neutral-300 focus:bg-white"
+            className="h-9 rounded-xl border-neutral-200 bg-white pl-9 pr-9 text-xs focus:ring-pink-500/20 focus:border-neutral-900 transition-colors"
           />
         </div>
 
+        {/* Filter Dropdowns */}
         <div className="flex flex-wrap items-center gap-2">
           <Select
             ariaLabel="Filter by category"
@@ -119,7 +114,7 @@ export default function ProductCatalogToolbar({
             onChange={(event) => onFilterChange("category", event.target.value)}
             options={categorySelectOptions}
             triggerClassName={CONTROL_TRIGGER}
-            className="w-[168px]"
+            className="w-[160px]"
           />
           <Select
             ariaLabel="Filter by type"
@@ -127,7 +122,7 @@ export default function ProductCatalogToolbar({
             onChange={(event) => onFilterChange("type", event.target.value)}
             options={typeSelectOptions}
             triggerClassName={CONTROL_TRIGGER}
-            className="w-[140px]"
+            className="w-[136px]"
           />
           <Select
             ariaLabel="Filter by status"
@@ -143,15 +138,15 @@ export default function ProductCatalogToolbar({
             onChange={(event) => onFilterChange("sort", event.target.value)}
             options={SORT_OPTIONS}
             triggerClassName={CONTROL_TRIGGER}
-            className="w-[148px]"
+            className="w-[144px]"
           />
         </div>
       </div>
 
-      {/* Secondary line: configuration segmented control + result summary + reset. */}
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-neutral-100 px-2.5 py-2">
+      {/* Configuration Segmented Control & Status line */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-neutral-100 pt-2.5">
         <div className="flex items-center gap-2">
-          <span className="hidden items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-neutral-400 sm:inline-flex">
+          <span className="hidden items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-neutral-400 sm:inline-flex">
             <SlidersHorizontal className="h-3 w-3" aria-hidden="true" />
             Configuration
           </span>
@@ -159,7 +154,7 @@ export default function ProductCatalogToolbar({
           <div
             role="group"
             aria-label="Filter by configuration"
-            className="inline-flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-neutral-100/70 p-0.5"
+            className="inline-flex items-center gap-1 rounded-xl border border-neutral-200/80 bg-neutral-100/80 p-1"
           >
             {CONFIGURATION_TABS.map((tab) => {
               const isSelected = hasVariants === tab.value;
@@ -170,10 +165,10 @@ export default function ProductCatalogToolbar({
                   onClick={() => onFilterChange("hasVariants", tab.value)}
                   aria-pressed={isSelected}
                   className={cn(
-                    "rounded-md px-2.5 py-1 text-xs font-medium transition-[background-color,color,box-shadow] duration-150",
+                    "rounded-lg px-3 py-1 text-xs transition-all",
                     isSelected
-                      ? "bg-white font-semibold text-admin-primary-foreground shadow-2xs ring-1 ring-inset ring-admin-primary-border"
-                      : "text-neutral-500 hover:bg-white/70 hover:text-neutral-800"
+                      ? "bg-white text-pink-600 font-bold shadow-2xs border border-pink-200/60"
+                      : "text-neutral-600 hover:text-neutral-900 hover:bg-white/50 font-semibold"
                   )}
                 >
                   {tab.label}
@@ -184,13 +179,13 @@ export default function ProductCatalogToolbar({
         </div>
 
         <div className="flex items-center gap-3">
-          <span className="text-xs text-neutral-400 tabular-nums">{resultSummary}</span>
+          <span className="text-xs font-mono font-medium text-neutral-500">{resultSummary}</span>
 
           {hasActiveFilters && (
             <button
               type="button"
               onClick={onClearAll}
-              className="inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-neutral-400 transition-colors duration-150 hover:bg-neutral-100 hover:text-neutral-700"
+              className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition-colors"
             >
               <X className="h-3 w-3" aria-hidden="true" />
               Clear filters

@@ -461,6 +461,7 @@ export default function DealersPage() {
                   onChange={(e) => setNewDiscountPercent(Number(e.target.value))}
                   className="w-full pl-3 pr-8 py-2.5 bg-white border border-gray-300 rounded-xl text-sm font-mono font-bold focus:outline-none focus:border-gray-950"
                   placeholder="e.g. 20"
+                  autoFocus
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-bold text-xs">%</span>
               </div>

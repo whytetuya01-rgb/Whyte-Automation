@@ -332,7 +332,7 @@ export default function CategoriesPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto pb-16 space-y-5">
+    <div className="w-full space-y-5 pb-16">
 
       {/* ── PAGE HEADER ─────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between gap-4 pt-1">

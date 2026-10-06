@@ -180,7 +180,7 @@ export default function ProductDetailPage() {
       return null;
     }
     return product.notes;
-  }, [product?.notes]);
+  }, [product]);
 
   // Loading Skeleton State
   if (loading) {
@@ -722,7 +722,7 @@ export default function ProductDetailPage() {
             </div>
             <h3 className="text-sm font-bold text-neutral-800">No variants assigned</h3>
             <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-              This product currently has no active variants. Click "Edit Variants Matrix" to configure combinations.
+              This product currently has no active variants. Click &quot;Edit Variants Matrix&quot; to configure combinations.
             </p>
             <Button
               variant="outline"

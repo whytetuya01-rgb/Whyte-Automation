@@ -285,9 +285,10 @@ function ProductsPageContent() {
     });
   }, [updateQuery]);
 
-  const handleSearchSubmit = useCallback(() => {
-    updateQuery({ search: searchInput, page: 1 });
-  }, [updateQuery, searchInput]);
+  const handleSearchInputChange = useCallback((val: string) => {
+    setSearchInput(val);
+    updateQuery({ search: val.trim() || null, page: 1 });
+  }, [updateQuery]);
 
   const handleClearSearch = useCallback(() => {
     setSearchInput("");
@@ -299,13 +300,18 @@ function ProductsPageContent() {
     : `${total} ${total === 1 ? "product" : "products"}`;
 
   return (
-    <div className="catalog-root space-y-3.5 pb-10">
-      {/* Top Header & Actions */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-xl font-semibold tracking-tight text-neutral-900">Products</h1>
-          <p className="mt-0.5 text-xs text-neutral-500">
-            Catalog management — each product with its sellable configurations.
+    <div className="w-full space-y-5 pb-16">
+      {/* ─── 1. PAGE HEADER ───────────────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl font-bold text-neutral-900 tracking-tight">Products</h1>
+            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-neutral-100 text-neutral-700 border border-neutral-200/80 font-mono">
+              {total} {total === 1 ? "Product" : "Products"}
+            </span>
+          </div>
+          <p className="text-[13px] text-neutral-500 mt-1">
+            Manage catalog products, variants, surface finishes, and pricing.
           </p>
         </div>
 
@@ -315,34 +321,33 @@ function ProductsPageContent() {
             size="sm"
             onClick={fetchProducts}
             disabled={loading}
-            className="h-9 gap-1.5 text-xs"
+            className="h-9 gap-1.5 text-xs font-semibold rounded-xl"
           >
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh
           </Button>
 
-          <Button
-            size="sm"
+          <button
             onClick={() => {
               setEditingProduct(null);
               setShowProductModal(true);
             }}
-            className="h-9 gap-1.5 text-xs"
+            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-xs shrink-0"
           >
-            <Plus className="h-3.5 w-3.5" />
-            Add Product
-          </Button>
+            <Plus size={14} /> Add Product
+          </button>
         </div>
       </div>
 
       {/* Catalog summary */}
       <ProductCatalogStats items={statCards} />
 
+
       {/* Search, filters and configuration tabs */}
       <ProductCatalogToolbar
         searchInput={searchInput}
-        onSearchInputChange={setSearchInput}
-        onSearchSubmit={handleSearchSubmit}
+        onSearchInputChange={handleSearchInputChange}
+        onSearchSubmit={() => {}}
         onClearSearch={handleClearSearch}
         category={category}
         type={type}

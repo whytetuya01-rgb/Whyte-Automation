@@ -2,20 +2,10 @@ import type { Product, ProductVariant } from "@/types";
 import { formatFinishLabel, formatTierLabel } from "@/lib/categoryConfig";
 import { formatCurrency } from "@/lib/utils";
 
-/**
- * Pure presentation helpers for the Admin product catalog.
- *
- * Nothing in this file talks to the network, the database or the session — it
- * only turns a Product / ProductVariant into the small set of display values the
- * catalog UI renders. Keeping it here lets the grid components stay declarative
- * and keeps every formatting decision in one reviewable place.
- */
-
 /* ------------------------------------------------------------------ types -- */
 
 export interface ProductTypeMeta {
   label: string;
-  /** Light tint only: the type badge must never read as a saturated block. */
   badgeClass: string;
 }
 
@@ -50,14 +40,11 @@ export function getProductTypeMeta(type: string | null | undefined): ProductType
 export interface MetaPair {
   label: string;
   value: string;
-  /** Codes and sizes read better in a monospaced face. */
   mono?: boolean;
 }
 
 /**
- * Walks the category parent chain so the catalog can show a "Series" line
- * without adding a field to the Product schema (the category tree already
- * encodes it).
+ * Walks the category parent chain so the catalog can show a "Series" line.
  */
 export function getCategorySeries(category: Product["category"]): string | null {
   let cursor = category?.parent ?? null;
@@ -66,30 +53,20 @@ export function getCategorySeries(category: Product["category"]): string | null 
 }
 
 /**
- * Compact metadata for a product: a small label/value list, never a paragraph.
- * Only fields that actually carry a value are returned, so a sparse product
- * degrades gracefully instead of showing "Not assigned" noise.
+ * Clean metadata for a product: Category, SKU/Code, Module.
+ * Internal migration notes / catalog fields are hidden to remove visual noise.
  */
 export function getProductMetaPairs(product: Product): MetaPair[] {
   const pairs: MetaPair[] = [];
 
-  const catalog = product.notes?.trim();
-  if (catalog) pairs.push({ label: "Catalog", value: catalog });
-
-  const code = product.code?.trim();
-  if (code) pairs.push({ label: "Code", value: code, mono: true });
-
   const moduleSize = product.moduleSize?.trim();
   if (moduleSize) pairs.push({ label: "Module", value: moduleSize, mono: true });
 
-  const series = getCategorySeries(product.category);
-  if (series) pairs.push({ label: "Series", value: series });
+  const code = product.code?.trim();
+  if (code && !code.startsWith("MIG_")) pairs.push({ label: "Code", value: code, mono: true });
 
   const category = product.category?.name?.trim();
   if (category) pairs.push({ label: "Category", value: category });
-
-  const unit = product.unit?.trim();
-  if (unit && unit.toLowerCase() !== "pcs") pairs.push({ label: "Unit", value: unit });
 
   return pairs;
 }
@@ -97,11 +74,9 @@ export function getProductMetaPairs(product: Product): MetaPair[] {
 export interface VariantRow {
   variant: ProductVariant;
   index: number;
-  /** "Remote · Acrylic", or the variant name, or "Standard" when flat. */
   displayName: string;
   tierLabel: string | null;
   finishLabel: string | null;
-  /** Tier or finish missing on a matrix variant. */
   hasAnyDimension: boolean;
   code: string | null;
   priceText: string;
@@ -116,11 +91,6 @@ function readConfigValue(
   return typeof raw === "string" && raw.trim() ? raw.trim() : null;
 }
 
-/**
- * Derives everything the nested variant row displays. Mirrors the previous
- * inline logic exactly (same label fallbacks, same code precedence, same price
- * formatting) so no displayed value changes.
- */
 export function getVariantRows(variants: ProductVariant[]): VariantRow[] {
   return variants.map((variant, index) => {
     const tierLabel = formatTierLabel(variant.automationTier);
@@ -146,7 +116,7 @@ export function getVariantRows(variants: ProductVariant[]): VariantRow[] {
       tierLabel,
       finishLabel,
       hasAnyDimension: Boolean(tierLabel || finishLabel),
-      code,
+      code: code && !code.startsWith("MIG_") ? code : null,
       priceText: Number.isFinite(Number(variant.price)) ? formatCurrency(variant.price) : "—",
       isActive: variant.isActive,
     };
@@ -163,8 +133,8 @@ export interface CatalogStatCard {
 export type CatalogStatTone = CatalogStatCard["tone"];
 
 export const STAT_TONE_CLASSES: Record<CatalogStatTone, { icon: string; value: string }> = {
-  neutral: { icon: "bg-neutral-100 text-neutral-500", value: "text-neutral-900" },
+  neutral: { icon: "bg-neutral-100 text-neutral-600", value: "text-neutral-900" },
   success: { icon: "bg-emerald-50 text-emerald-600", value: "text-emerald-700" },
-  accent: { icon: "bg-blue-50 text-blue-600", value: "text-blue-700" },
+  accent: { icon: "bg-pink-50 text-pink-600", value: "text-pink-700" },
   info: { icon: "bg-violet-50 text-violet-600", value: "text-violet-700" },
 };
