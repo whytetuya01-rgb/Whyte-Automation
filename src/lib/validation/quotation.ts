@@ -9,6 +9,7 @@ import {
   quantityField,
   strictObject,
 } from "@/lib/validation/common";
+import { optionalEmailSchema, optionalGstinSchema, optionalPhoneSchema } from "@/lib/validation/fields";
 
 /**
  * Quotation / QuotationRoom / QuotationItem validation.
@@ -89,9 +90,9 @@ const validUntilField = z
  */
 export const createQuotationSchema = strictObject({
   clientName: nameField(160, "Client name is required."),
-  clientGstNumber: optionalText(40),
-  clientPhone: optionalText(40),
-  clientEmail: optionalText(160),
+  clientGstNumber: optionalGstinSchema,
+  clientPhone: optionalPhoneSchema,
+  clientEmail: optionalEmailSchema,
   clientAddress: optionalText(500),
   houseTypeId: numericIdSchema.optional().nullable(),
   status: quotationStatusEnum.optional(),
@@ -109,9 +110,9 @@ export const createQuotationSchema = strictObject({
 /** PATCH body: every field optional, same allowlist as create. */
 export const updateQuotationSchema = strictObject({
   clientName: nameField(160, "Client name is required.").optional(),
-  clientGstNumber: optionalText(40),
-  clientPhone: optionalText(40),
-  clientEmail: optionalText(160),
+  clientGstNumber: optionalGstinSchema,
+  clientPhone: optionalPhoneSchema,
+  clientEmail: optionalEmailSchema,
   clientAddress: optionalText(500),
   houseTypeId: numericIdSchema.optional().nullable(),
   status: quotationStatusEnum.optional(),

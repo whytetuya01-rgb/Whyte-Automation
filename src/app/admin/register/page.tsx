@@ -7,6 +7,7 @@ import toast from "react-hot-toast";
 import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, ShieldCheck, User } from "lucide-react";
 import { Button, Input, Textarea } from "@/components/ui";
 import WhyteLogo from "@/components/shared/WhyteLogo";
+import { EMAIL_MESSAGE, gstinError, isValidEmail, mobileError } from "@/lib/validation/fields";
 
 type Field = "firstName" | "lastName" | "email" | "password" | "gstNumber" | "contactNumber" | "address";
 type RegistrationErrors = Partial<Record<Field, string>>;
@@ -48,13 +49,15 @@ export default function AdminRegisterPage() {
     if (!form.firstName.trim()) nextErrors.firstName = "Please enter your first name.";
     if (!form.lastName.trim()) nextErrors.lastName = "Please enter your last name.";
     if (!form.email.trim()) nextErrors.email = "Please enter your email address.";
-    else if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) nextErrors.email = "Please enter a valid email address.";
+    else if (!isValidEmail(form.email)) nextErrors.email = EMAIL_MESSAGE;
     if (form.password.length < 8) nextErrors.password = "Password must be at least 8 characters.";
-    const contactDigits = form.contactNumber.replace(/\D/g, "");
     if (!form.contactNumber.trim()) nextErrors.contactNumber = "Please enter your contact number.";
-    else if (!(contactDigits.length === 10 || (contactDigits.length === 12 && contactDigits.startsWith("91")))) {
-      nextErrors.contactNumber = "Enter a valid 10-digit Indian mobile number.";
+    else {
+      const contactErr = mobileError(form.contactNumber);
+      if (contactErr) nextErrors.contactNumber = contactErr;
     }
+    const gstErr = gstinError(form.gstNumber);
+    if (gstErr) nextErrors.gstNumber = gstErr;
     if (!form.address.trim()) nextErrors.address = "Please enter your address.";
     setErrors(nextErrors);
     setFormError(null);
@@ -124,7 +127,7 @@ export default function AdminRegisterPage() {
             <Input id="dealer-email" label="Email ID" type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} leftIcon={<AlertCircle size={16} />} placeholder="you@company.com" autoComplete="email" required disabled={loading} error={errors.email} />
             <Input id="dealer-password" label="Password" type={showPassword ? "text" : "password"} value={form.password} onChange={(event) => updateField("password", event.target.value)} leftIcon={<Lock size={16} />} rightIcon={<button type="button" onClick={() => setShowPassword((visible) => !visible)} className="text-neutral-400 hover:text-neutral-700" aria-label={showPassword ? "Hide password" : "Show password"} disabled={loading}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>} placeholder="At least 8 characters" autoComplete="new-password" required disabled={loading} error={errors.password} />
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input id="dealer-gst-number" label="GST Number" value={form.gstNumber} onChange={(event) => updateField("gstNumber", event.target.value)} placeholder="Optional" autoComplete="off" disabled={loading} error={errors.gstNumber} />
+              <Input id="dealer-gst-number" label="GST Number" value={form.gstNumber} onChange={(event) => updateField("gstNumber", event.target.value)} placeholder="Optional, e.g. 27AAPFU0939F1ZV" maxLength={15} autoComplete="off" disabled={loading} error={errors.gstNumber} />
               <Input id="dealer-contact-number" label="Contact Number" type="tel" value={form.contactNumber} onChange={(event) => updateField("contactNumber", event.target.value)} placeholder="+91 98765 43210" autoComplete="tel" inputMode="tel" required disabled={loading} error={errors.contactNumber} />
             </div>
             <Textarea id="dealer-address" label="Address" value={form.address} onChange={(event) => updateField("address", event.target.value)} placeholder="Building, street, city, state and PIN code" autoComplete="street-address" rows={4} required disabled={loading} error={errors.address} />

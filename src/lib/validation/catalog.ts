@@ -8,6 +8,7 @@ import {
   requiredText,
   strictObject,
 } from "@/lib/validation/common";
+import { optionalEmailSchema, optionalGstinSchema, phoneSchema } from "@/lib/validation/fields";
 
 export const CATEGORY_MAX_DEPTH = 3;
 
@@ -127,9 +128,9 @@ export const updateRoomTypeSchema = strictObject({
  */
 export const updateCompanySchema = strictObject({
   name: nameField(160, "Company name is required.").optional(),
-  gstNumber: optionalText(80),
-  phone: requiredText(60, "Phone is required."),
-  email: optionalText(160),
+  gstNumber: optionalGstinSchema,
+  phone: phoneSchema,
+  email: optionalEmailSchema,
   address: requiredText(500, "Address is required."),
   logoUrl: optionalText(1000),
   tagline: optionalText(300),

@@ -7,25 +7,21 @@ import {
   optionalText,
   strictObject,
 } from "@/lib/validation/common";
+import { emailSchema, mobileSchema, optionalGstinSchema, optionalMobileSchema } from "@/lib/validation/fields";
 
 export const adminRoleEnum = z.enum(["super_admin", "admin", "dealer"]);
 
 export const createUserSchema = strictObject({
   firstName: nameField(60, "First name is required."),
   lastName: nameField(60, "Last name is required."),
-  email: z
-    .string()
-    .trim()
-    .max(254, "Email must be 254 characters or fewer.")
-    .email("Enter a valid email address.")
-    .transform((val) => val.toLowerCase()),
+  email: emailSchema,
   password: z
     .string()
     .min(8, "Password must be at least 8 characters.")
     .refine((val) => new TextEncoder().encode(val).length <= 72, "Password must be 72 bytes or fewer."),
   role: adminRoleEnum.default("admin"),
-  gstNumber: optionalText(30).transform((val) => (val ? val.toUpperCase() : null)),
-  contactNumber: optionalText(30),
+  gstNumber: optionalGstinSchema.transform((val) => val ?? null),
+  contactNumber: optionalMobileSchema,
   address: optionalText(500),
   discountAllocationPercent: z
     .number()
@@ -40,8 +36,8 @@ export const updateUserSchema = strictObject({
   lastName: nameField(60, "Last name is required.").optional(),
   role: adminRoleEnum.optional(),
   isActive: booleanField,
-  gstNumber: optionalText(30).transform((val) => (val ? val.toUpperCase() : null)).optional(),
-  contactNumber: optionalText(30).optional(),
+  gstNumber: optionalGstinSchema,
+  contactNumber: optionalMobileSchema,
   address: optionalText(500).optional(),
   password: z
     .string()
@@ -65,17 +61,8 @@ export const updateDealerDiscountSchema = strictObject({
 export const updateDealerProfileSchema = strictObject({
   firstName: nameField(60, "First name is required.").optional(),
   lastName: nameField(60, "Last name is required.").optional(),
-  contactNumber: z
-    .string()
-    .trim()
-    .min(1, "Contact number is required.")
-    .max(30, "Contact number must be 30 characters or fewer.")
-    .refine((value) => {
-      const digits = value.replace(/\D/g, "");
-      return digits.length === 10 || (digits.length === 12 && digits.startsWith("91"));
-    }, "Enter a valid 10-digit Indian mobile number.")
-    .optional(),
-  gstNumber: optionalText(30).transform((val) => (val ? val.toUpperCase() : null)).optional(),
+  contactNumber: mobileSchema.optional(),
+  gstNumber: optionalGstinSchema,
   address: optionalText(500).optional(),
   currentPassword: z.string().optional(),
   newPassword: z

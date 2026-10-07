@@ -5,6 +5,7 @@ import notify from "@/lib/notify";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useCompany } from "@/lib/swr";
 import { Input, Textarea, Button } from "@/components/ui";
+import { emailError, gstinError, phoneError } from "@/lib/validation/fields";
 
 export default function CompanyPage() {
   const { data: fetched, isLoading: loading, mutate } = useCompany();
@@ -26,8 +27,19 @@ export default function CompanyPage() {
     }
   }, [fetched]);
 
+  const [errors, setErrors] = useState<{ gstNumber?: string; phone?: string; email?: string }>({});
+  const clearError = (field: "gstNumber" | "phone" | "email") =>
+    setErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const nextErrors = {
+      gstNumber: gstinError(company.gstNumber ?? "") ?? undefined,
+      phone: phoneError(company.phone ?? "", { required: true }) ?? undefined,
+      email: emailError(company.email ?? "") ?? undefined,
+    };
+    setErrors(nextErrors);
+    if (nextErrors.gstNumber || nextErrors.phone || nextErrors.email) return;
     setSaving(true);
     try {
       const res = await fetch("/api/company", {
@@ -55,7 +67,7 @@ export default function CompanyPage() {
       </div>
 
       <div className="bg-white rounded-2xl shadow-xs border border-admin-grey-border p-4 sm:p-6">
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
           <Input
             label="Company Name"
             type="text"
@@ -70,8 +82,14 @@ export default function CompanyPage() {
               label="Company GST Number"
               type="text"
               value={company.gstNumber ?? ""}
-              onChange={(e) => setCompany({ ...company, gstNumber: e.target.value.toUpperCase() })}
-              placeholder="24AAXCS4505Q1ZK"
+              onChange={(e) => {
+                setCompany({ ...company, gstNumber: e.target.value.toUpperCase().replace(/\s+/g, "") });
+                clearError("gstNumber");
+              }}
+              onBlur={() => setErrors((prev) => ({ ...prev, gstNumber: gstinError(company.gstNumber ?? "") ?? undefined }))}
+              error={errors.gstNumber}
+              maxLength={15}
+              placeholder="27AAPFU0939F1ZV"
             />
 
             <Input
@@ -79,7 +97,12 @@ export default function CompanyPage() {
               type="text"
               required
               value={company.phone ?? ""}
-              onChange={(e) => setCompany({ ...company, phone: e.target.value })}
+              onChange={(e) => {
+                setCompany({ ...company, phone: e.target.value });
+                clearError("phone");
+              }}
+              onBlur={() => setErrors((prev) => ({ ...prev, phone: phoneError(company.phone ?? "", { required: true }) ?? undefined }))}
+              error={errors.phone}
               placeholder="+91 98765 43210"
             />
           </div>
@@ -89,7 +112,12 @@ export default function CompanyPage() {
               label="Email"
               type="email"
               value={company.email ?? ""}
-              onChange={(e) => setCompany({ ...company, email: e.target.value })}
+              onChange={(e) => {
+                setCompany({ ...company, email: e.target.value });
+                clearError("email");
+              }}
+              onBlur={() => setErrors((prev) => ({ ...prev, email: emailError(company.email ?? "") ?? undefined }))}
+              error={errors.email}
               placeholder="info@whyte.co.in"
             />
 

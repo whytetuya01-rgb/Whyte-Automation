@@ -10,6 +10,7 @@ import { useConfirm } from "@/components/providers/ConfirmProvider";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Pagination from "@/components/shared/Pagination";
 import CustomDropdown, { DropdownOption } from "@/components/shared/CustomDropdown";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Trash2, ExternalLink, Search, RefreshCw, X, FileText, Plus } from "lucide-react";
 import notify from "@/lib/notify";
 
@@ -372,11 +373,15 @@ function QuotationsPageContent() {
             </button>
           ))}
         </div>
-        <CustomDropdown
+        <SearchableSelect
           value={dealerFilter}
-          onChange={setDealerFilter}
+          onChange={(e) => setDealerFilter(e.target.value)}
           options={[{ value: "all", label: "All Dealers" }, ...dealerOptions]}
           ariaLabel="Filter by assigned dealer"
+          searchPlaceholder="Search dealers by name or email..."
+          emptyText="No dealers match your search"
+          triggerClassName="h-10 w-full sm:w-56"
+          className="w-full sm:w-56"
         />
         </div>
       )}

@@ -6,7 +6,9 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, Building, MapPin, User, Phone, Mail, FileText } from "lucide-react";
 import { HouseType, Quotation } from "@/types";
 import { Select, SelectOption } from "@/components/ui/Select";
+import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { RadioGroup } from "@/components/ui/Radio";
+import { emailError, gstinError, phoneError } from "@/lib/validation/fields";
 
 interface Props {
   initialData?: Partial<Quotation>;
@@ -111,6 +113,12 @@ export default function StepProjectDetails({
     if (!form.location.trim()) {
       errs.location = "City / Project Location is required";
     }
+    const phoneErr = phoneError(form.clientPhone);
+    if (phoneErr) errs.clientPhone = phoneErr;
+    const emailErr = emailError(form.clientEmail);
+    if (emailErr) errs.clientEmail = emailErr;
+    const gstErr = gstinError(form.clientGstNumber);
+    if (gstErr) errs.clientGstNumber = gstErr;
     if (canChooseOwner && ownerMode === "dealer" && !form.dealerId) {
       errs.dealerId = "Select the dealer this quotation is assigned to";
     }
@@ -300,7 +308,7 @@ export default function StepProjectDetails({
 
                       {ownerMode === "dealer" && (
                         <div className="mt-3">
-                          <Select
+                          <SearchableSelect
                             label="Dealer"
                             required
                             value={form.dealerId ? String(form.dealerId) : ""}
@@ -310,6 +318,9 @@ export default function StepProjectDetails({
                             }}
                             ariaLabel="Dealer"
                             options={dealerOptions}
+                            placeholder="— Select a dealer —"
+                            searchPlaceholder="Search dealers by name or email..."
+                            emptyText="No dealers match your search"
                             error={errors.dealerId}
                             helperText="The dealer's discount allocation and earnings apply to this quotation."
                             triggerClassName="h-11 rounded-xl text-sm"
@@ -339,11 +350,21 @@ export default function StepProjectDetails({
                       <input
                         type="tel"
                         value={form.clientPhone}
-                        onChange={(e) => setForm({ ...form, clientPhone: e.target.value })}
+                        onChange={(e) => {
+                          setForm({ ...form, clientPhone: e.target.value });
+                          if (errors.clientPhone) setErrors({ ...errors, clientPhone: "" });
+                        }}
+                        onBlur={() => setErrors((prev) => ({ ...prev, clientPhone: phoneError(form.clientPhone) ?? "" }))}
                         placeholder="+91 98765 43210"
-                        className="w-full h-11 pl-10 pr-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition bg-white text-gray-900"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        aria-invalid={Boolean(errors.clientPhone)}
+                        className={`w-full h-11 pl-10 pr-3.5 border rounded-xl text-sm focus:outline-none focus:ring-2 transition bg-white text-gray-900 ${
+                          errors.clientPhone ? "border-red-400 focus:ring-red-500/20" : "border-gray-200 focus:border-accent focus:ring-accent/20"
+                        }`}
                       />
                     </div>
+                    {errors.clientPhone && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientPhone}</p>}
                   </div>
 
                   {/* Email */}
@@ -356,11 +377,20 @@ export default function StepProjectDetails({
                       <input
                         type="email"
                         value={form.clientEmail}
-                        onChange={(e) => setForm({ ...form, clientEmail: e.target.value })}
+                        onChange={(e) => {
+                          setForm({ ...form, clientEmail: e.target.value });
+                          if (errors.clientEmail) setErrors({ ...errors, clientEmail: "" });
+                        }}
+                        onBlur={() => setErrors((prev) => ({ ...prev, clientEmail: emailError(form.clientEmail) ?? "" }))}
                         placeholder="client@example.com"
-                        className="w-full h-11 pl-10 pr-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition bg-white text-gray-900"
+                        autoComplete="email"
+                        aria-invalid={Boolean(errors.clientEmail)}
+                        className={`w-full h-11 pl-10 pr-3.5 border rounded-xl text-sm focus:outline-none focus:ring-2 transition bg-white text-gray-900 ${
+                          errors.clientEmail ? "border-red-400 focus:ring-red-500/20" : "border-gray-200 focus:border-accent focus:ring-accent/20"
+                        }`}
                       />
                     </div>
+                    {errors.clientEmail && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientEmail}</p>}
                   </div>
 
                   {/* Customer GSTIN */}
@@ -371,10 +401,20 @@ export default function StepProjectDetails({
                     <input
                       type="text"
                       value={form.clientGstNumber}
-                      onChange={(e) => setForm({ ...form, clientGstNumber: e.target.value.toUpperCase() })}
-                      placeholder="24AAAAA0000A1Z5"
-                      className="w-full h-11 px-3.5 border border-gray-200 rounded-xl text-sm font-mono focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition bg-white text-gray-900 uppercase"
+                      onChange={(e) => {
+                        setForm({ ...form, clientGstNumber: e.target.value.toUpperCase().replace(/\s+/g, "") });
+                        if (errors.clientGstNumber) setErrors({ ...errors, clientGstNumber: "" });
+                      }}
+                      onBlur={() => setErrors((prev) => ({ ...prev, clientGstNumber: gstinError(form.clientGstNumber) ?? "" }))}
+                      placeholder="27AAPFU0939F1ZV"
+                      maxLength={15}
+                      autoComplete="off"
+                      aria-invalid={Boolean(errors.clientGstNumber)}
+                      className={`w-full h-11 px-3.5 border rounded-xl text-sm font-mono focus:outline-none focus:ring-2 transition bg-white text-gray-900 uppercase ${
+                        errors.clientGstNumber ? "border-red-400 focus:ring-red-500/20" : "border-gray-200 focus:border-accent focus:ring-accent/20"
+                      }`}
                     />
+                    {errors.clientGstNumber && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientGstNumber}</p>}
                   </div>
                 </div>
               </div>

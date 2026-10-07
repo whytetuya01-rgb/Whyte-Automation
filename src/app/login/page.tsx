@@ -8,6 +8,7 @@ import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, User } from "lucide-react
 import toast from "react-hot-toast";
 import { Button, Input } from "@/components/ui";
 import WhyteLogo from "@/components/shared/WhyteLogo";
+import { EMAIL_MESSAGE, isValidEmail } from "@/lib/validation/fields";
 
 function safeUserCallback(value: string | null): string | null {
   if (!value || !value.startsWith("/") || value.startsWith("//") || value.startsWith("/admin")) return null;
@@ -28,7 +29,7 @@ function UserLoginForm() {
     event.preventDefault();
     const nextErrors: { email?: string; password?: string } = {};
     if (!email.trim()) nextErrors.email = "Please enter your email address.";
-    else if (!/^\S+@\S+\.\S+$/.test(email.trim())) nextErrors.email = "Please enter a valid email address.";
+    else if (!isValidEmail(email)) nextErrors.email = EMAIL_MESSAGE;
     if (!password) nextErrors.password = "Please enter your password.";
     setErrors(nextErrors);
     setAuthError(null);

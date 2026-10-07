@@ -1,6 +1,7 @@
 export { Label, type LabelProps } from "./Label";
 export { Input, type InputProps } from "./Input";
 export { Select, type SelectProps, type SelectOption } from "./Select";
+export { SearchableSelect, type SearchableSelectProps } from "./SearchableSelect";
 export { Textarea, type TextareaProps } from "./Textarea";
 export { Button, type ButtonProps } from "./Button";
 export { Checkbox, type CheckboxProps } from "./Checkbox";

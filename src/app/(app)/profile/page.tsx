@@ -25,6 +25,7 @@ import notify from "@/lib/notify";
 import { Input, Button, Textarea, Badge } from "@/components/ui";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { formatDate } from "@/lib/utils";
+import { gstinError, mobileError, normalizeGstin } from "@/lib/validation/fields";
 
 interface DealerProfileData {
   id: number;
@@ -111,7 +112,10 @@ export default function DealerProfilePage() {
     const errors: Record<string, string> = {};
     if (!firstName.trim()) errors.firstName = "First name is required.";
     if (!lastName.trim()) errors.lastName = "Last name is required.";
-    if (!contactNumber.trim()) errors.contactNumber = "Contact number is required.";
+    const contactErr = mobileError(contactNumber, { required: true });
+    if (contactErr) errors.contactNumber = contactErr;
+    const gstErr = gstinError(gstNumber);
+    if (gstErr) errors.gstNumber = gstErr;
     if (!address.trim()) errors.address = "Address is required.";
 
     if (Object.keys(errors).length > 0) {
@@ -128,7 +132,7 @@ export default function DealerProfilePage() {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           contactNumber: contactNumber.trim(),
-          gstNumber: gstNumber.trim() ? gstNumber.trim().toUpperCase() : null,
+          gstNumber: gstNumber.trim() ? normalizeGstin(gstNumber) : null,
           address: address.trim(),
         }),
       });
