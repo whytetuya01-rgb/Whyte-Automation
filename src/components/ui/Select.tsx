@@ -282,7 +282,12 @@ export const Select = React.forwardRef<HTMLDivElement, SelectProps>(
 
           {/* Custom Popover Dropdown Menu */}
           {isOpen && (
-            <div className="absolute top-full mt-1.5 left-0 right-0 z-50 w-full min-w-[180px] bg-white border border-neutral-200 rounded-xl shadow-lg shadow-black/10 py-1.5 animate-fadeIn">
+            <div
+              className={cn(
+                "absolute left-0 right-0 z-[100] min-w-[180px] bg-white border border-neutral-200 rounded-xl shadow-lg shadow-black/10 py-1.5 animate-fadeIn",
+                popoverPosition === "up" ? "bottom-full mb-1.5" : "top-full mt-1.5"
+              )}
+            >
               <ul
                 ref={listboxRef}
                 role="listbox"

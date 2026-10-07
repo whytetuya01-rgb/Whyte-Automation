@@ -3,6 +3,13 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation } from "@/models";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, handleApiError, parseNumericId } from "@/lib/api-response";
+import {
+  calculateDealerEarning,
+  isConfirmedEarningStatus,
+  resolveCustomerDiscountPercent,
+  subtotalFromRooms,
+  toPlainNumber,
+} from "@/lib/dealerEarnings";
 
 export const dynamic = "force-dynamic";
 
@@ -109,28 +116,20 @@ export async function GET(req: Request) {
       else if (qStatus === "rejected") rejectedCount++;
       else if (qStatus === "delivered") deliveredCount++;
 
-      const rooms = Array.isArray(q.rooms) ? q.rooms : [];
-      let subtotal = rooms.reduce(
-        (sum: number, r: any) =>
-          sum +
-          (Array.isArray(r.items)
-            ? r.items.reduce((s: number, i: any) => s + (i.quantity || 1) * Number(i.unitPrice || 0), 0)
-            : 0),
-        0
-      );
+      let subtotal = subtotalFromRooms(q.rooms);
 
-      const allocatedPct = Number(q.allocatedDiscountPercent || 0);
-      const customerPct = Number(
-        q.customerDiscountPercent !== undefined && q.customerDiscountPercent !== null
-          ? q.customerDiscountPercent
-          : q.discountType === "percentage"
-          ? q.discountValue || 0
-          : 0
-      );
-      const commissionPct = Math.max(0, allocatedPct - customerPct);
+      // Earnings use the quotation's own allocation snapshot, never the dealer's
+      // current allocation, and the shared earning formula.
+      const allocatedPct = toPlainNumber(q.allocatedDiscountPercent);
+      const customerPct = resolveCustomerDiscountPercent(q);
+      const { earningPercent: commissionPct } = calculateDealerEarning({
+        subtotal: 0,
+        allocatedPercent: allocatedPct,
+        customerPercent: customerPct,
+      });
 
       // Preserve fallback for mock/synthetic tests where rooms are empty but estimatedEarningAmount is directly set
-      const docEarning = Number(q.estimatedEarningAmount || 0);
+      const docEarning = toPlainNumber(q.estimatedEarningAmount);
       if (subtotal === 0 && docEarning > 0) {
         subtotal = commissionPct > 0 ? Math.round((docEarning / (commissionPct / 100)) * 100) / 100 : docEarning;
       }
@@ -139,17 +138,21 @@ export async function GET(req: Request) {
       if (q.discountType === "percentage" || customerPct > 0) {
         customerDiscountAmount = Math.round(((subtotal * customerPct) / 100) * 100) / 100;
       } else if (q.discountType === "fixed") {
-        customerDiscountAmount = Number(q.discountValue || 0);
+        customerDiscountAmount = toPlainNumber(q.discountValue);
       }
 
       const netQuotationValue = Math.max(0, Math.round((subtotal - customerDiscountAmount) * 100) / 100);
 
-      let itemEstimatedCommission = Math.round(((subtotal * commissionPct) / 100) * 100) / 100;
+      let itemEstimatedCommission = calculateDealerEarning({
+        subtotal,
+        allocatedPercent: allocatedPct,
+        customerPercent: customerPct,
+      }).earningAmount;
       if (subtotal === 0 && docEarning > 0) {
         itemEstimatedCommission = docEarning;
       }
 
-      const isConfirmed = qStatus === "approved" || qStatus === "delivered";
+      const isConfirmed = isConfirmedEarningStatus(qStatus);
       const itemConfirmedCommission = isConfirmed ? itemEstimatedCommission : 0;
 
       // Accumulate global metrics across all dealer's quotations
@@ -182,7 +185,7 @@ export async function GET(req: Request) {
         confirmedCommissionAmount: itemConfirmedCommission,
         isConfirmed,
         discountType: q.discountType || null,
-        discountValue: q.discountValue ? Number(q.discountValue) : null,
+        discountValue: q.discountValue ? toPlainNumber(q.discountValue) : null,
       });
     }
 

@@ -4,6 +4,7 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem } from "@/models";
 import { requireRole } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
+import { calculateDealerEarning, resolveCustomerDiscountPercent, toPlainNumber } from "@/lib/dealerEarnings";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { parseQuotationId, transitionQuotationSchema } from "@/lib/validation/quotation";
 
@@ -50,9 +51,15 @@ export async function POST(req: Request, context: RouteContext) {
       const roomIds = quotationRooms.map((r) => r._id);
       const quotationItems = await QuotationItem.find({ quotationRoomId: { $in: roomIds } }).select("quantity unitPrice").lean();
       const subtotal = quotationItems.reduce((acc, it) => acc + (it.quantity || 1) * Number(it.unitPrice || 0), 0);
-      const earningPct = Number(quotation.estimatedEarningPercent || 0);
-      const earningAmt = Math.round(((subtotal * earningPct) / 100) * 100) / 100;
-      quotation.estimatedEarningAmount = mongoose.Types.Decimal128.fromString(earningAmt.toFixed(2));
+      // Earning is derived from the allocation snapshot and customer discount (not
+      // from a previously cached percentage) and frozen exactly once, here.
+      const { earningPercent, earningAmount } = calculateDealerEarning({
+        subtotal,
+        allocatedPercent: toPlainNumber(quotation.allocatedDiscountPercent),
+        customerPercent: resolveCustomerDiscountPercent(quotation),
+      });
+      quotation.estimatedEarningPercent = earningPercent;
+      quotation.estimatedEarningAmount = mongoose.Types.Decimal128.fromString(earningAmount.toFixed(2));
     } else if (action === "reject") {
       if (currentStatus !== "sent") {
         throw new ApiError("CONFLICT", `Cannot reject quotation in "${currentStatus}" status. Only "sent" quotations can be rejected.`);

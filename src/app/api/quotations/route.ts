@@ -15,6 +15,7 @@ import {
   parseStringQueryParam,
 } from "@/lib/validation/common";
 import { calculateQuotationGst } from "@/lib/pricing";
+import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { resolveNewQuotationOwnership } from "@/lib/quotationOwnership";
 import { dealerVisibilityFilter } from "@/lib/quotationAccess";
@@ -265,15 +266,29 @@ export async function POST(req: Request) {
         ? Number(customerDiscountPercent)
         : (rest.discountType === "percentage" && discountValue !== undefined && discountValue !== null ? Number(discountValue) : 0);
 
-    if (allocatedPercent > 0 && requestedCustomerDiscount > allocatedPercent) {
+    const hasDealer = targetDealerId !== null;
+    const discountError = customerDiscountError({
+      hasDealer,
+      allocatedPercent,
+      customerPercent: requestedCustomerDiscount,
+      actorIsDealer: role === "dealer",
+    });
+    if (discountError) {
+      throw new ApiError("VALIDATION_ERROR", discountError, { field: "customerDiscountPercent" });
+    }
+    if (hasDealer && rest.discountType === "fixed" && Number(discountValue ?? 0) > 0) {
       throw new ApiError(
         "VALIDATION_ERROR",
-        `Customer discount of ${requestedCustomerDiscount}% cannot exceed your allocated discount of ${allocatedPercent}%.`,
-        { field: "customerDiscountPercent" }
+        "Dealer quotations only support a percentage customer discount within the allocated discount.",
+        { field: "discountType" }
       );
     }
 
-    const earningPercent = Math.max(0, allocatedPercent - requestedCustomerDiscount);
+    const { earningPercent } = calculateDealerEarning({
+      subtotal: 0,
+      allocatedPercent,
+      customerPercent: requestedCustomerDiscount,
+    });
 
     if (houseTypeId) {
       const houseType = await HouseType.findById(houseTypeId).select("_id").lean();

@@ -205,10 +205,16 @@ export default function QuotationsListing({
         throw new Error("Failed to duplicate quotation");
       }
 
-      const newQuote = await res.json();
+      // The API wraps its payload as { success, data }.
+      const body = await res.json();
+      const newQuote = body?.data ?? body;
+      const newId: string | undefined = newQuote?.id ?? newQuote?._id;
+      if (!newId) {
+        throw new Error("Quotation was duplicated but its id could not be read. Please refresh the list.");
+      }
       toast.success("Quotation duplicated successfully!");
 
-      router.push(`/quotation/${newQuote.id || newQuote._id}`);
+      router.push(`/quotation/${newId}`);
     } catch (err: any) {
       toast.error(err.message || "Failed to duplicate quotation");
     } finally {
@@ -333,7 +339,7 @@ export default function QuotationsListing({
             {/* subtle gradient shimmer */}
             <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/10 via-transparent to-teal-500/5 pointer-events-none" />
             <div className="relative flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-emerald-400/80 uppercase tracking-wider">Your Earnings</span>
+              <span className="text-xs font-semibold text-emerald-400/80 uppercase tracking-wider">Confirmed Earnings</span>
               <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
                 <Wallet size={15} />
               </div>
@@ -347,10 +353,10 @@ export default function QuotationsListing({
       </div>
 
       {/* ── Filters ────────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
         {/* Approval queue banner */}
         {(userRole === "sales" || userRole === "super_admin" || userRole === "admin") && summaryMetrics.pendingSent > 0 && (
-          <div className="flex items-center justify-between px-4 py-3 bg-amber-50 border-b border-amber-100 text-xs sm:text-sm">
+          <div className="flex items-center justify-between px-4 py-3 bg-amber-50 border-b border-amber-100 text-xs sm:text-sm rounded-t-2xl">
             <div className="flex items-center gap-2 text-amber-800">
               <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
               <span className="font-semibold">Approval Queue:</span>

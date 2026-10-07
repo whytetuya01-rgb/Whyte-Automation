@@ -3,6 +3,7 @@ import { authOptions } from "@/lib/auth";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, HouseType, AdminUser } from "@/models";
 import { dealerVisibilityFilter } from "@/lib/quotationAccess";
+import { getConfirmedEarningsForDealer } from "@/lib/dealerEarningsService";
 import QuotationsListing, { QuotationRowData } from "@/components/quotations/QuotationsListing";
 
 export const dynamic = "force-dynamic";
@@ -27,17 +28,9 @@ export default async function HomePage() {
     if (userRole === "dealer") {
       filterQuery = dealerVisibilityFilter(userId);
 
-      // Compute accumulated earnings strictly from approved and delivered quotations
-      const earningsResult = await Quotation.aggregate([
-        { $match: { dealerId: userId, status: { $in: ["approved", "delivered"] } } },
-        {
-          $group: {
-            _id: null,
-            totalEarnings: { $sum: "$estimatedEarningAmount" },
-          },
-        },
-      ]);
-      dealerEarnings = earningsResult[0]?.totalEarnings ? Number(earningsResult[0].totalEarnings) : 0;
+      // Confirmed earnings: Approved + Delivered quotations assigned to this dealer,
+      // calculated server-side from each quotation's allocation snapshot.
+      dealerEarnings = await getConfirmedEarningsForDealer(userId);
     }
 
     const [quoteDocs, htDocs] = await Promise.all([

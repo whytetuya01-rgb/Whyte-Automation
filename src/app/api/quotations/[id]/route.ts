@@ -9,6 +9,7 @@ import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-re
 import { parseQuotationId, updateQuotationSchema } from "@/lib/validation/quotation";
 
 import { normalizeQuotation } from "@/lib/quotationNormalization";
+import { calculateDealerEarning, customerDiscountError, subtotalFromRooms, toPlainNumber } from "@/lib/dealerEarnings";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { canModifyQuotation, canViewQuotation } from "@/lib/quotationAccess";
@@ -138,8 +139,20 @@ export async function PATCH(req: Request, context: RouteContext) {
       data.status = nextStatus;
     }
 
-    // Customer discount validation against allocated snapshot
-    const allocated = existing.allocatedDiscountPercent || 0;
+    // Approve / reject / deliver change earnings and carry their own audit trail, so
+    // they only happen through POST /api/quotations/[id]/transition.
+    if (nextStatus && nextStatus !== existing.status && ["approved", "rejected", "delivered"].includes(nextStatus)) {
+      throw new ApiError(
+        "VALIDATION_ERROR",
+        "Use the approval workflow to approve, reject or deliver a quotation.",
+        { field: "status" }
+      );
+    }
+
+    // Customer discount validation against the quotation's allocation snapshot.
+    // A dealer-owned quotation is capped at its snapshot, including 0%.
+    const allocated = toPlainNumber(existing.allocatedDiscountPercent);
+    const hasDealer = existing.dealerId !== null && existing.dealerId !== undefined;
     const requestedPercent =
       customerDiscountPercent !== undefined && customerDiscountPercent !== null
         ? Number(customerDiscountPercent)
@@ -147,49 +160,49 @@ export async function PATCH(req: Request, context: RouteContext) {
         ? Number(discountValue)
         : undefined;
 
+    const existingRooms = (existing as unknown as { rooms?: Parameters<typeof subtotalFromRooms>[0] }).rooms;
+    const subtotal = subtotalFromRooms(existingRooms);
+
     if (requestedPercent !== undefined) {
       const nextCust = Number(requestedPercent);
-      if (allocated > 0 && nextCust > allocated) {
-        throw new ApiError(
-          "VALIDATION_ERROR",
-          `Customer discount of ${nextCust}% cannot exceed the allocated discount of ${allocated}%.`,
-          { field: "customerDiscountPercent" }
-        );
+      const discountError = customerDiscountError({
+        hasDealer,
+        allocatedPercent: allocated,
+        customerPercent: nextCust,
+        actorIsDealer: role === "dealer",
+      });
+      if (discountError) {
+        throw new ApiError("VALIDATION_ERROR", discountError, { field: "customerDiscountPercent" });
       }
+      const { earningPercent, earningAmount } = calculateDealerEarning({
+        subtotal,
+        allocatedPercent: allocated,
+        customerPercent: nextCust,
+      });
       data.customerDiscountPercent = nextCust;
-      data.estimatedEarningPercent = Math.max(0, allocated - nextCust);
+      data.estimatedEarningPercent = earningPercent;
       data.discountType = nextCust > 0 ? "percentage" : "none";
       data.discountValue = nextCust > 0 ? mongoose.Types.Decimal128.fromString(nextCust.toFixed(2)) : null;
-
-      // Recalculate estimated earning amount based on current subtotal
-      const rooms = Array.isArray((existing as any).rooms) ? (existing as any).rooms : [];
-      const subtotal = rooms.reduce(
-        (sum: number, r: any) =>
-          sum +
-          (Array.isArray(r.items)
-            ? r.items.reduce((s: number, i: any) => s + (i.quantity || 1) * Number(i.unitPrice || 0), 0)
-            : 0),
-        0
-      );
-      const earningAmount = ((subtotal * Number(data.estimatedEarningPercent)) / 100).toFixed(2);
-      data.estimatedEarningAmount = mongoose.Types.Decimal128.fromString(earningAmount);
+      data.estimatedEarningAmount = mongoose.Types.Decimal128.fromString(earningAmount.toFixed(2));
     } else if (parsed.discountType === "fixed" && discountValue !== undefined) {
       const fixedVal = discountValue === null ? 0 : Number(discountValue);
+      if (hasDealer && fixedVal > 0) {
+        throw new ApiError(
+          "VALIDATION_ERROR",
+          "Dealer quotations only support a percentage customer discount within the allocated discount.",
+          { field: "discountType" }
+        );
+      }
+      const { earningPercent, earningAmount } = calculateDealerEarning({
+        subtotal,
+        allocatedPercent: allocated,
+        customerPercent: 0,
+      });
       data.discountType = fixedVal > 0 ? "fixed" : "none";
       data.discountValue = fixedVal > 0 ? mongoose.Types.Decimal128.fromString(fixedVal.toFixed(2)) : null;
       data.customerDiscountPercent = 0;
-      data.estimatedEarningPercent = allocated;
-      const rooms = Array.isArray((existing as any).rooms) ? (existing as any).rooms : [];
-      const subtotal = rooms.reduce(
-        (sum: number, r: any) =>
-          sum +
-          (Array.isArray(r.items)
-            ? r.items.reduce((s: number, i: any) => s + (i.quantity || 1) * Number(i.unitPrice || 0), 0)
-            : 0),
-        0
-      );
-      const earningAmount = ((subtotal * allocated) / 100).toFixed(2);
-      data.estimatedEarningAmount = mongoose.Types.Decimal128.fromString(earningAmount);
+      data.estimatedEarningPercent = earningPercent;
+      data.estimatedEarningAmount = mongoose.Types.Decimal128.fromString(earningAmount.toFixed(2));
     } else if (discountValue !== undefined) {
       data.discountValue =
         discountValue === null

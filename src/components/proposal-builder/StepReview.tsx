@@ -21,6 +21,8 @@ import {
 import { Quotation, QuotationRoom, QuotationItem, Product, Category } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
 import { calculateQuotationGst } from "@/lib/pricing";
+import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
+import { useSession } from "next-auth/react";
 import { getRoomDisplayName, getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
 import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
@@ -183,6 +185,7 @@ export default function StepReview({
     Number(quotation.discountValue ?? 0)
   );
   const [savingDiscount, setSavingDiscount] = useState(false);
+  const { data: session } = useSession();
 
   // Product Selector Modal state (for Add or Change)
   const [selectorState, setSelectorState] = useState<{
@@ -269,14 +272,27 @@ export default function StepReview({
     return Array.from(map.entries()).map(([name, data]) => ({ name, ...data }));
   }, [rooms, categories]);
 
-  // Earning calculation for dealer quotations
-  const earningPercent = allocatedPercent > 0 && discountType === "percentage"
-    ? Math.max(0, allocatedPercent - discountVal)
-    : allocatedPercent;
-  const estimatedEarning = (subtotal * earningPercent) / 100;
+  // A quotation that belongs to a dealer is capped at its allocation snapshot (even 0%).
+  const hasDealer = quotation.dealerId !== null && quotation.dealerId !== undefined;
+  const actorIsDealer = (session?.user as { role?: string } | undefined)?.role === "dealer";
 
-  const discountExceedsAllocation =
-    allocatedPercent > 0 && discountType === "percentage" && discountVal > allocatedPercent;
+  // Earning uses the same shared formula as the server (allocated% - customer%).
+  const { earningPercent, earningAmount: estimatedEarning } = calculateDealerEarning({
+    subtotal,
+    allocatedPercent,
+    customerPercent: discountType === "percentage" ? discountVal : 0,
+  });
+
+  const discountLimitMessage =
+    discountType === "percentage"
+      ? customerDiscountError({
+          hasDealer,
+          allocatedPercent,
+          customerPercent: discountVal,
+          actorIsDealer,
+        })
+      : null;
+  const discountExceedsAllocation = discountLimitMessage !== null;
 
   const handleApplyDiscount = async () => {
     if (discountExceedsAllocation) return;
@@ -895,9 +911,9 @@ export default function StepReview({
             <div className="space-y-2.5 p-3.5 bg-gray-50/50 rounded-xl border border-gray-200/80">
               <div className="flex items-center justify-between">
                 <label className="block text-xs font-bold text-gray-900">
-                  {allocatedPercent > 0 ? "Customer Discount" : "Apply Project Discount"}
+                  {hasDealer ? "Customer Discount" : "Apply Project Discount"}
                 </label>
-                {allocatedPercent > 0 && (
+                {hasDealer && (
                   <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">
                     Allocated: {allocatedPercent}%
                   </span>
@@ -914,7 +930,7 @@ export default function StepReview({
                       options={[
                         { value: "none", label: "No Discount" },
                         { value: "percentage", label: "Percentage (%)" },
-                        ...(allocatedPercent === 0 ? [{ value: "fixed" as const, label: "Fixed Amount (₹)" }] : []),
+                        ...(!hasDealer ? [{ value: "fixed" as const, label: "Fixed Amount (₹)" }] : []),
                       ]}
                     />
                   </div>
@@ -923,7 +939,7 @@ export default function StepReview({
                     <input
                       type="number"
                       min="0"
-                      max={allocatedPercent > 0 ? allocatedPercent : 100}
+                      max={hasDealer ? allocatedPercent : 100}
                       value={discountVal}
                       onChange={(e) => setDiscountVal(Number(e.target.value))}
                       placeholder={discountType === "percentage" ? "10%" : "₹5000"}
@@ -945,16 +961,24 @@ export default function StepReview({
                 </div>
               )}
 
-              {discountExceedsAllocation && (
-                <p className="text-[11px] text-red-600 font-medium">
-                  Customer discount cannot exceed the allocated {allocatedPercent}%.
+              {hasDealer && !isLocked && discountType === "percentage" && (
+                <p className="text-[11px] text-gray-500 font-medium">
+                  Maximum allowed: {allocatedPercent}%
                 </p>
               )}
 
-              {/* Estimated Earning Display for Dealer */}
-              {allocatedPercent > 0 && (
+              {discountLimitMessage && (
+                <p role="alert" className="text-[11px] text-red-600 font-medium">
+                  {discountLimitMessage}
+                </p>
+              )}
+
+              {/* Earning Display for Dealer-owned quotations: confirmed only once approved/delivered */}
+              {hasDealer && (
                 <div className="mt-2 pt-2 border-t border-gray-200/60 flex items-center justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Estimated Earning ({earningPercent}%):</span>
+                  <span className="text-gray-500 font-medium">
+                    {isLocked ? "Confirmed Earnings" : "Estimated Earning"} ({earningPercent}%):
+                  </span>
                   <span className="font-mono font-bold text-emerald-600">
                     {formatCurrency(estimatedEarning)}
                   </span>

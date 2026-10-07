@@ -6,6 +6,7 @@ import { withTransaction } from "@/lib/transaction";
 import { requireRole } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { assignQuotationSchema, parseQuotationId } from "@/lib/validation/quotation";
+import { calculateDealerEarning, customerDiscountError, resolveCustomerDiscountPercent } from "@/lib/dealerEarnings";
 import { requireActiveDealer } from "@/lib/quotationOwnership";
 import { dealerSnapshot, recordQuotationEvent } from "@/lib/quotationAudit";
 
@@ -67,11 +68,17 @@ export async function POST(req: Request, context: RouteContext) {
       previousDealerId === null ? null : await AdminUser.findById(previousDealerId).lean();
 
     const nextAllocated = Number(nextDealer?.discountAllocationPercent || 0);
-    const customerPct = Number(existing.customerDiscountPercent || 0);
-    if (nextAllocated > 0 && customerPct > nextAllocated) {
+    const customerPct = resolveCustomerDiscountPercent(existing);
+    const discountError = customerDiscountError({
+      hasDealer: nextDealer !== null,
+      allocatedPercent: nextAllocated,
+      customerPercent: customerPct,
+      actorIsDealer: false,
+    });
+    if (discountError) {
       throw new ApiError(
         "VALIDATION_ERROR",
-        `This quotation's customer discount (${customerPct}%) exceeds the new dealer's allocated discount (${nextAllocated}%). Reduce the customer discount first.`,
+        `${discountError} This quotation currently has a ${customerPct}% customer discount; reduce it before assigning.`,
         { field: "dealerId" }
       );
     }
@@ -81,8 +88,11 @@ export async function POST(req: Request, context: RouteContext) {
       .select("quantity unitPrice")
       .lean();
     const subtotal = items.reduce((sum, it) => sum + (it.quantity || 1) * Number(it.unitPrice || 0), 0);
-    const earningPercent = Math.max(0, nextAllocated - customerPct);
-    const earningAmount = Math.round(((subtotal * earningPercent) / 100) * 100) / 100;
+    const { earningPercent, earningAmount } = calculateDealerEarning({
+      subtotal,
+      allocatedPercent: nextAllocated,
+      customerPercent: customerPct,
+    });
 
     const assignedOn = new Date();
     const previousAllocated = Number(existing.allocatedDiscountPercent || 0);
