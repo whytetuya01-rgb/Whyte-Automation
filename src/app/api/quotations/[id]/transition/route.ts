@@ -4,6 +4,7 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem } from "@/models";
 import { requireRole } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
+import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { parseQuotationId, transitionQuotationSchema } from "@/lib/validation/quotation";
 
 export const dynamic = "force-dynamic";
@@ -69,6 +70,14 @@ export async function POST(req: Request, context: RouteContext) {
     }
 
     await quotation.save();
+
+    await recordQuotationEvent({
+      quotationId,
+      action: action === "approve" ? "quotation_approved" : action === "reject" ? "quotation_rejected" : "quotation_delivered",
+      performedBy: userId,
+      previousValue: { status: currentStatus },
+      newValue: { status: quotation.status },
+    });
 
     return apiSuccess({
       id: quotation._id,

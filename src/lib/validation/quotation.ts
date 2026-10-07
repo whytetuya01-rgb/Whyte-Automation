@@ -196,6 +196,13 @@ export const duplicateQuotationSchema = strictObject({
   notes: optionalText(2000),
   internalNotes: optionalText(2000),
   includeRooms: booleanField,
+  /** Admin / Super Admin only: dealer to assign the clone to, or null to keep it. */
+  dealerId: numericIdSchema.optional().nullable(),
+});
+
+/** Assignment body: `dealerId` null unassigns. */
+export const assignQuotationSchema = strictObject({
+  dealerId: numericIdSchema.nullable(),
 });
 
 export type CreateQuotationInput = z.infer<typeof createQuotationSchema>;
@@ -204,4 +211,5 @@ export type CreateQuotationRoomInput = z.infer<typeof createQuotationRoomSchema>
 export type UpdateQuotationRoomInput = z.infer<typeof updateQuotationRoomSchema>;
 export type CreateQuotationItemInput = z.infer<typeof createQuotationItemSchema>;
 export type UpdateQuotationItemInput = z.infer<typeof updateQuotationItemSchema>;
+export type AssignQuotationInput = z.infer<typeof assignQuotationSchema>;
 export type DuplicateQuotationInput = z.infer<typeof duplicateQuotationSchema>;

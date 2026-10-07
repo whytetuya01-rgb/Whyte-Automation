@@ -15,6 +15,13 @@ export {
   type IHouseTypeRoomTemplateDocument,
 } from "./HouseTypeRoomTemplate";
 export { Quotation, type IQuotation, type IQuotationDocument } from "./Quotation";
+export {
+  QuotationAuditEvent,
+  QUOTATION_AUDIT_ACTIONS,
+  type QuotationAuditAction,
+  type IQuotationAuditEvent,
+  type IQuotationAuditEventDocument,
+} from "./QuotationAuditEvent";
 export { QuotationRoom, type IQuotationRoom, type IQuotationRoomDocument } from "./QuotationRoom";
 export { QuotationItem, type IQuotationItem, type IQuotationItemDocument } from "./QuotationItem";
 export { AdminUser, type IAdminUser, type IAdminUserDocument } from "./AdminUser";

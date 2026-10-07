@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronDown } from "lucide-react";
+import { Select } from "./Select";
 
 export const DEFAULT_FLOOR_OPTIONS = [
   "Ground Floor",
@@ -14,7 +14,9 @@ export const DEFAULT_FLOOR_OPTIONS = [
   "Other",
 ] as const;
 
-export type FloorOption = typeof DEFAULT_FLOOR_OPTIONS[number];
+const FLOOR_SELECT_OPTIONS = DEFAULT_FLOOR_OPTIONS.map((opt) => ({ value: opt, label: opt }));
+
+export type FloorOption =typeof DEFAULT_FLOOR_OPTIONS[number];
 
 interface Props {
   value: string | null | undefined;
@@ -61,7 +63,7 @@ export default function FloorLocationSelect({
     }
   }, [normalizedValue, isStandardOption]);
 
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleSelectChange = (e: { target: { value: string } }) => {
     const val = e.target.value;
     if (val === "Other") {
       onChange(customText.trim() || "Other");
@@ -90,24 +92,14 @@ export default function FloorLocationSelect({
           Floor / Location
         </label>
       )}
-      <div className="relative">
-        <select
-          value={selectedDropdownValue}
-          onChange={handleSelectChange}
-          disabled={disabled}
-          className={`w-full appearance-none ${heightClass} pr-8 bg-white border border-gray-300 rounded-xl font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-950 focus:border-transparent disabled:opacity-50 cursor-pointer shadow-2xs transition-colors`}
-        >
-          {DEFAULT_FLOOR_OPTIONS.map((opt) => (
-            <option key={opt} value={opt}>
-              {opt}
-            </option>
-          ))}
-        </select>
-        <ChevronDown
-          size={14}
-          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-        />
-      </div>
+      <Select
+        value={selectedDropdownValue}
+        onChange={handleSelectChange}
+        disabled={disabled}
+        ariaLabel="Floor / Location"
+        options={FLOOR_SELECT_OPTIONS}
+        triggerClassName={size === "sm" ? "h-8 text-xs px-2.5" : "h-9 text-xs px-3"}
+      />
 
       {selectedDropdownValue === "Other" && (
         <div className="pt-1 space-y-1">

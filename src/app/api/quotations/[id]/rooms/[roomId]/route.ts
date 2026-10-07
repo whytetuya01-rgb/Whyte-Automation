@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationRoomSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
+import { canModifyQuotation } from "@/lib/quotationAccess";
 
 type RouteContext = { params: Promise<{ id: string; roomId: string }> };
 
@@ -28,7 +29,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (quotation.status === "approved" || quotation.status === "delivered") {
       throw new ApiError("FORBIDDEN", `Quotation is ${quotation.status} and locked. Please clone it to make revisions.`);
     }
-    if (role === "dealer" && quotation.dealerId !== userId) {
+    if (!canModifyQuotation(role, userId, quotation)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 
@@ -80,7 +81,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
     if (quotation.status === "approved" || quotation.status === "delivered") {
       throw new ApiError("FORBIDDEN", `Quotation is ${quotation.status} and locked. Please clone it to make revisions.`);
     }
-    if (role === "dealer" && quotation.dealerId !== userId) {
+    if (!canModifyQuotation(role, userId, quotation)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 

@@ -1,9 +1,9 @@
-import Link from "next/link";
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { ShieldCheck } from "lucide-react";
 import { authOptions } from "@/lib/auth";
 import WhyteLogo from "@/components/shared/WhyteLogo";
+import SignOutButton from "@/components/shared/SignOutButton";
 
 export default async function DealerAccessPage() {
   const session = await getServerSession(authOptions);
@@ -28,9 +28,12 @@ export default async function DealerAccessPage() {
           Your account is ready. Dealer access to the catalog and quotation workspace has not been enabled yet. Please contact your Whyte administrator for assistance.
         </p>
         <p className="mt-2 text-sm text-neutral-500">Signed in as {session.user.email}</p>
-        <Link href="/api/auth/signout?callbackUrl=/login" className="mt-7 inline-flex text-sm font-medium text-neutral-700 underline underline-offset-4 hover:text-black">
+        <SignOutButton
+          callbackUrl="/login"
+          className="mt-7 inline-flex text-sm font-medium text-neutral-700 underline underline-offset-4 hover:text-black cursor-pointer"
+        >
           Sign out
-        </Link>
+        </SignOutButton>
       </section>
     </main>
   );

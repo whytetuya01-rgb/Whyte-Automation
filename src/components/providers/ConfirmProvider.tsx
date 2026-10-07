@@ -55,6 +55,8 @@ export interface ConfirmOptions {
   cancelText?: string;
   /** Visual variant of the confirm button (default: "danger") */
   variant?: "danger" | "primary";
+  /** Optional icon replacing the default warning triangle. */
+  icon?: React.ReactNode;
   /**
    * Optional async action. When provided the dialog stays open in a loading
    * state until it settles, so the action can never be fired twice.
@@ -197,12 +199,14 @@ export function ConfirmProvider({ children }: { children: React.ReactNode }) {
                       : "bg-blue-50 border border-blue-100"
                   }`}
                 >
-                  <AlertTriangle
-                    size={20}
-                    className={
-                      state.variant === "danger" ? "text-red-600" : "text-blue-600"
-                    }
-                  />
+                  {state.icon ?? (
+                    <AlertTriangle
+                      size={20}
+                      className={
+                        state.variant === "danger" ? "text-red-600" : "text-blue-600"
+                      }
+                    />
+                  )}
                 </div>
 
                 <div className="flex-1 min-w-0 pr-2">

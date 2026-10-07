@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Building, MapPin, User, Phone, Mail, FileText } from "lucide-react";
 import { HouseType, Quotation } from "@/types";
 import { Select, SelectOption } from "@/components/ui/Select";
+import { RadioGroup } from "@/components/ui/Radio";
 
 interface Props {
   initialData?: Partial<Quotation>;
@@ -23,6 +25,17 @@ export interface ProjectFormData {
   clientEmail: string;
   clientGstNumber: string;
   notes: string;
+  /**
+   * Super Admin / Admin only: dealer the quotation is assigned to (null = kept by
+   * the admin). `undefined` for every other role, which never sends an assignment.
+   */
+  dealerId?: number | null;
+}
+
+interface DealerOption {
+  id: number;
+  name: string;
+  email?: string;
 }
 
 export default function StepProjectDetails({
@@ -47,7 +60,46 @@ export default function StepProjectDetails({
     clientEmail: initialData?.clientEmail ?? "",
     clientGstNumber: initialData?.clientGstNumber ?? "",
     notes: cleanNotes,
+    dealerId: initialData?.dealerId ?? null,
   });
+
+  const { data: session } = useSession();
+  const role = (session?.user as { role?: string } | undefined)?.role;
+  const canChooseOwner = role === "super_admin" || role === "admin";
+  const [ownerMode, setOwnerMode] = useState<"self" | "dealer">(initialData?.dealerId ? "dealer" : "self");
+  const [dealers, setDealers] = useState<DealerOption[]>([]);
+
+  useEffect(() => {
+    if (!canChooseOwner) return;
+    let cancelled = false;
+    fetch("/api/admin/dealers?status=active&pageSize=100")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        const list = Array.isArray(data) ? data : Array.isArray(data.data) ? data.data : [];
+        setDealers(
+          list.map((d: any) => ({ id: Number(d.id ?? d._id), name: d.name, email: d.email }))
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [canChooseOwner]);
+
+  // The assigned dealer may be inactive now; keep it selectable so the form shows it.
+  const dealerOptions: SelectOption[] = [
+    { value: "", label: "— Select a dealer —" },
+    ...dealers.map((d) => ({
+      value: String(d.id),
+      label: d.email ? `${d.name} (${d.email})` : d.name,
+    })),
+    ...(initialData?.dealerId &&
+    initialData.dealer?.name &&
+    !dealers.some((d) => d.id === initialData.dealerId)
+      ? [{ value: String(initialData.dealerId), label: initialData.dealer.name }]
+      : []),
+  ];
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -59,6 +111,9 @@ export default function StepProjectDetails({
     if (!form.location.trim()) {
       errs.location = "City / Project Location is required";
     }
+    if (canChooseOwner && ownerMode === "dealer" && !form.dealerId) {
+      errs.dealerId = "Select the dealer this quotation is assigned to";
+    }
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -66,7 +121,11 @@ export default function StepProjectDetails({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
-    await onSaveAndContinue(form);
+    // "Myself" always clears the dealer, whatever was picked before switching.
+    await onSaveAndContinue({
+      ...form,
+      dealerId: canChooseOwner ? (ownerMode === "dealer" ? form.dealerId : null) : undefined,
+    });
   };
 
   return (
@@ -216,6 +275,49 @@ export default function StepProjectDetails({
                       <p className="text-xs text-red-500 mt-1 font-medium">{errors.location}</p>
                     )}
                   </div>
+
+                  {/* Quotation Owner (Super Admin / Admin only) */}
+                  {canChooseOwner && (
+                    <div className="sm:col-span-2">
+                      <RadioGroup
+                        label="Quotation Owner"
+                        value={ownerMode}
+                        orientation="horizontal"
+                        onChange={(value) => {
+                          const next = value === "dealer" ? "dealer" : "self";
+                          setOwnerMode(next);
+                          if (next === "self") {
+                            setForm({ ...form, dealerId: null });
+                            if (errors.dealerId) setErrors({ ...errors, dealerId: "" });
+                          }
+                        }}
+                        options={[
+                          { value: "self", label: "Myself" },
+                          { value: "dealer", label: "Assign to Dealer" },
+                        ]}
+                        helperText="Choose whether you keep this quotation or assign it to a dealer."
+                      />
+
+                      {ownerMode === "dealer" && (
+                        <div className="mt-3">
+                          <Select
+                            label="Dealer"
+                            required
+                            value={form.dealerId ? String(form.dealerId) : ""}
+                            onChange={(e) => {
+                              setForm({ ...form, dealerId: e.target.value ? Number(e.target.value) : null });
+                              if (errors.dealerId) setErrors({ ...errors, dealerId: "" });
+                            }}
+                            ariaLabel="Dealer"
+                            options={dealerOptions}
+                            error={errors.dealerId}
+                            helperText="The dealer's discount allocation and earnings apply to this quotation."
+                            triggerClassName="h-11 rounded-xl text-sm"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 

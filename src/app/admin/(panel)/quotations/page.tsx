@@ -3,13 +3,14 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { Quotation, QuotationStatus } from "@/types";
 import { formatDate } from "@/lib/utils";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Pagination from "@/components/shared/Pagination";
 import CustomDropdown, { DropdownOption } from "@/components/shared/CustomDropdown";
-import { Trash2, ExternalLink, Search, RefreshCw, X, FileText } from "lucide-react";
+import { Trash2, ExternalLink, Search, RefreshCw, X, FileText, Plus } from "lucide-react";
 import notify from "@/lib/notify";
 
 const STATUSES: { value: string; label: string }[] = [
@@ -60,6 +61,39 @@ function QuotationsPageContent() {
   const [refreshing, setRefreshing] = useState(false);
   const confirm = useConfirm();
 
+  // Super Admin only: "mine" limits the list to quotations they created themselves.
+  const { data: session } = useSession();
+  const sessionRole = (session?.user as { role?: string } | undefined)?.role;
+  const canCreateAndFilterOwners = sessionRole === "super_admin" || sessionRole === "admin";
+  const [scope, setScope] = useState<"all" | "mine">("all");
+  const scopeRef = useRef<"all" | "mine">("all");
+
+  // Assigned-dealer filter (also seeded from ?dealerId=, which the Dealers page links to).
+  const initialDealerFilter = searchParams.get("dealerId") || "all";
+  const [dealerFilter, setDealerFilter] = useState<string>(initialDealerFilter);
+  const dealerFilterRef = useRef<string>(initialDealerFilter);
+  const [dealerOptions, setDealerOptions] = useState<DropdownOption[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/dealers?pageSize=100")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const list = Array.isArray(data?.data) ? data.data : [];
+        if (cancelled) return;
+        setDealerOptions(
+          list.map((d: { id: number; name?: string | null; email?: string }) => ({
+            value: String(d.id),
+            label: d.name || d.email || "Dealer",
+          }))
+        );
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Debounce search input by 300ms
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -76,6 +110,7 @@ function QuotationsPageContent() {
       if (newPageSize !== 10) params.set("pageSize", String(newPageSize));
       if (newSearch.trim()) params.set("search", newSearch.trim());
       if (newStatus !== "all") params.set("status", newStatus);
+      if (dealerFilterRef.current !== "all") params.set("dealerId", dealerFilterRef.current);
 
       const query = params.toString();
       const targetUrl = query ? `${pathname}?${query}` : pathname;
@@ -107,6 +142,8 @@ function QuotationsPageContent() {
 
         if (targetSearch.trim()) queryParams.set("search", targetSearch.trim());
         if (targetStatus !== "all") queryParams.set("status", targetStatus);
+        if (scopeRef.current === "mine") queryParams.set("mine", "true");
+        if (dealerFilterRef.current !== "all") queryParams.set("dealerId", dealerFilterRef.current);
 
         const res = await fetch(`/api/quotations?${queryParams.toString()}`);
         if (res.status === 401) {
@@ -158,6 +195,8 @@ function QuotationsPageContent() {
   const prevFiltersRef = useRef({
     search: initialSearch,
     status: initialStatus,
+    scope: "all" as "all" | "mine",
+    dealer: initialDealerFilter,
   });
 
   // When filters or search change, reset page to 1
@@ -170,18 +209,24 @@ function QuotationsPageContent() {
     const prev = prevFiltersRef.current;
     const filtersChanged =
       prev.search !== debouncedSearch ||
-      prev.status !== statusFilter;
+      prev.status !== statusFilter ||
+      prev.scope !== scope ||
+      prev.dealer !== dealerFilter;
 
     if (filtersChanged) {
       prevFiltersRef.current = {
         search: debouncedSearch,
         status: statusFilter,
+        scope,
+        dealer: dealerFilter,
       };
+      scopeRef.current = scope;
+      dealerFilterRef.current = dealerFilter;
       setPage(1);
       updateUrl(1, pageSize, debouncedSearch, statusFilter);
       fetchData(1, pageSize, debouncedSearch, statusFilter);
     }
-  }, [debouncedSearch, statusFilter, pageSize, updateUrl, fetchData]);
+  }, [debouncedSearch, statusFilter, scope, dealerFilter, pageSize, updateUrl, fetchData]);
 
   const handlePageChange = (newPage: number) => {
     if (newPage < 1 || newPage > totalPages || newPage === page) return;
@@ -267,7 +312,7 @@ function QuotationsPageContent() {
     }
   };
 
-  const hasActiveFilters = debouncedSearch.trim() !== "" || statusFilter !== "all";
+  const hasActiveFilters = debouncedSearch.trim() !== "" || statusFilter !== "all" || scope !== "all" || dealerFilter !== "all";
 
   return (
     <div className="space-y-6 max-w-full">
@@ -282,16 +327,59 @@ function QuotationsPageContent() {
           </p>
         </div>
 
-        <button
-          onClick={() => fetchData(page, pageSize, debouncedSearch, statusFilter, true)}
-          disabled={refreshing || loading}
-          className="h-10 px-3.5 border border-gray-200 rounded-xl flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-600 self-start sm:self-auto shadow-2xs text-xs font-semibold"
-          title="Refresh quotations list"
-        >
-          <RefreshCw size={14} className={refreshing ? "animate-spin text-neutral-900" : ""} />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() => fetchData(page, pageSize, debouncedSearch, statusFilter, true)}
+            disabled={refreshing || loading}
+            className="h-10 px-3.5 border border-gray-200 rounded-xl flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-600 shadow-2xs text-xs font-semibold"
+            title="Refresh quotations list"
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin text-neutral-900" : ""} />
+            <span>Refresh</span>
+          </button>
+          {canCreateAndFilterOwners && (
+            <Link
+              href="/quotation/new"
+              className="h-10 px-4 rounded-xl flex items-center gap-2 bg-neutral-950 text-white hover:bg-neutral-800 transition-colors text-xs font-semibold shadow-2xs"
+              title="Create a quotation and optionally assign it to a dealer"
+            >
+              <Plus size={14} />
+              <span>New Quotation</span>
+            </Link>
+          )}
+        </div>
       </div>
+
+      {/* ── Ownership filters (Super Admin / Admin) ─────────────────── */}
+      {canCreateAndFilterOwners && (
+        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex gap-1 bg-admin-grey-light p-1 rounded-xl w-max border border-admin-grey-border">
+          {([
+            { value: "all", label: "All Quotations" },
+            { value: "mine", label: "Created by Me" },
+          ] as const).map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setScope(opt.value)}
+              className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer ${
+                scope === opt.value
+                  ? "bg-white text-neutral-950 shadow-2xs font-semibold"
+                  : "text-neutral-500 hover:text-neutral-900 hover:bg-white/50"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        <CustomDropdown
+          value={dealerFilter}
+          onChange={setDealerFilter}
+          options={[{ value: "all", label: "All Dealers" }, ...dealerOptions]}
+          ariaLabel="Filter by assigned dealer"
+        />
+        </div>
+      )}
 
       {/* ── Filter Toolbar ──────────────────────────────────────────── */}
       <div className="flex flex-col sm:flex-row gap-3">
@@ -363,7 +451,9 @@ function QuotationsPageContent() {
                 <tr className="border-b border-admin-grey-border bg-admin-grey-light/80 text-xs font-semibold text-neutral-600 uppercase tracking-wider">
                   <th className="px-4 py-3.5">QT Number</th>
                   <th className="px-4 py-3.5">Client</th>
-                  <th className="px-4 py-3.5">Date</th>
+                  <th className="px-4 py-3.5">Assigned Dealer</th>
+                  <th className="px-4 py-3.5">Created By</th>
+                  <th className="px-4 py-3.5">Created On</th>
                   <th className="px-4 py-3.5">Rooms</th>
                   <th className="px-4 py-3.5">Status</th>
                   <th className="px-4 py-3.5 text-right">Actions</th>
@@ -375,7 +465,7 @@ function QuotationsPageContent() {
               >
                 {quotations.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-16 text-center">
+                    <td colSpan={8} className="px-4 py-16 text-center">
                       <div className="max-w-sm mx-auto flex flex-col items-center">
                         <div className="w-12 h-12 rounded-2xl bg-admin-primary-soft border border-admin-primary-border flex items-center justify-center text-admin-primary mb-3">
                           <FileText size={24} />
@@ -393,6 +483,8 @@ function QuotationsPageContent() {
                             onClick={() => {
                               setSearch("");
                               setStatusFilter("all");
+                              setScope("all");
+                              setDealerFilter("all");
                             }}
                             className="px-3.5 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-xs font-medium transition-colors"
                           >
@@ -411,6 +503,12 @@ function QuotationsPageContent() {
                       <td className="px-4 py-3">
                         <p className="font-semibold text-gray-900 text-sm">{q.clientName}</p>
                         {q.clientPhone && <p className="text-gray-400 text-xs mt-0.5">{q.clientPhone}</p>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">
+                        {q.dealer?.name ?? <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-gray-600 text-xs">
+                        {q.createdByUser?.name ?? <span className="text-gray-400">—</span>}
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs">
                         {formatDate(q.createdAt)}
@@ -466,6 +564,8 @@ function QuotationsPageContent() {
                     <div className="min-w-0 flex-1">
                       <p className="font-mono font-semibold text-gray-900 text-sm">{q.quotationNumber}</p>
                       <p className="font-medium text-gray-800 text-sm truncate mt-0.5">{q.clientName}</p>
+                      {q.dealer?.name && <p className="text-gray-500 text-xs mt-0.5">Dealer: {q.dealer.name}</p>}
+                      {q.createdByUser?.name && <p className="text-gray-400 text-xs mt-0.5">Created by {q.createdByUser.name}</p>}
                       {q.clientPhone && <p className="text-gray-400 text-xs mt-0.5">{q.clientPhone}</p>}
                     </div>
                     <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded font-medium shrink-0">

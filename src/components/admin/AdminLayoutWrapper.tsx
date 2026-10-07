@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import AdminSidebar from "./AdminSidebar";
-import { Menu, X } from "lucide-react";
+import { Menu, X, ArrowUpRight, Shield } from "lucide-react";
 import Link from "next/link";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import { WhyteContentLoader, WhyteFullScreenLoader } from "@/components/shared/WhyteLoader";
@@ -18,7 +18,6 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
     const checkScreen = () => {
       const mobile = window.innerWidth < 1024;
       setIsMobile(mobile);
-      // Auto-close sidebar when resizing to mobile
       if (mobile) setIsOpen(false);
     };
 
@@ -34,38 +33,41 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
   }
 
   return (
-    <div className="admin-theme flex flex-col h-dvh overflow-hidden bg-admin-background w-full">
-      {/* Top Header - Black with White Text/Logo & Pink Accent */}
-      <header className="h-[48px] sm:h-[50px] lg:h-[52px] shrink-0 bg-[#111111] border-b border-[#222226] flex items-center justify-between px-3 sm:px-4 md:px-6 z-50 sticky top-0 shadow-xs">
+    <div className="admin-theme flex flex-col h-dvh overflow-hidden bg-[#F6F6F7] w-full select-none">
+      {/* Top Header - Black with Whyte Pink Accent */}
+      <header className="h-[48px] sm:h-[50px] lg:h-[52px] shrink-0 bg-[#0E0E10] border-b border-[#222226] flex items-center justify-between px-3 sm:px-4 md:px-6 z-50 sticky top-0 shadow-xs">
         <div className="flex items-center gap-2.5 sm:gap-3">
           <button
             onClick={() => setIsOpen(!isOpen)}
             className="text-neutral-300 hover:text-white p-1.5 sm:p-2 -ml-1 rounded-xl hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-[#D85B83]/30 cursor-pointer"
-            aria-label="Toggle Sidebar"
+            aria-label="Toggle Navigation Sidebar"
           >
             {isOpen && isMobile ? <X size={18} /> : <Menu size={18} />}
           </button>
           <Link
             href="/admin/dashboard"
             className="inline-flex items-center rounded-xl px-1.5 sm:px-2 py-0.5 hover:opacity-90 transition"
-            aria-label="Admin Dashboard"
+            aria-label="Whyte Admin Dashboard"
           >
             <WhyteLogo
               theme="dark"
-              alt="Whyte logo"
+              alt="Whyte Automations logo"
               size="header"
               preload
             />
           </Link>
+          <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-[#D85B83]/10 border border-[#D85B83]/30 text-[#D85B83] text-[10px] font-bold uppercase tracking-wider">
+            <Shield size={10} /> Admin Control Center
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2.5">
           <Link
             href="/"
-            className="text-xs text-neutral-300 hover:text-white px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg border border-[#2A2A30] hover:border-[#D85B83] bg-[#1E1E22] hover:bg-[#28282E] transition-colors hidden sm:inline-flex items-center gap-1.5 font-medium shadow-2xs"
+            className="text-xs text-neutral-300 hover:text-white px-3 py-1.5 rounded-xl border border-[#2A2A30] hover:border-[#D85B83]/50 bg-[#1A1A1E] hover:bg-[#222228] transition-all inline-flex items-center gap-1.5 font-semibold shadow-2xs group"
           >
             <span>Public Estimator</span>
-            <span className="text-[#D85B83] font-bold">↗</span>
+            <ArrowUpRight size={13} className="text-[#D85B83] transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
           </Link>
         </div>
       </header>
@@ -85,18 +87,18 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
           className={`
             fixed top-[48px] sm:top-[50px] lg:top-[52px] bottom-0 left-0 z-40 transform transition-transform duration-300 ease-in-out
             w-60 lg:w-64 xl:w-68 bg-[#111111]
-            ${isOpen ? "translate-x-0" : "-translate-x-full"}
+            ${isOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
           `}
         >
           <AdminSidebar onClose={() => isMobile && setIsOpen(false)} />
         </div>
 
-        {/* Main Content */}
+        {/* Main Content Area */}
         <main
           className={`
             flex-1 overflow-auto min-w-0 flex flex-col bg-[#F6F6F7]
             transition-all duration-300 ease-in-out w-full
-            ${isOpen && !isMobile ? "lg:ml-64 xl:ml-68" : "ml-0"}
+            ${isOpen || !isMobile ? "lg:ml-64 xl:ml-68" : "ml-0"}
           `}
         >
           {isContentLoading ? (
@@ -104,7 +106,7 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
               <WhyteContentLoader />
             </div>
           ) : (
-            <div className="p-3 sm:p-5 md:p-6 xl:p-8 flex-1 max-w-full overflow-x-hidden">
+            <div className="p-3.5 sm:p-5 md:p-6 xl:p-8 flex-1 max-w-full overflow-x-hidden select-text">
               {children}
             </div>
           )}
@@ -113,3 +115,4 @@ export default function AdminLayoutWrapper({ children }: { children: React.React
     </div>
   );
 }
+

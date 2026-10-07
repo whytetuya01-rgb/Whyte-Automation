@@ -28,6 +28,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import StatusBadge from "@/components/shared/StatusBadge";
 import Pagination from "@/components/shared/Pagination";
 import Modal from "@/components/shared/Modal";
+import { Select } from "@/components/ui";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { QuotationStatus } from "@/types";
 
@@ -354,19 +355,19 @@ export default function DealerEarningsPage() {
 
           {/* Status Filter */}
           <div className="md:col-span-3">
-            <select
+            <Select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              aria-label="Filter quotations by status"
-              className="w-full px-3 py-2 bg-gray-50 hover:bg-gray-100/70 focus:bg-white border border-gray-200 rounded-xl text-xs sm:text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-black/10 focus:border-black transition cursor-pointer"
-            >
-              <option value="all">All Quotation Statuses</option>
-              <option value="draft">Draft</option>
-              <option value="sent">Sent</option>
-              <option value="approved">Approved (Confirmed)</option>
-              <option value="delivered">Delivered (Confirmed)</option>
-              <option value="rejected">Rejected</option>
-            </select>
+              ariaLabel="Filter quotations by status"
+              options={[
+                { value: "all", label: "All Quotation Statuses" },
+                { value: "draft", label: "Draft" },
+                { value: "sent", label: "Sent" },
+                { value: "approved", label: "Approved (Confirmed)" },
+                { value: "delivered", label: "Delivered (Confirmed)" },
+                { value: "rejected", label: "Rejected" },
+              ]}
+            />
           </div>
 
           {/* Date Range Inputs */}

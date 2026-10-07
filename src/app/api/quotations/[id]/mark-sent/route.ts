@@ -4,6 +4,8 @@ import { Quotation } from "@/models";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
 import { parseQuotationId } from "@/lib/validation/quotation";
+import { recordQuotationEvent } from "@/lib/quotationAudit";
+import { canModifyQuotation } from "@/lib/quotationAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +36,7 @@ export async function POST(_req: Request, context: RouteContext) {
     }
 
     // Authorization check: Dealers can only mark their own quotations as sent
-    if (role === "dealer" && quotation.dealerId !== userId) {
+    if (!canModifyQuotation(role, userId, quotation)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to update this quotation.");
     }
 
@@ -44,6 +46,13 @@ export async function POST(_req: Request, context: RouteContext) {
       quotation.sentAt = new Date();
       quotation.sentBy = userId;
       await quotation.save();
+      await recordQuotationEvent({
+        quotationId,
+        action: "status_changed",
+        performedBy: userId,
+        previousValue: { status: "draft" },
+        newValue: { status: "sent" },
+      });
     }
 
     return apiSuccess({

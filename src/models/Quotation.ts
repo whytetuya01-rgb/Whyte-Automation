@@ -20,7 +20,18 @@ export interface IQuotation {
   customerDiscountPercent: number;
   estimatedEarningPercent: number;
   estimatedEarningAmount: mongoose.Types.Decimal128 | string | null;
+  /**
+   * Ownership model:
+   *  - `createdBy` / `createdAt`: who created the quotation and when. Never changes.
+   *  - `dealerId`: the dealer the quotation is currently assigned to ("assignedTo").
+   *    null when it is not assigned to a dealer.
+   *  - `assignedBy` / `assignedOn`: who made the current assignment and when. Only set
+   *    when a Super Admin / Admin assigned it; null for historical quotations and for
+   *    quotations a dealer created for themselves (no assignment act took place).
+   */
   dealerId: number | null;
+  assignedBy: number | null;
+  assignedOn: Date | null;
   assignedSalesId: number | null;
   sentAt: Date | null;
   sentBy: number | null;
@@ -72,6 +83,8 @@ const QuotationSchema = new Schema<IQuotationDocument>(
     estimatedEarningPercent: { type: Number, default: 0 },
     estimatedEarningAmount: createDecimalField({ default: "0.00" }),
     dealerId: { type: Number, ref: "AdminUser", default: null, index: true },
+    assignedBy: { type: Number, ref: "AdminUser", default: null },
+    assignedOn: { type: Date, default: null },
     assignedSalesId: { type: Number, ref: "AdminUser", default: null, index: true },
     sentAt: { type: Date, default: null },
     sentBy: { type: Number, ref: "AdminUser", default: null },
@@ -88,7 +101,7 @@ const QuotationSchema = new Schema<IQuotationDocument>(
     defaultFinish: { type: String, default: null },
     createdAt: { type: Date, default: Date.now, index: true },
     updatedAt: { type: Date, default: Date.now },
-    createdBy: { type: String, default: null },
+    createdBy: { type: String, default: null, index: true },
   },
   {
     _id: false,
@@ -157,6 +170,7 @@ QuotationSchema.pre("save", function (this: IQuotationDocument) {
 QuotationSchema.index({ status: 1, createdAt: -1 });
 QuotationSchema.index({ createdAt: -1 });
 QuotationSchema.index({ dealerId: 1, createdAt: -1 });
+QuotationSchema.index({ createdBy: 1, createdAt: -1 });
 QuotationSchema.index({ assignedSalesId: 1, status: 1 });
 
 const existingQuotationModel = mongoose.models.Quotation as Model<IQuotationDocument> | undefined;
@@ -180,6 +194,13 @@ if (existingQuotationModel) {
   if (!existingQuotationModel.schema.path("assignedSalesId")) {
     existingQuotationModel.schema.add({
       assignedSalesId: { type: Number, ref: "AdminUser", default: null, index: true },
+    });
+  }
+
+  if (!existingQuotationModel.schema.path("assignedOn")) {
+    existingQuotationModel.schema.add({
+      assignedBy: { type: Number, ref: "AdminUser", default: null },
+      assignedOn: { type: Date, default: null },
     });
   }
 

@@ -9,6 +9,7 @@ import { createQuotationItemSchema, parseQuotationId } from "@/lib/validation/qu
 import { normalizeQuotationItem } from "@/lib/quotationNormalization";
 import { resolveVariantPricing } from "@/lib/pricing";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
+import { canModifyQuotation } from "@/lib/quotationAccess";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -113,7 +114,7 @@ export async function POST(req: Request, context: RouteContext) {
         `Quotation is ${quotation.status} and locked. Please clone it to make revisions.`
       );
     }
-    if (role === "dealer" && quotation.dealerId !== userId) {
+    if (!canModifyQuotation(role, userId, quotation)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 

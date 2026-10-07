@@ -20,6 +20,7 @@ import StepSelectSpaces from "./StepSelectSpaces";
 import StepProductConfig from "./StepProductConfig";
 import StepReview from "./StepReview";
 import StepProposalPreview from "./StepProposalPreview";
+import QuotationOwnership from "./QuotationOwnership";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import StatusBadge from "@/components/shared/StatusBadge";
 import {
@@ -239,6 +240,7 @@ export default function ProposalBuilder({
             clientGstNumber: formData.clientGstNumber.trim() || null,
             houseTypeId: formData.houseTypeId,
             notes: notesWithProject,
+            ...(formData.dealerId ? { dealerId: formData.dealerId } : {}),
           }),
         });
 
@@ -285,7 +287,25 @@ export default function ProposalBuilder({
           throw new Error(extractErrorMessage(err, "Failed to update project details"));
         }
 
-        const resJson = await res.json();
+        let resJson = await res.json();
+
+        // Reassignment is a separate, admin-only, audited endpoint. The server
+        // ignores it for any other role, so this only runs when the owner changed.
+        const previousDealerId = quotation.dealerId ?? null;
+        if (formData.dealerId !== previousDealerId && formData.dealerId !== undefined) {
+          const assignRes = await fetch(`/api/quotations/${quotation.id}/assign`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ dealerId: formData.dealerId }),
+          });
+          if (!assignRes.ok) {
+            const err = await assignRes.json().catch(() => ({}));
+            throw new Error(extractErrorMessage(err, "Failed to update the assigned dealer"));
+          }
+          const freshRes = await fetch(`/api/quotations/${quotation.id}`);
+          if (freshRes.ok) resJson = await freshRes.json();
+        }
+
         const updated = resJson?.data ?? resJson;
         const normalized = normalizeQuotation(updated);
         setQuotation(normalized);
@@ -688,6 +708,8 @@ export default function ProposalBuilder({
         onStepClick={navigateToStep}
         canNavigateToStep={canNavigateToStep}
       />
+
+      {quotation && <QuotationOwnership quotation={quotation} />}
 
       {/* Dynamic Step View Rendering */}
       <div>

@@ -155,8 +155,16 @@ export interface Quotation {
   customerDiscountPercent?: number | null;
   estimatedEarningPercent?: number | null;
   estimatedEarningAmount?: string | number | null;
+  /** Dealer the quotation is currently assigned to ("assignedTo"). */
   dealerId?: number | null;
   dealer?: AdminUser | null;
+  /** Creator (`createdBy` is the raw user id; `createdByUser` carries the name). */
+  createdBy?: string | null;
+  createdByUser?: QuotationActor | null;
+  /** Who made the current assignment and when; null for unassigned / historical rows. */
+  assignedBy?: number | null;
+  assignedByUser?: QuotationActor | null;
+  assignedOn?: string | null;
   assignedSalesId?: number | null;
   assignedSales?: AdminUser | null;
   sentAt?: string | null;
@@ -175,6 +183,32 @@ export interface Quotation {
   createdAt: string;
   updatedAt?: string;
   rooms: QuotationRoom[];
+}
+
+export interface QuotationActor {
+  id: number;
+  name: string;
+}
+
+export type QuotationAuditAction =
+  | "quotation_created"
+  | "quotation_assigned"
+  | "quotation_reassigned"
+  | "quotation_unassigned"
+  | "quotation_cloned"
+  | "status_changed"
+  | "quotation_approved"
+  | "quotation_rejected"
+  | "quotation_delivered";
+
+export interface QuotationActivityEvent {
+  id: string;
+  action: QuotationAuditAction;
+  performedByName: string | null;
+  performedOn: string;
+  previousValue: Record<string, unknown> | null;
+  newValue: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
 }
 
 export interface Company {

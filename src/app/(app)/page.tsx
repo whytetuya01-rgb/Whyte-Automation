@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, HouseType, AdminUser } from "@/models";
+import { dealerVisibilityFilter } from "@/lib/quotationAccess";
 import QuotationsListing, { QuotationRowData } from "@/components/quotations/QuotationsListing";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export default async function HomePage() {
     let filterQuery: Record<string, unknown> = {};
 
     if (userRole === "dealer") {
-      filterQuery = { dealerId: userId };
+      filterQuery = dealerVisibilityFilter(userId);
 
       // Compute accumulated earnings strictly from approved and delivered quotations
       const earningsResult = await Quotation.aggregate([

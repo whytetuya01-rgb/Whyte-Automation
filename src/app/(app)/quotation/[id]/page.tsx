@@ -13,6 +13,8 @@ import {
   normalizeProducts,
   serializeQuotationForClient,
 } from "@/lib/quotationNormalization";
+import { attachQuotationActors } from "@/lib/quotationActors";
+import { canViewQuotation } from "@/lib/quotationAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,7 @@ export default async function QuotationPage(props: PageProps) {
   const [qDoc, htDocs, pDocs, cDocs, rtDocs, compDoc] = await Promise.all([
     Quotation.findById(id)
       .populate({ path: "houseType" })
+      .populate({ path: "dealer", select: "id name email firstName lastName" })
       .populate({
         path: "rooms",
         options: { sort: { sortOrder: 1 } },
@@ -99,12 +102,13 @@ export default async function QuotationPage(props: PageProps) {
   const userId = Number((session.user as any)?.id);
 
   // IDOR Protection: Dealer can only view and edit their own quotations
-  if (userRole === "dealer" && qDoc.dealerId !== userId) {
+  if (!canViewQuotation(userRole, userId, qDoc)) {
     notFound();
   }
 
   // Fast plain JSON normalization for client component hydration
-  const quotation = serializeQuotationForClient(normalizeQuotation(JSON.parse(JSON.stringify(qDoc))));
+  const [qDocWithActors] = await attachQuotationActors([qDoc]);
+  const quotation = serializeQuotationForClient(normalizeQuotation(JSON.parse(JSON.stringify(qDocWithActors))));
   const houseTypes = normalizeHouseTypes(JSON.parse(JSON.stringify(htDocs)));
   const products = normalizeProducts(pDocs);
   const categories = normalizeCategories(JSON.parse(JSON.stringify(cDocs)));

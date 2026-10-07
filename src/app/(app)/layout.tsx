@@ -3,7 +3,8 @@ import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import WhyteLogo from "@/components/shared/WhyteLogo";
-import { LogOut, Plus, FileText, LayoutDashboard, User, Wallet } from "lucide-react";
+import SignOutButton from "@/components/shared/SignOutButton";
+import { Plus, FileText, LayoutDashboard, User, Wallet } from "lucide-react";
 
 const ALLOWED_APP_ROLES = new Set(["dealer", "super_admin", "admin"]);
 
@@ -126,13 +127,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               </div>
             )}
 
-            <Link
-              href="/api/auth/signout?callbackUrl=/login"
-              className="inline-flex items-center gap-1 text-gray-400 hover:text-red-500 p-1.5 rounded-xl hover:bg-red-50 transition"
-              title="Sign Out"
-            >
-              <LogOut size={15} />
-            </Link>
+            <SignOutButton
+              callbackUrl="/login"
+              className="inline-flex items-center gap-1 text-gray-400 hover:text-red-500 p-1.5 rounded-xl hover:bg-red-50 transition cursor-pointer"
+            />
           </div>
         </div>
 

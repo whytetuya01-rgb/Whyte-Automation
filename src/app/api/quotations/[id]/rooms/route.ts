@@ -6,6 +6,7 @@ import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationRoomSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
+import { canModifyQuotation } from "@/lib/quotationAccess";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -32,7 +33,7 @@ export async function POST(req: Request, context: RouteContext) {
       );
     }
 
-    if (role === "dealer" && quotation.dealerId !== userId) {
+    if (!canModifyQuotation(role, userId, quotation)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 

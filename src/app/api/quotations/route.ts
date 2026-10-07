@@ -15,6 +15,10 @@ import {
   parseStringQueryParam,
 } from "@/lib/validation/common";
 import { calculateQuotationGst } from "@/lib/pricing";
+import { attachQuotationActors } from "@/lib/quotationActors";
+import { resolveNewQuotationOwnership } from "@/lib/quotationOwnership";
+import { dealerVisibilityFilter } from "@/lib/quotationAccess";
+import { dealerSnapshot, recordQuotationEvents } from "@/lib/quotationAudit";
 
 export const dynamic = "force-dynamic";
 
@@ -150,13 +154,21 @@ export async function GET(req: Request) {
     await connectMongoDB();
     const filter: Record<string, unknown> = {};
 
-    // Role-based visibility enforcement
+    // Role-based visibility enforcement (applied in the query, never after the fact).
     if (role === "dealer") {
-      filter.dealerId = userId;
+      // Dealers see quotations assigned to them or created by them. Any creator /
+      // dealer filters in the URL are ignored so they cannot widen this scope.
+      filter.$or = dealerVisibilityFilter(userId).$or;
     } else {
-      // Super Admin & Admin can view all or optionally filter by dealerId
+      // Super Admin & Admin can view all, optionally narrowed by assigned dealer or creator.
       const dealerIdParam = parseIntQueryParam(searchParams, "dealerId");
       if (dealerIdParam !== undefined) filter.dealerId = dealerIdParam;
+
+      const createdByParam = parseIntQueryParam(searchParams, "createdBy", { min: 1 });
+      if (createdByParam !== undefined) filter.createdBy = String(createdByParam);
+
+      // `mine=true`: quotations the caller created themselves.
+      if (searchParams.get("mine") === "true") filter.createdBy = String(userId);
     }
 
     if (statusParam && statusParam !== "all") {
@@ -200,26 +212,30 @@ export async function GET(req: Request) {
           .populate(POPULATE_OPTIONS),
       ]);
 
-    const result = quotations.map((doc) => {
-      const json = (typeof doc.toJSON === "function" ? doc.toJSON() : doc) as unknown as Record<
-        string,
-        unknown
-      >;
-      return withDerivedTotals(json);
-    });
+    const result = await attachQuotationActors(
+      quotations.map((doc) => {
+        const json = (typeof doc.toJSON === "function" ? doc.toJSON() : doc) as unknown as Record<
+          string,
+          unknown
+        >;
+        return withDerivedTotals(json);
+      })
+    );
 
     // GET responses stay unwrapped for existing consumers.
     return NextResponse.json(createPaginatedResponse(result, total, paginationParams));
   }
 
     const quotations = await Quotation.find(filter).sort(sortOptions).populate(POPULATE_OPTIONS);
-    const result = quotations.map((doc) => {
-      const json = (typeof doc.toJSON === "function" ? doc.toJSON() : doc) as unknown as Record<
-        string,
-        unknown
-      >;
-      return withDerivedTotals(json);
-    });
+    const result = await attachQuotationActors(
+      quotations.map((doc) => {
+        const json = (typeof doc.toJSON === "function" ? doc.toJSON() : doc) as unknown as Record<
+          string,
+          unknown
+        >;
+        return withDerivedTotals(json);
+      })
+    );
 
     return NextResponse.json(result);
   } catch (error) {
@@ -237,26 +253,12 @@ export async function POST(req: Request) {
     const input = createQuotationSchema.parse(await readJsonBody(req));
     const { houseTypeId, discountValue, customerDiscountPercent, dealerId, ...rest } = input;
 
-    let targetDealerId: number | null = null;
-    let allocatedPercent = 0;
-
-    const { AdminUser } = await import("@/models");
-
-    if (role === "dealer") {
-      targetDealerId = userId;
-      const dealer = await AdminUser.findById(userId).lean();
-      if (!dealer) throw new ApiError("NOT_FOUND", "Dealer record not found.");
-      allocatedPercent = Number((dealer as any).discountAllocationPercent || 0);
-    } else {
-      // Super Admin / Admin
-      if (dealerId) {
-        const dealer = await AdminUser.findOne({ _id: dealerId, role: "dealer" }).lean();
-        if (dealer) {
-          targetDealerId = dealerId;
-          allocatedPercent = Number((dealer as any).discountAllocationPercent || 0);
-        }
-      }
-    }
+    // Ownership is derived from the authenticated session. Only the optional
+    // `dealerId` (the dealer to assign to) comes from the client, and it is
+    // validated against the caller's role.
+    const ownership = await resolveNewQuotationOwnership({ role, userId, requestedDealerId: dealerId });
+    const targetDealerId = ownership.dealerId;
+    const allocatedPercent = ownership.allocatedPercent;
 
     const requestedCustomerDiscount =
       customerDiscountPercent !== undefined && customerDiscountPercent !== null
@@ -280,7 +282,8 @@ export async function POST(req: Request) {
       }
     }
 
-    const year = new Date().getFullYear();
+    const createdOn = new Date();
+    const year = createdOn.getFullYear();
 
     const createdQuotation = await withTransaction(async (dbSession) => {
       const seq = await getNextSequence(`quotationNumber_${year}`, undefined, dbSession);
@@ -304,8 +307,11 @@ export async function POST(req: Request) {
         customerDiscountPercent: requestedCustomerDiscount,
         estimatedEarningPercent: earningPercent,
         dealerId: targetDealerId,
+        assignedBy: ownership.assignedBy,
+        assignedOn: ownership.assignedOn,
         assignedSalesId: null,
         createdBy: String(userId),
+        createdAt: createdOn,
       });
 
       if (dbSession) {
@@ -352,6 +358,30 @@ export async function POST(req: Request) {
           }
         }
       }
+
+      await recordQuotationEvents(
+        [
+          {
+            quotationId,
+            action: "quotation_created",
+            performedBy: userId,
+            newValue: { quotationNumber },
+          },
+          ...(ownership.assignedBy !== null
+            ? [
+                {
+                  quotationId,
+                  action: "quotation_assigned" as const,
+                  performedBy: userId,
+                  previousValue: null,
+                  newValue: dealerSnapshot(ownership.dealer),
+                  metadata: { duringCreation: true },
+                },
+              ]
+            : []),
+        ],
+        dbSession
+      );
 
       return newQuotation;
     });

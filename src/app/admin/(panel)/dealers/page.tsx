@@ -23,7 +23,7 @@ import { useConfirm } from "@/components/providers/ConfirmProvider";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Pagination from "@/components/shared/Pagination";
-import { Input, Button } from "@/components/ui";
+import { Input, Button, Select } from "@/components/ui";
 import Link from "next/link";
 
 interface DealerItem {
@@ -219,19 +219,20 @@ export default function DealersPage() {
           />
         </div>
 
-        <div className="flex items-center gap-2">
-          <select
+        <div className="flex items-center gap-2 md:w-48">
+          <Select
             value={statusFilter}
             onChange={(e) => {
               setStatusFilter(e.target.value);
               setPage(1);
             }}
-            className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs sm:text-sm text-gray-700 font-medium focus:outline-none focus:border-gray-950"
-          >
-            <option value="all">All Statuses</option>
-            <option value="active">Active Only</option>
-            <option value="inactive">Inactive Only</option>
-          </select>
+            ariaLabel="Filter dealers by status"
+            options={[
+              { value: "all", label: "All Statuses" },
+              { value: "active", label: "Active Only" },
+              { value: "inactive", label: "Inactive Only" },
+            ]}
+          />
         </div>
       </div>
 

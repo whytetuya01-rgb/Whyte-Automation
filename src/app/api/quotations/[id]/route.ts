@@ -9,6 +9,9 @@ import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-re
 import { parseQuotationId, updateQuotationSchema } from "@/lib/validation/quotation";
 
 import { normalizeQuotation } from "@/lib/quotationNormalization";
+import { attachQuotationActors } from "@/lib/quotationActors";
+import { recordQuotationEvent } from "@/lib/quotationAudit";
+import { canModifyQuotation, canViewQuotation } from "@/lib/quotationAccess";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -66,7 +69,7 @@ export async function GET(_req: Request, context: RouteContext) {
     }
 
     // Role-based access control: Dealers can only access their own quotations
-    if (role === "dealer" && quotation.dealerId !== userId) {
+    if (!canViewQuotation(role, userId, quotation)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
     }
 
@@ -76,8 +79,9 @@ export async function GET(_req: Request, context: RouteContext) {
       (room: any) => !isBathroomLikeRoomName(room.roomType?.name)
     );
 
+    const [withActors] = await attachQuotationActors([quotation]);
     const normalized = normalizeQuotation({
-      ...quotation,
+      ...withActors,
       rooms: filteredRooms,
     });
 
@@ -116,7 +120,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     // Role-based access control: Dealers can only modify their own quotations
-    if (role === "dealer" && existing.dealerId !== userId) {
+    if (!canModifyQuotation(role, userId, existing)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 
@@ -210,14 +214,25 @@ export async function PATCH(req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
 
+    if (nextStatus && nextStatus !== existing.status) {
+      await recordQuotationEvent({
+        quotationId,
+        action: "status_changed",
+        performedBy: userId,
+        previousValue: { status: existing.status },
+        newValue: { status: nextStatus },
+      });
+    }
+
     const populated = await fetchPopulatedQuotation(quotationId);
     const rawRooms = Array.isArray((populated as any)?.rooms) ? (populated as any).rooms : [];
     const filteredRooms = rawRooms.filter(
       (room: any) => !isBathroomLikeRoomName(room.roomType?.name)
     );
 
+    const [populatedWithActors] = await attachQuotationActors([populated ?? {}]);
     const normalized = normalizeQuotation({
-      ...populated,
+      ...populatedWithActors,
       rooms: filteredRooms,
     });
 
@@ -250,7 +265,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
       );
     }
 
-    if (role === "dealer" && target.dealerId !== userId) {
+    if (!canModifyQuotation(role, userId, target)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to delete this quotation.");
     }
 
