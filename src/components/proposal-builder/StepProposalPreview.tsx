@@ -244,6 +244,13 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
   const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
 
+  // Height-budget constants are calibrated against the REAL rendered pixel
+  // height of each element (measured from actual captured PDF pages), not a
+  // rough guess — a product row with its name, SB-number badge, and
+  // module/finish/tier chips routinely wraps to ~85px, not the ~52px a bare
+  // single-line estimate would suggest. Err generously: a page finishing
+  // short is invisible, a page silently growing past 1123px is not (it gets
+  // squashed to fit the fixed A4 image slot in the final PDF).
   const PAGE_CAPACITY = 940;
   const FOOTER_RESERVE = 55;
   const RUNNING_HEADER = 55;
@@ -294,8 +301,8 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
     while (itemsLeft.length > 0) {
       const showSectionHeader = isFirstProductRoomSection && isFirstSlice;
-      const headerH = (showSectionHeader ? 60 : 0) + (isFirstSlice ? 44 + 30 : 30);
-      const minItemH = 52;
+      const headerH = (showSectionHeader ? 90 : 0) + (isFirstSlice ? 65 + 45 : 45);
+      const minItemH = 85;
 
       if (currentHeight + headerH + minItemH > getCapacity()) {
         pages.push({
@@ -315,7 +322,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
       while (itemsLeft.length > 0) {
         const item = itemsLeft[0];
-        const itemH = 52;
+        const itemH = 85;
         if (currentHeight + sliceH + itemH > getCapacity()) {
           break;
         }
@@ -326,7 +333,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
       const isLastSlice = itemsLeft.length === 0;
       if (isLastSlice) {
-        sliceH += 34;
+        sliceH += 50;
       }
 
       const hasSectionHeader = isFirstProductRoomSection && isFirstSlice;
@@ -350,8 +357,13 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
     }
   }
 
-  // SECTION C: Closing, Financials, Terms & Contact
-  const closingEstimateH = 490;
+  // SECTION C: Closing, Financials, Terms & Contact. This block (financial
+  // breakdown, investment callout, includes/terms, next steps, closing
+  // contact card) measures ~930px tall when actually rendered — close to a
+  // full page's own content budget on its own. Estimated at capacity itself
+  // so it reliably lands on its own fresh page rather than being crammed
+  // onto whatever space is left after the last room's items.
+  const closingEstimateH = getCapacity();
   if (currentHeight + closingEstimateH > getCapacity()) {
     pages.push({
       pageNumber: currentPage,
@@ -654,10 +666,46 @@ export default function StepProposalPreview({
                 pageRefs.current[pageIdx] = el;
               }}
               className="proposal-page bg-white w-full max-w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-12 mb-8 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
-              style={{ boxSizing: "border-box" }}
+              style={
+                page.isFirstPage
+                  ? {
+                      boxSizing: "border-box",
+                      backgroundImage:
+                        "repeating-linear-gradient(to right, rgba(17,24,39,0.018) 0, rgba(17,24,39,0.018) 1px, transparent 1px, transparent 56px), repeating-linear-gradient(to bottom, rgba(17,24,39,0.018) 0, rgba(17,24,39,0.018) 1px, transparent 1px, transparent 56px)",
+                      backgroundPosition: "top left",
+                    }
+                  : { boxSizing: "border-box" }
+              }
             >
+              {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
+                  behind all content. Never a status/DRAFT/DUPLICATE stamp: the document's
+                  actual Draft/Sent/Approved/etc. status is shown elsewhere in the app UI,
+                  not altered here, and never rendered as a warning-style stamp on the PDF. */}
+              {!page.isFirstPage && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center select-none"
+                  style={{ zIndex: 0 }}
+                >
+                  <span
+                    style={{
+                      fontSize: 150,
+                      fontWeight: 900,
+                      letterSpacing: "-0.02em",
+                      color: "rgba(212, 106, 140, 0.1)",
+                      display: "inline-block",
+                      transform: "rotate(-18deg)",
+                      lineHeight: 1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    WHYTE
+                  </span>
+                </div>
+              )}
+
               {/* Page Content Area */}
-              <div className="space-y-6">
+              <div className="relative z-10 space-y-6">
                 {/* Running Header on Page 2+ */}
                 {!page.isFirstPage && (
                   <div className="pb-3 border-b border-gray-200 flex items-center justify-between text-xs">
@@ -676,7 +724,11 @@ export default function StepProposalPreview({
                       </span>
                     </div>
                     <div className="flex items-center gap-3 text-gray-500 font-mono text-[11px]">
-                      <span>{quotation.quotationNumber}</span>
+                      <span className="text-gray-950 font-bold">
+                        {quotation.quotationNumber}
+                      </span>
+                      <span>•</span>
+                      <span>{formatDate(quotation.createdAt)}</span>
                       <span>•</span>
                       <span className="text-gray-950 font-bold">
                         {quotation.clientName}
@@ -692,111 +744,117 @@ export default function StepProposalPreview({
                     return (
                       <div key={sIdx} className="space-y-6">
                         {/* Header Brand Bar */}
-                        <div className="flex items-center justify-between pb-3 sm:pb-3.5 border-b border-gray-200">
-                          <div>
-                            <WhyteLogo
-                              theme="light"
-                              alt="WHYTE Automations"
-                              size="document-cover"
-                              style={{ height: "24px", maxWidth: "105px", width: "auto" }}
-                              unoptimized
-                              loading="eager"
-                            />
-                            <p className="text-[10px] uppercase tracking-widest text-accent font-bold mt-1">
-                              Next-Gen Smart Living Ecosystems
-                            </p>
-                          </div>
+                        <div className="flex items-start justify-between">
+                          <WhyteLogo
+                            theme="light"
+                            alt="WHYTE Automations"
+                            size="document-cover"
+                            style={{ height: "22px", maxWidth: "100px", width: "auto" }}
+                            unoptimized
+                            loading="eager"
+                          />
                           <div className="text-right">
-                            <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
+                            <span className="text-[9px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
                               Quotation Reference
                             </span>
-                            <p className="text-base sm:text-lg font-black font-mono tracking-tight text-gray-950">
+                            <p className="text-sm font-black font-mono tracking-tight text-gray-950">
                               {quotation.quotationNumber}
                             </p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-[11px] text-gray-500">
                               {formatDate(quotation.createdAt)}
                             </p>
                           </div>
                         </div>
 
-                        {/* Title Block */}
-                        <div className="space-y-1.5 pt-2">
-                          <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                            Bespoke Intelligent Architecture
-                          </span>
-                          <h1 className="text-3xl sm:text-4xl font-black text-gray-950 tracking-tight">
-                            SMART AUTOMATION PROPOSAL
-                          </h1>
-                          <p className="text-xs sm:text-sm text-gray-600 leading-relaxed max-w-xl">
-                            Thank you for considering Whyte for your smart
-                            automation requirements. This proposal outlines the
-                            recommended automation products, spaces,
-                            configuration, and estimated investment for your
-                            project.
-                          </p>
-                        </div>
+                        {/*
+                          Title + Hero zone, laid out against fixed pixel coordinates (not
+                          percentages) matching the reference's A4 composition 1:1 — the page
+                          itself is a fixed 794x1123 canvas (the A4-at-96dpi equivalent of
+                          595.28x841.89pt), so these px values ARE the A4 coordinate system:
 
-                        {/* Official Hero Image */}
-                        <div className="w-full h-52 sm:h-64 rounded-2xl overflow-hidden border border-gray-200 bg-gray-50 relative shadow-xs">
-                          <img
-                            src="/proposal/whyte/hero-touch.webp"
-                            alt="Whyte Smart Living"
-                            className="w-full h-full object-cover"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent flex items-end p-5">
-                            <p className="text-white text-xs sm:text-sm font-semibold tracking-wide">
-                              Feather-Touch Switching • Wireless Smart
-                              Control • Luxury Architectural Living
+                            title column : 320px wide, at the content's left edge
+                            title type   : 56px/line, extrabold (not black — lighter,
+                                           editorial weight), 3 stacked lines
+                            hero image   : 600px wide (~86% of the 698px content width),
+                                           pulled up -140px so the phone sits beside the
+                                           title's lower two lines and the house reaches
+                                           toward the page's horizontal center — safe,
+                                           because the source PNG is transparent at its own
+                                           top-left (the phone only starts ~49% into the
+                                           image, the house only starts ~31% down), so
+                                           nothing solid ever reaches the title's text column
+                        */}
+                        <div>
+                          <div className="w-[320px] space-y-2.5 pt-1">
+                            <h1 className="text-[56px] font-extrabold leading-[1.0] tracking-tight text-gray-950">
+                              Smart
+                              <br />
+                              Automation
+                              <br />
+                              <span className="text-accent">Proposal</span>
+                            </h1>
+                            <div className="h-[3px] w-[130px] rounded-full bg-gradient-to-r from-accent to-accent/0" />
+                            <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
+                              Next-Gen <span className="text-gray-950">Smart Living</span> Ecosystems
                             </p>
+                          </div>
+
+                          <div className="-mt-[140px] flex justify-end">
+                            <img
+                              src="/proposal/whyte/cover-hero.webp"
+                              alt="Whyte smart home and app control"
+                              className="h-auto w-[600px] object-contain"
+                            />
                           </div>
                         </div>
 
-                        {/* Project Reference Card */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-4 rounded-xl bg-gray-50/80 border border-gray-200 text-xs">
-                          <div>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                        {/* Project Reference Information Strip: ONE bordered container,
+                            four columns with visible vertical dividers between them. */}
+                        <div className="grid grid-cols-4 divide-x divide-gray-200 rounded-xl border border-gray-300 bg-white text-xs">
+                          <div className="px-4 py-3.5">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                               Client
                             </p>
-                            <p className="font-bold text-gray-950 mt-0.5 truncate">
+                            <p className="mt-0.5 truncate font-bold text-gray-950">
                               {quotation.clientName}
                             </p>
                             {quotation.clientPhone && (
-                              <p className="text-[11px] text-gray-500 mt-0.5">
+                              <p className="mt-0.5 text-[11px] text-gray-500">
                                 {quotation.clientPhone}
                               </p>
                             )}
                           </div>
 
-                          <div>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                          <div className="px-4 py-3.5">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                               Project Location
                             </p>
-                            <p className="font-semibold text-gray-900 mt-0.5 line-clamp-2">
+                            <p className="mt-0.5 line-clamp-2 font-semibold text-gray-900">
                               {quotation.clientAddress || "Site Location"}
                             </p>
                           </div>
 
-                          <div>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                          <div className="px-4 py-3.5">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                               Project Type
                             </p>
-                            <p className="font-semibold text-gray-900 mt-0.5">
+                            <p className="mt-0.5 font-semibold text-gray-900">
                               {quotation.houseType?.name ??
                                 "Residential Smart Home"}
                             </p>
-                            <p className="text-[10px] text-gray-400 mt-0.5">
+                            <p className="mt-0.5 text-[10px] text-gray-400">
                               Custom Automation
                             </p>
                           </div>
 
-                          <div>
-                            <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                          <div className="px-4 py-3.5">
+                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
                               Total Investment
                             </p>
-                            <p className="font-black font-mono text-gray-950 text-sm mt-0.5">
+                            <p className="mt-0.5 font-black font-mono text-sm text-accent">
                               {formatCurrency(grandTotal, { decimals: 2 })}
                             </p>
-                            <p className="text-[10px] text-gray-500">
+                            <p className="mt-0.5 text-[10px] text-gray-500">
                               {renderableRooms.length} Spaces • {totalProducts} Devices
                             </p>
                           </div>
@@ -1203,15 +1261,17 @@ export default function StepProposalPreview({
 
                     return (
                       <div key={sIdx} className="space-y-2.5">
-                        {/* Section Header Banner */}
+                        {/* Section Header Banner — same eyebrow + h2 pattern used by every
+                            other section title in this document (About Whyte, Your Project
+                            Overview, Financial Summary). */}
                         {showSectionHeader && (
-                          <div className="pb-2.5 border-b-2 border-gray-950 flex items-end justify-between mb-3">
+                          <div className="pb-2.5 border-b border-gray-200 flex items-end justify-between mb-3">
                             <div>
                               <span className="text-[10px] uppercase tracking-widest text-accent font-bold block">
                                 Proposed Smart Equipment & Specifications
                               </span>
-                              <h2 className="text-xl sm:text-2xl font-black text-gray-950 tracking-tight">
-                                PRODUCT SUMMARY & SPECIFICATIONS
+                              <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
+                                Product Summary &amp; Specifications
                               </h2>
                             </div>
                             <p className="text-[11px] text-gray-500 font-medium text-right max-w-xs">
@@ -1402,9 +1462,19 @@ export default function StepProposalPreview({
                   /* 6. FINANCIAL SUMMARY, INVESTMENT CALLOUT, TERMS & OFFICIAL WHYTE CLOSING */
                   if (section.type === "closing_and_financials") {
                     return (
-                      <div key={sIdx} className="space-y-4 pt-2">
+                      <div key={sIdx} className="space-y-3">
+                        {/* Section Header — same eyebrow + h2 pattern as every other page. */}
+                        <div>
+                          <span className="text-[10px] uppercase tracking-widest text-accent font-bold block">
+                            Pricing & Commercial Summary
+                          </span>
+                          <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
+                            Investment &amp; Next Steps
+                          </h2>
+                        </div>
+
                         {/* Financial Summary */}
-                        <div className="space-y-2">
+                        <div className="space-y-1.5">
                           <div className="pb-1 border-b border-gray-200 flex items-center justify-between">
                             <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-gray-950">
                               Financial Summary
@@ -1414,7 +1484,7 @@ export default function StepProposalPreview({
                             </span>
                           </div>
 
-                          <div className="p-4 rounded-xl border border-gray-200 bg-gray-50/50 space-y-2.5 text-xs">
+                          <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 space-y-2 text-xs">
                             {/* Subtotal */}
                             <div className="flex justify-between items-center text-gray-600">
                               <span className="font-medium text-gray-600">Subtotal</span>
@@ -1495,7 +1565,7 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Final Investment Callout */}
-                        <div className="p-4 rounded-xl border border-accent-border/80 bg-accent-light/30 text-center space-y-1">
+                        <div className="p-3.5 rounded-xl border border-accent-border/80 bg-accent-light/30 text-center space-y-1">
                           <p className="text-[10px] uppercase font-bold tracking-widest text-accent">
                             ESTIMATED PROJECT INVESTMENT
                           </p>
@@ -1616,7 +1686,7 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Official Whyte Closing & Contact Card */}
-                        <div className="p-4 rounded-xl border border-gray-200 bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
+                        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
                           <div className="space-y-1">
                             <WhyteLogo
                               theme="light"
@@ -1656,25 +1726,31 @@ export default function StepProposalPreview({
               </div>
 
               {/* Document Footer on Every Page */}
-              <div className="pt-4 mt-6 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-gray-400 font-medium">
-                <div>
-                  <span className="font-bold text-gray-700">
-                    {company?.name || "WHYTE Automations"}
-                  </span>
-                  <span>
-                    {" "}
-                    • {company?.tagline || "Next-Gen Smart Living Ecosystems"}
-                  </span>
-                  <span className="hidden sm:inline"> • sales@whyte.co.in</span>
+              {page.isFirstPage ? (
+                <div className="pt-4 text-center text-[10px] font-medium text-gray-400">
+                  www.whyte.co.in
                 </div>
-                <div className="flex items-center gap-3 font-mono">
-                  <span>{quotation.quotationNumber}</span>
-                  <span>•</span>
-                  <span>
-                    Page {page.pageNumber} of {page.totalPages}
-                  </span>
+              ) : (
+                <div className="pt-4 mt-6 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-gray-400 font-medium">
+                  <div>
+                    <span className="font-bold text-gray-700">
+                      {company?.name || "WHYTE Automations"}
+                    </span>
+                    <span>
+                      {" "}
+                      • {company?.tagline || "Next-Gen Smart Living Ecosystems"}
+                    </span>
+                    <span className="hidden sm:inline"> • sales@whyte.co.in</span>
+                  </div>
+                  <div className="flex items-center gap-3 font-mono">
+                    <span>{quotation.quotationNumber}</span>
+                    <span>•</span>
+                    <span>
+                      {String(page.pageNumber).padStart(2, "0")} / {String(page.totalPages).padStart(2, "0")}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           ))}
         </div>
