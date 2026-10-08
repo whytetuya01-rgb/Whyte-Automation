@@ -18,6 +18,7 @@ import {
   Home,
 } from "lucide-react";
 import notify from "@/lib/notify";
+import { apiJson, notifyApiError } from "@/lib/apiClient";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useHouseTypes, useRoomTypes } from "@/lib/swr";
@@ -65,15 +66,12 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
     setSaving(true);
     try {
       const url = houseType ? `/api/house-types/${houseType.id}` : "/api/house-types";
-      const res = await fetch(url, {
-        method: houseType ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), description: description.trim() || null, sortOrder: 0, rooms }),
+      await apiJson[houseType ? "patch" : "post"](url, {
+        name: name.trim(),
+        description: description.trim() || null,
+        sortOrder: 0,
+        rooms,
       });
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to save house type");
-      }
       notify.success(
         houseType ? "House type updated" : "House type created",
         houseType
@@ -82,8 +80,7 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
       );
       onSuccess();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Unable to save house type";
-      notify.error("Save Failed", msg);
+      notifyApiError(err, "Save failed", "Unable to save house type");
     } finally {
       setSaving(false);
     }

@@ -7,6 +7,7 @@ import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationItemSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationItem } from "@/lib/quotationNormalization";
+import { redactQuotationItemForRole } from "@/lib/variantRedaction";
 import { resolveVariantPricing } from "@/lib/pricing";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { canModifyQuotation } from "@/lib/quotationAccess";
@@ -254,14 +255,28 @@ export async function POST(req: Request, context: RouteContext) {
       sortOrder: 0,
     });
 
+    // Response-only populate: just the fields the editor/proposal/PDF render
+    // for this item (see `AGENTS.md`/Phase 3 audit and
+    // `QuotationItemVariantSummary` in `@/types`) — never the catalog's full
+    // variant list. The variant RESOLUTION above (choosing which variant this
+    // item uses) already ran against the full `variants` populate on `product`
+    // earlier in this function; this is a separate, smaller populate purely
+    // for shaping the response.
     const populatedItem = await QuotationItem.findById(nextItemId)
       .populate({
         path: "product",
-        populate: { path: "variants", match: { isActive: true } },
+        select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes",
       })
-      .populate({ path: "productVariant" });
+      .populate({ path: "productVariant", select: "surfaceFinish automationTier" });
 
-    return apiSuccess(normalizeQuotationItem(populatedItem), { status: 201 });
+    // `normalizeQuotationItem` spreads its input (`...item`); on a live Mongoose
+    // Document that copies internal bookkeeping fields (`$__`, etc.) which embed
+    // an UNREDACTED copy of the populated sub-documents. `.toObject()` (which
+    // applies this schema's own virtuals/getters/transform, same as elsewhere
+    // in this codebase) must run first so only plain, already-redactable data
+    // reaches the normalizer.
+    const plainItem = populatedItem?.toObject ? populatedItem.toObject() : populatedItem;
+    return apiSuccess(redactQuotationItemForRole(normalizeQuotationItem(plainItem), role), { status: 201 });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/items" });
   }

@@ -22,6 +22,7 @@ import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
 import { getRoomFullTitle } from "@/lib/roomUtils";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import { calculateQuotationGst } from "@/lib/pricing";
+import { apiJson, toErrorMessage } from "@/lib/apiClient";
 
 interface Props {
   quotation: Quotation;
@@ -122,10 +123,12 @@ export function getItemFinish(
 }
 
 export function getItemColor(item: QuotationItem): string | null {
-  const val =
-    item.variantConfig?.color ||
-    item.variantConfig?.colour ||
-    item.productVariant?.config?.color;
+  // `item.productVariant` has never carried a `config` field (it is built by
+  // `serializeVariant`, whose own output never included one) — a trailing
+  // `item.productVariant?.config?.color` fallback here always evaluated to
+  // `undefined`, in production, every time. Removed rather than kept as a
+  // no-op so the type honestly reflects what this object has ever had.
+  const val = item.variantConfig?.color || item.variantConfig?.colour;
   if (
     !val ||
     typeof val !== "string" ||
@@ -165,10 +168,14 @@ export function getItemTier(
  * variant-specific images, and imagePublicId fallbacks.
  */
 export function getItemImageUrl(item: QuotationItem): string | null {
-  let url = item.product?.imageUrl || item.productVariant?.imageUrl || null;
+  // Same as in `getItemColor` above: `item.productVariant` has never carried
+  // `imageUrl`/`imagePublicId` (`serializeVariant`'s output never included
+  // them), so these two fallbacks always evaluated to `undefined` in
+  // production. Removed rather than kept as a no-op.
+  let url = item.product?.imageUrl || null;
 
   if (!url) {
-    const publicId = item.product?.imagePublicId || item.productVariant?.imagePublicId;
+    const publicId = item.product?.imagePublicId;
     if (publicId && typeof publicId === "string" && publicId.trim()) {
       const trimmedId = publicId.trim();
       if (trimmedId.startsWith("http://") || trimmedId.startsWith("https://")) {
@@ -530,9 +537,10 @@ export default function StepProposalPreview({
   const markQuotationSent = async () => {
     if (!quotation?.id) return;
     try {
-      await fetch(`/api/quotations/${quotation.id}/mark-sent`, { method: "POST" });
-    } catch (err) {
+      await apiJson.post(`/api/quotations/${quotation.id}/mark-sent`);
+    } catch (err: unknown) {
       console.warn("Failed to mark quotation as sent:", err);
+      toast.error(toErrorMessage(err, "Could not mark this quotation as sent."));
     }
   };
 

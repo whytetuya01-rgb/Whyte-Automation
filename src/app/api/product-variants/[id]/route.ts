@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { ProductVariant } from "@/models";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -21,7 +21,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
-    await requireSession();
+    // Admin-only; no dealer-facing screen calls this and it returns cost fields.
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const variantId = parseNumericId(id, "id");
@@ -46,7 +47,7 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const variantId = parseNumericId((await context.params).id, "variant id");
@@ -162,8 +163,9 @@ export async function PATCH(req: Request, context: RouteContext) {
  */
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    // The session is kept so the delete audit field records the actor.
-    const authSession = await requireSession();
+    // Variant deletion is Super Admin / Admin only. The session is also kept
+    // so the delete audit field records the actor.
+    const authSession = await requireRole("super_admin", "admin");
     await connectMongoDB();
     const variantId = parseNumericId((await context.params).id, "variant id");
 

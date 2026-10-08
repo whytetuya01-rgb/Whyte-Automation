@@ -23,7 +23,7 @@ import {
   Receipt,
 } from "lucide-react";
 import notify from "@/lib/notify";
-import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { apiJson, notifyApiError, toErrorMessage, ApiClientError } from "@/lib/apiClient";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import Modal from "@/components/shared/Modal";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
@@ -68,29 +68,12 @@ export default function ProductDetailPage() {
     setNotFound(false);
 
     try {
-      const [productRes, catRes] = await Promise.all([
-        fetch(`/api/products/${productId}`),
-        fetch("/api/categories"),
-      ]);
-
-      if (productRes.status === 401) {
-        router.replace("/admin/login");
-        return;
-      }
-
-      if (productRes.status === 404) {
-        setNotFound(true);
-        return;
-      }
-
-      if (!productRes.ok) {
-        const errorData = await productRes.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to load product details");
-      }
-
-      const prodData = await productRes.json();
+      const prodData = await apiJson.get<Product>(`/api/products/${productId}`, {
+        fallbackMessage: "Failed to load product details",
+      });
       setProduct(prodData);
 
+      const catRes = await fetch("/api/categories");
       if (catRes.ok) {
         const catData = await catRes.json();
         if (Array.isArray(catData)) {
@@ -98,7 +81,15 @@ export default function ProductDetailPage() {
         }
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to load product";
+      if (err instanceof ApiClientError && err.status === 401) {
+        router.replace("/admin/login");
+        return;
+      }
+      if (err instanceof ApiClientError && err.status === 404) {
+        setNotFound(true);
+        return;
+      }
+      const msg = toErrorMessage(err, "Failed to load product");
       setError(msg);
       notify.error("Error", msg);
     } finally {

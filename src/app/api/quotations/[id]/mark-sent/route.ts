@@ -6,6 +6,7 @@ import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
 import { parseQuotationId } from "@/lib/validation/quotation";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { canModifyQuotation } from "@/lib/quotationAccess";
+import { quotationHasProducts } from "@/lib/quotationProducts";
 
 export const dynamic = "force-dynamic";
 
@@ -42,6 +43,12 @@ export async function POST(_req: Request, context: RouteContext) {
 
     // Idempotent check: only draft transitions to sent
     if (quotation.status === "draft") {
+      if (!(await quotationHasProducts(quotationId))) {
+        throw new ApiError(
+          "CONFLICT",
+          "Add at least one product to this quotation before it can be sent."
+        );
+      }
       quotation.status = "sent";
       quotation.sentAt = new Date();
       quotation.sentBy = userId;

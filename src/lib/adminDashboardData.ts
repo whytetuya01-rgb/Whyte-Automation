@@ -1,7 +1,7 @@
 import { Category, Product, Quotation } from "@/models";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { getConfirmedEarningsTotal } from "@/lib/dealerEarningsService";
-import { normalizeQuotation } from "@/lib/quotationNormalization";
+import { aggregateQuotationRoomTotals, deriveQuotationFinancials, totalsForQuotation } from "@/lib/quotationTotals";
 import type { QuotationStatus } from "@/types";
 
 /**
@@ -88,11 +88,6 @@ function isStatus(value: unknown): value is QuotationStatus {
   return typeof value === "string" && (QUOTATION_STATUSES as string[]).includes(value);
 }
 
-const ROOMS_WITH_ITEMS = {
-  path: "rooms",
-  populate: { path: "items", select: "quantity unitPrice taxPercent priceWithoutTax taxAmount" },
-} as const;
-
 export async function getAdminDashboardData(): Promise<DashboardData> {
   const now = new Date();
   const months = lastSixMonths(now);
@@ -126,12 +121,15 @@ export async function getAdminDashboardData(): Promise<DashboardData> {
         },
       },
     ]),
-    Quotation.find({ status: { $in: ["approved", "delivered"] } }).populate(ROOMS_WITH_ITEMS).lean({ virtuals: true }),
+    // No `rooms` populate here (and none for `recentDocs` below): their
+    // subtotal comes from one shared `aggregateQuotationRoomTotals` call
+    // right after this `Promise.all`, instead of Node loading and reducing
+    // every room and item of every approved/delivered quotation.
+    Quotation.find({ status: { $in: ["approved", "delivered"] } }).lean({ virtuals: true }),
     Quotation.find()
       .sort({ createdAt: -1 })
       .limit(8)
       .populate({ path: "dealer", select: "id name email firstName lastName" })
-      .populate(ROOMS_WITH_ITEMS)
       .lean({ virtuals: true }),
     getConfirmedEarningsTotal(),
     Product.countDocuments(),
@@ -156,12 +154,28 @@ export async function getAdminDashboardData(): Promise<DashboardData> {
     bucket.total += row.n;
   }
 
-  // Quotation totals use the application's own normaliser (GST, discount, rooms), so
-  // the dashboard can never disagree with the quotation screens.
-  const grandTotalOf = (doc: unknown): number => {
-    const normalised = normalizeQuotation(JSON.parse(JSON.stringify(doc)));
-    const value = Number(normalised?.grandTotal ?? normalised?.totalAmount ?? 0);
-    return Number.isFinite(value) ? value : 0;
+  // Quotation totals use the application's own formulas (GST via
+  // `calculateQuotationGst`, discount resolution identical to
+  // `normalizeQuotation`, earning via `calculateDealerEarning` — see
+  // `deriveQuotationFinancials`), so the dashboard can never disagree with
+  // the quotation screens. The only thing that changed is *how* each
+  // quotation's subtotal is obtained: one aggregation over both result sets
+  // at once, instead of a `rooms -> items` populate per quotation.
+  const subtotalSourceIds = Array.from(
+    new Set([...approvedDocs.map((d) => String(d._id)), ...recentDocs.map((d) => String(d._id))])
+  );
+  const aggregatedTotals = await aggregateQuotationRoomTotals(subtotalSourceIds);
+
+  const grandTotalOf = (doc: { _id: unknown; discountType?: unknown; discountValue?: unknown; customerDiscountPercent?: unknown; allocatedDiscountPercent?: unknown }): number => {
+    const { subtotal } = totalsForQuotation(aggregatedTotals, String(doc._id));
+    const financials = deriveQuotationFinancials({
+      subtotal,
+      discountType: doc.discountType as string | null | undefined,
+      discountValue: doc.discountValue,
+      customerDiscountPercent: doc.customerDiscountPercent,
+      allocatedDiscountPercent: doc.allocatedDiscountPercent,
+    });
+    return financials.grandTotal;
   };
 
   const approvedValue = approvedDocs.reduce((sum, doc) => sum + grandTotalOf(doc), 0);

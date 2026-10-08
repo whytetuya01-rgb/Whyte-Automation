@@ -43,6 +43,7 @@ export type ApiErrorCode =
   | "FILE_TOO_LARGE"
   | "INVALID_FILE_TYPE"
   | "TOO_MANY_FILES"
+  | "RATE_LIMITED"
   /** @deprecated Legacy alias for FILE_TOO_LARGE. Prefer FILE_TOO_LARGE. */
   | "PAYLOAD_TOO_LARGE"
   /** @deprecated Legacy alias for INVALID_FILE_TYPE. Prefer INVALID_FILE_TYPE. */
@@ -98,6 +99,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   FORBIDDEN: 403,
   FILE_REQUIRED: 400,
   TOO_MANY_FILES: 400,
+  RATE_LIMITED: 429,
   FILE_TOO_LARGE: 413,
   PAYLOAD_TOO_LARGE: 413,
   INVALID_FILE_TYPE: 415,

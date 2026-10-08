@@ -7,6 +7,7 @@ import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-re
 import { calculateDealerEarning, resolveCustomerDiscountPercent, toPlainNumber } from "@/lib/dealerEarnings";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { parseQuotationId, transitionQuotationSchema } from "@/lib/validation/quotation";
+import { quotationHasProducts } from "@/lib/quotationProducts";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,12 @@ export async function POST(req: Request, context: RouteContext) {
     if (action === "approve") {
       if (currentStatus !== "sent") {
         throw new ApiError("CONFLICT", `Cannot approve quotation in "${currentStatus}" status. Only "sent" quotations can be approved.`);
+      }
+      if (!(await quotationHasProducts(quotationId))) {
+        throw new ApiError(
+          "CONFLICT",
+          "This quotation has no products and cannot be approved. Add at least one product first."
+        );
       }
       quotation.status = "approved";
       quotation.approvedAt = new Date();

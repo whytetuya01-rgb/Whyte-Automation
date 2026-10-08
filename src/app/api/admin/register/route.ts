@@ -6,8 +6,13 @@ import { getNextSequence } from "@/lib/counter";
 import { ApiError, handleApiError, readJsonBody } from "@/lib/api-response";
 import { AdminUser } from "@/models";
 import { emailSchema, mobileSchema, optionalGstinSchema } from "@/lib/validation/fields";
+import { checkRateLimit, clientIpFromRequest } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
+
+// Public, unauthenticated endpoint: throttle per-IP so it cannot be used to
+// mass-create accounts or as a password/email enumeration oracle.
+const REGISTER_RATE_LIMIT = { max: 20, windowMs: 15 * 60 * 1000 };
 
 const registrationSchema = z.object({
   firstName: z.string().trim().min(1, "First name is required.").max(60, "First name must be 60 characters or fewer.")
@@ -25,6 +30,14 @@ const registrationSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const rateLimitKey = `register:${clientIpFromRequest(request)}`;
+    const { limited, retryAfterSeconds } = checkRateLimit(rateLimitKey, REGISTER_RATE_LIMIT);
+    if (limited) {
+      throw new ApiError("RATE_LIMITED", "Too many registration attempts. Please try again later.", {
+        details: { retryAfterSeconds },
+      });
+    }
+
     const parsed = registrationSchema.safeParse(await readJsonBody(request));
     if (!parsed.success) return handleApiError(parsed.error, { logPrefix: "POST /api/admin/register" });
 

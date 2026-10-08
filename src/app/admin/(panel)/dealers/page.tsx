@@ -18,6 +18,7 @@ import {
   FileText,
 } from "lucide-react";
 import notify from "@/lib/notify";
+import { apiJson, notifyApiError, safeMessage } from "@/lib/apiClient";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import Modal from "@/components/shared/Modal";
@@ -98,13 +99,15 @@ export default function DealersPage() {
       if (statusFilter !== "all") params.set("status", statusFilter);
 
       const res = await fetch(`/api/admin/dealers?${params.toString()}`);
-      if (!res.ok) throw new Error();
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(safeMessage(json?.error?.message, "Could not fetch dealer records."));
+      }
       setDealers(json.data || []);
       setTotal(json.pagination?.total || 0);
       setTotalPages(json.pagination?.totalPages || 1);
-    } catch {
-      notify.error("Unable to load dealers", "Could not fetch dealer records.");
+    } catch (err: unknown) {
+      notifyApiError(err, "Unable to load dealers", "Could not fetch dealer records.");
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -127,19 +130,14 @@ export default function DealersPage() {
       variant: nextStatus ? "primary" : "danger",
       onConfirm: async () => {
         try {
-          const res = await fetch(`/api/admin/dealers/${dealer.id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ isActive: nextStatus }),
-          });
-          if (!res.ok) throw new Error();
+          await apiJson.patch(`/api/admin/dealers/${dealer.id}`, { isActive: nextStatus });
           notify.success(
             nextStatus ? "Dealer activated" : "Dealer deactivated",
             `${dealer.name}'s account status has been updated.`
           );
           fetchDealers();
-        } catch {
-          notify.error("Status update failed", "Could not change dealer account status.");
+        } catch (err: unknown) {
+          notifyApiError(err, "Status update failed", "Could not change dealer account status.");
         }
       },
     });
@@ -158,20 +156,17 @@ export default function DealersPage() {
     }
     setSavingDiscount(true);
     try {
-      const res = await fetch(`/api/admin/dealers/${discountDealer.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ discountAllocationPercent: newDiscountPercent }),
+      await apiJson.patch(`/api/admin/dealers/${discountDealer.id}`, {
+        discountAllocationPercent: newDiscountPercent,
       });
-      if (!res.ok) throw new Error();
       notify.success(
         "Discount allocation saved",
         `Dealer discount allocation updated to ${newDiscountPercent}%. New quotations will snapshot this rate.`
       );
       setDiscountDealer(null);
       fetchDealers();
-    } catch {
-      notify.error("Update failed", "Could not update discount allocation.");
+    } catch (err: unknown) {
+      notifyApiError(err, "Update failed", "Could not update discount allocation.");
     } finally {
       setSavingDiscount(false);
     }

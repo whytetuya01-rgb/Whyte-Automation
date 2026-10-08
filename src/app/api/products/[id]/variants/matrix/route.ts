@@ -1,5 +1,5 @@
 import { connectMongoDB } from "@/lib/mongodb";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole } from "@/lib/api-auth";
 import { apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { loadProductVariantMatrix } from "@/lib/variantMatrix";
 
@@ -20,7 +20,9 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    // Admin-only screen (Edit Variants). Also returns cost/purchaseTaxPercent
+    // via the matrix snapshot, which must never reach a dealer session.
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");

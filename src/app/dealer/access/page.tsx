@@ -4,13 +4,19 @@ import { ShieldCheck } from "lucide-react";
 import { authOptions } from "@/lib/auth";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import SignOutButton from "@/components/shared/SignOutButton";
+import { isSessionActorStillValid } from "@/lib/sessionGuard";
 
 export default async function DealerAccessPage() {
   const session = await getServerSession(authOptions);
   if (!session?.user) redirect("/login");
   const role = (session.user as { role?: string }).role;
   if (role === "dealer" || role === "sales") redirect("/");
-  redirect(role ? "/admin/dashboard" : "/login");
+
+  const userId = Number((session.user as { id?: string }).id);
+  if (!role || !(await isSessionActorStillValid(userId, role))) {
+    redirect("/login");
+  }
+  redirect("/admin/dashboard");
 
   return (
     <main className="admin-theme min-h-screen bg-neutral-50 flex items-center justify-center p-6">

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { getRoomIcon } from "@/lib/utils";
 import notify from "@/lib/notify";
+import { apiJson, notifyApiError } from "@/lib/apiClient";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useRoomTypes } from "@/lib/swr";
@@ -49,21 +50,12 @@ function RoomTypeForm({
 
     try {
       const url = roomType ? `/api/room-types/${roomType.id}` : "/api/room-types";
-      const res = await fetch(url, {
-        method: roomType ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(),
-          icon: roomType?.icon ?? "",
-          sortOrder: 0,
-          isActive,
-        }),
+      await apiJson[roomType ? "patch" : "post"](url, {
+        name: name.trim(),
+        icon: roomType?.icon ?? "",
+        sortOrder: 0,
+        isActive,
       });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Failed to save room type");
-      }
 
       notify.success(
         roomType ? "Room type updated" : "Room type created",
@@ -71,8 +63,7 @@ function RoomTypeForm({
       );
       onSuccess();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Unable to save room type";
-      notify.error("Save Failed", msg);
+      notifyApiError(err, "Save failed", "Unable to save room type");
     } finally {
       setSaving(false);
     }
@@ -149,19 +140,14 @@ export default function RoomTypesPage() {
 
   const handleToggle = async (rt: RoomType) => {
     try {
-      const res = await fetch(`/api/room-types/${rt.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ isActive: !rt.isActive }),
-      });
-      if (!res.ok) throw new Error();
+      await apiJson.patch(`/api/room-types/${rt.id}`, { isActive: !rt.isActive });
       mutate();
       notify.success(
         !rt.isActive ? "Room type activated" : "Room type deactivated",
         !rt.isActive ? `"${rt.name}" is now active in proposals.` : `"${rt.name}" deactivated.`
       );
-    } catch {
-      notify.error("Status update failed", "Unable to update status.");
+    } catch (err: unknown) {
+      notifyApiError(err, "Status update failed", "Unable to update status.");
     }
   };
 

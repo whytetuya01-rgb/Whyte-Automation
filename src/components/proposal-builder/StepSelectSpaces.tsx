@@ -12,9 +12,11 @@ import {
   X,
   Building,
 } from "lucide-react";
+import Image from "next/image";
 import { RoomType, HouseType, Quotation, QuotationRoom } from "@/types";
 import { getRoomIcon } from "@/lib/utils";
 import { getRoomDisplayName, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
+import { getRoomImage, roomImageSrc } from "@/lib/roomImageMap";
 import FloorLocationSelect from "@/components/ui/FloorLocationSelect";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import notify from "@/lib/notify";
@@ -206,12 +208,14 @@ export default function StepSelectSpaces({
     return (
       <div
         key={`tab1-room-${roomId}`}
-        className="group relative rounded-2xl border p-4 transition-all duration-200 select-none flex flex-col justify-between min-h-[120px] bg-gray-950 text-white border-accent/40 shadow-md ring-2 ring-accent/20"
+        className="group relative overflow-hidden rounded-2xl border transition-all duration-200 select-none min-h-[120px] bg-gray-950 text-white border-accent/40 shadow-md ring-2 ring-accent/20 animate-fadeIn"
       >
+        <RoomBackdrop name={room.customName ?? room.roomType?.name ?? displayName} />
+        <div className="relative flex h-full min-h-[120px] flex-col justify-between p-4">
         {/* Top Bar: Icon + Room Name on Left, Check + Cancel on Right (ONE SINGLE ROW) */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-white/10 text-accent">
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-black/40 text-accent ring-1 ring-white/15">
               <IconComponent size={18} />
             </div>
             <p className="font-bold text-sm sm:text-base leading-snug truncate text-white min-w-0 flex-1">
@@ -226,8 +230,9 @@ export default function StepSelectSpaces({
             <button
               type="button"
               onClick={() => handleRemovePreset(room)}
-              className="w-5 h-5 rounded-full bg-white/10 hover:bg-red-500/20 text-gray-300 hover:text-red-300 flex items-center justify-center transition ml-0.5 text-xs font-bold"
+              className="w-5 h-5 rounded-full bg-black/45 ring-1 ring-white/20 hover:bg-red-500/40 text-white hover:text-red-100 flex items-center justify-center transition ml-0.5 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
               title="Remove space"
+              aria-label={`Remove ${displayName}`}
             >
               ×
             </button>
@@ -235,8 +240,8 @@ export default function StepSelectSpaces({
         </div>
 
         {/* Bottom Bar: Device Hint & + ADD ANOTHER */}
-        <div className="pt-2 border-t border-dashed flex items-center justify-between text-[11px] font-medium border-current/10 mt-3">
-          <span className="text-gray-400">
+        <div className="pt-2 border-t border-dashed flex items-center justify-between text-[11px] font-medium border-white/20 mt-3">
+          <span className="text-gray-200">
             {totalItems > 0
               ? `${totalItems} ${totalItems === 1 ? "device" : "devices"} configured`
               : "Selected space"}
@@ -252,11 +257,12 @@ export default function StepSelectSpaces({
                 onAddRoom(null, room.customName ?? "Custom Room", undefined);
               }
             }}
-            className="text-[10px] uppercase font-bold text-gray-300 hover:text-white underline-offset-2 hover:underline transition"
+            className="text-[10px] uppercase font-bold text-white hover:text-accent underline-offset-2 hover:underline transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent rounded"
             title="Add another instance of this space"
           >
             + Add another
           </button>
+        </div>
         </div>
       </div>
     );
@@ -322,20 +328,22 @@ export default function StepSelectSpaces({
           setDraggingRoomId(null);
           setDragOverFloor(null);
         }}
-        className={`group relative rounded-2xl border p-4 transition-all duration-200 select-none flex flex-col justify-between min-h-[125px] bg-gray-950 text-white border-accent/40 shadow-md ring-2 ring-accent/20 cursor-grab active:cursor-grabbing ${
+        className={`group relative rounded-2xl border transition-all duration-200 select-none min-h-[125px] bg-gray-950 text-white border-accent/40 shadow-md ring-2 ring-accent/20 cursor-grab active:cursor-grabbing ${
           isDragging ? "opacity-35 scale-[0.98] ring-4 ring-accent border-accent" : ""
         }`}
       >
+        <RoomBackdrop name={room.customName ?? room.roomType?.name ?? displayName} />
+        <div className="relative flex h-full min-h-[125px] flex-col justify-between p-4">
         {/* Top Bar: Grip Icon + Room Icon + Room Name on Left, Cancel button on Right (ONE SINGLE ROW) */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <span title="Drag to change floor">
               <GripVertical
                 size={15}
-                className="text-gray-500 group-hover:text-accent transition-colors shrink-0 cursor-grab"
+                className="text-gray-300 group-hover:text-accent transition-colors shrink-0 cursor-grab"
               />
             </span>
-            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-white/10 text-accent">
+            <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-black/40 text-accent ring-1 ring-white/15">
               <IconComponent size={16} />
             </div>
             <p className="font-bold text-sm leading-snug truncate text-white min-w-0 flex-1">
@@ -349,8 +357,9 @@ export default function StepSelectSpaces({
               e.stopPropagation();
               handleRemovePreset(room);
             }}
-            className="w-5 h-5 rounded-full bg-white/10 hover:bg-red-500/20 text-gray-300 hover:text-red-300 flex items-center justify-center transition shrink-0 text-xs font-bold"
+            className="w-5 h-5 rounded-full bg-black/45 ring-1 ring-white/20 hover:bg-red-500/40 text-white hover:text-red-100 flex items-center justify-center transition shrink-0 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             title="Remove space"
+            aria-label={`Remove ${displayName}`}
           >
             ×
           </button>
@@ -358,7 +367,7 @@ export default function StepSelectSpaces({
 
         {/* Middle Section: FLOOR / LOCATION Dropdown (EXACTLY ONCE, NO DUPLICATES) */}
         <div className="mt-3 space-y-1" onClick={(e) => e.stopPropagation()}>
-          <label className="block text-[10px] uppercase font-bold tracking-wider text-gray-400">
+          <label className="block text-[10px] uppercase font-bold tracking-wider text-gray-200">
             FLOOR / LOCATION
           </label>
           <FloorLocationSelect
@@ -370,6 +379,7 @@ export default function StepSelectSpaces({
               }
             }}
           />
+        </div>
         </div>
       </div>
     );
@@ -966,6 +976,26 @@ export default function StepSelectSpaces({
       </div>
 
       {/* Delete confirmation is raised through the global ConfirmProvider portal. */}
+    </div>
+  );
+}
+
+const ROOM_CARD_IMAGE_SIZES = "(min-width: 1536px) 20vw, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, (min-width: 640px) 50vw, 100vw";
+
+/** Decorative room photo + flat dark overlay. Self-clipping so card popovers (floor dropdown) are not cut off. */
+function RoomBackdrop({ name }: { name: string }) {
+  const entry = getRoomImage(name);
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
+      <Image
+        src={roomImageSrc(entry)}
+        alt=""
+        fill
+        sizes={ROOM_CARD_IMAGE_SIZES}
+        className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+        style={{ objectPosition: `50% ${Math.round(entry.focalY * 100)}%` }}
+      />
+      <div className="absolute inset-0 bg-gray-950/65" />
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Product, ProductVariant } from "@/models";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -23,7 +23,9 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
-    await requireSession();
+    // Variant management (including raw cost/price rows) is Super Admin / Admin
+    // only. No dealer-facing screen calls this endpoint.
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const productId = parseNumericId(id, "id");
@@ -55,7 +57,7 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
@@ -112,7 +114,7 @@ export async function POST(req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");

@@ -8,8 +8,9 @@ import { handleApiError } from "@/lib/api-response";
  *
  * Requires a session: this endpoint used to be public and echoed the masked
  * connection string plus the database name, which is reconnaissance for anyone
- * who can reach the deployment. The response is now minimal — status, database
- * uptime marker and timestamp — with no host, URI or driver details.
+ * who can reach the deployment. The response is minimal — a fixed "ok" status
+ * and a timestamp — with no host, URI, env var value or driver detail of any
+ * kind.
  */
 export async function GET() {
   try {
@@ -18,7 +19,6 @@ export async function GET() {
 
     return NextResponse.json({
       status: "ok",
-      database: process.env.MONGODB_DB ?? "configured",
       serverTime: new Date().toISOString(),
     });
   } catch (error) {

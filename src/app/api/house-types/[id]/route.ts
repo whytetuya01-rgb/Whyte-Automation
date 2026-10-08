@@ -3,7 +3,7 @@ import { HouseType, HouseTypeRoomTemplate, RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { updateHouseTypeSchema } from "@/lib/validation/catalog";
 
@@ -11,7 +11,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
     const { id } = await context.params;
     const houseTypeId = parseNumericId(id, "id");
 

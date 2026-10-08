@@ -5,6 +5,7 @@ import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationItemSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationItem } from "@/lib/quotationNormalization";
+import { redactQuotationItemForRole } from "@/lib/variantRedaction";
 import { calculateFromTaxInclusivePrice } from "@/lib/pricing";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 
@@ -81,14 +82,23 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     await QuotationItem.findByIdAndUpdate(itId, { $set: data });
 
+    // Response-only populate: just the fields the editor/proposal/PDF render
+    // for this item (see `AGENTS.md`/Phase 3 audit and
+    // `QuotationItemVariantSummary` in `@/types`) — never the catalog's full
+    // variant list.
     const item = await QuotationItem.findById(itId)
       .populate({
         path: "product",
-        populate: { path: "variants", match: { isActive: true } },
+        select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes",
       })
-      .populate({ path: "productVariant" });
+      .populate({ path: "productVariant", select: "surfaceFinish automationTier" });
 
-    return apiSuccess(normalizeQuotationItem(item));
+    // See the matching comment in POST /api/quotations/[id]/items: `.toObject()`
+    // must run before `normalizeQuotationItem`, which spreads its input, or the
+    // raw Mongoose Document's internal bookkeeping carries an unredacted copy
+    // of the populated product/variant straight past the redaction below.
+    const plainItem = item?.toObject ? item.toObject() : item;
+    return apiSuccess(redactQuotationItemForRole(normalizeQuotationItem(plainItem), role));
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/quotations/[id]/items/[itemId]" });
   }

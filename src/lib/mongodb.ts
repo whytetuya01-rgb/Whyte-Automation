@@ -4,18 +4,23 @@ import dns from "dns";
 // ─────────────────────────────────────────────────────────────────────────────
 // DNS: SRV resolution for mongodb+srv
 //
-// This machine's resolver is a local one (127.0.0.1) that REFUSES the
+// On this machine, the local resolver (127.0.0.1) REFUSES the
 // `_mongodb._tcp.<cluster>.mongodb.net` SRV query, so `mongoose.connect` on a
 // mongodb+srv URI fails immediately with:
 //
 //     querySrv ECONNREFUSED _mongodb._tcp.cluster0.yvhpxeg.mongodb.net
 //
 // Pointing the resolver at public DNS is what makes Atlas reachable here, so
-// this is load-bearing — do not remove it without testing the connection.
+// this stays ON by default — do not remove it without testing the connection.
+// It overrides the process-wide DNS resolver, which is a machine-level
+// workaround, not something every deployment needs or wants; set
+// DISABLE_PUBLIC_DNS_OVERRIDE=true (e.g. in a hosting environment with its
+// own working resolver) to turn it off without touching this file again.
 // ─────────────────────────────────────────────────────────────────────────────
 const PUBLIC_DNS_SERVERS = ["8.8.8.8", "8.8.4.4", "1.1.1.1"];
 
 function applyPublicDnsServers(): void {
+  if (process.env.DISABLE_PUBLIC_DNS_OVERRIDE === "true") return;
   try {
     dns.setServers(PUBLIC_DNS_SERVERS);
   } catch {

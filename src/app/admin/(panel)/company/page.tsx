@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { Company } from "@/types";
 import notify from "@/lib/notify";
+import { apiJson, notifyApiError } from "@/lib/apiClient";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useCompany } from "@/lib/swr";
 import { Input, Textarea, Button } from "@/components/ui";
@@ -42,16 +43,11 @@ export default function CompanyPage() {
     if (nextErrors.gstNumber || nextErrors.phone || nextErrors.email) return;
     setSaving(true);
     try {
-      const res = await fetch("/api/company", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(company),
-      });
-      if (!res.ok) throw new Error();
+      await apiJson.patch("/api/company", company);
       notify.success("Settings saved", "Company profile information updated successfully.");
       mutate();
-    } catch {
-      notify.error("Unable to save settings", "Failed to update company information. Please try again.");
+    } catch (err: unknown) {
+      notifyApiError(err, "Unable to save settings", "Failed to update company information. Please try again.");
     } finally {
       setSaving(false);
     }

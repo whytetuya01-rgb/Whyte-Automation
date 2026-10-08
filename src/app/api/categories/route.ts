@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Category } from "@/models";
 import { getNextSequence } from "@/lib/counter";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole, requireSession } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -42,7 +42,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    await requireSession();
+    // Catalog master data writes are restricted to Super Admin / Admin.
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const body = asObjectBody(await readJsonBody(req));

@@ -1,4 +1,4 @@
-import type { Quotation, QuotationRoom, QuotationItem, Category, RoomType, HouseType, Product, ProductVariant } from "@/types";
+import type { Quotation, QuotationRoom, QuotationItem, QuotationItemVariantSummary, Category, RoomType, HouseType, Product, ProductVariant } from "@/types";
 import { serializeVariant } from "@/lib/productVariantService";
 import { calculateQuotationGst } from "@/lib/pricing";
 
@@ -188,11 +188,20 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
   }
 
   const product = item.product ? normalizeProduct(item.product) : undefined;
-  const productVariant = item.productVariant
-    ? serializeVariant({
-        ...item.productVariant,
-        productId: item.productVariant.productId ?? product?.id ?? Number(item.productId ?? 0),
-      })
+  // A quoted item's embedded variant is a lightweight RENDERING snapshot
+  // (id/surfaceFinish/automationTier only — see QuotationItemVariantSummary),
+  // never a pricing source. `serializeVariant` is NOT used here because it
+  // resolves price/tax from whatever `price`/`priceWithoutTax`/`taxPercent`
+  // the input carries, and would silently resolve to "0.00" on a query that
+  // (correctly, by design) never selects those fields for this embedded use.
+  // The item's own unitPrice/priceWithoutTax/taxPercent/taxAmount (computed
+  // above) remain the only source of truth for price, exactly as before.
+  const productVariant: QuotationItemVariantSummary | null = item.productVariant
+    ? {
+        id: Number(item.productVariant.id ?? item.productVariant._id ?? 0),
+        surfaceFinish: item.productVariant.surfaceFinish ?? null,
+        automationTier: item.productVariant.automationTier ?? null,
+      }
     : null;
 
   return {

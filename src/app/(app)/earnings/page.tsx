@@ -25,6 +25,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { toErrorMessage, safeMessage } from "@/lib/apiClient";
 import StatusBadge from "@/components/shared/StatusBadge";
 import Pagination from "@/components/shared/Pagination";
 import Modal from "@/components/shared/Modal";
@@ -128,11 +129,11 @@ export default function DealerEarningsPage() {
         if (endDate) params.set("endDate", endDate);
 
         const res = await fetch(`/api/dealer/earnings?${params.toString()}`);
+        const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          throw new Error("Unable to load earnings data. Please try again.");
+          throw new Error(safeMessage(data?.error?.message, "Unable to load earnings data. Please try again."));
         }
 
-        const data = await res.json();
         setSummary(data.summary || null);
         setDealer(data.dealer || null);
         setQuotations(data.quotations || []);
@@ -142,8 +143,8 @@ export default function DealerEarningsPage() {
           total: data.pagination?.total || 0,
           totalPages: data.pagination?.totalPages || 1,
         });
-      } catch (err: any) {
-        setError(err.message || "Failed to load earnings.");
+      } catch (err: unknown) {
+        setError(toErrorMessage(err, "Failed to load earnings."));
       } finally {
         setLoading(false);
         setRefreshing(false);

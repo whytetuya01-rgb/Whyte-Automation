@@ -13,6 +13,7 @@ import CustomDropdown, { DropdownOption } from "@/components/shared/CustomDropdo
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Trash2, ExternalLink, Search, RefreshCw, X, FileText, Plus } from "lucide-react";
 import notify from "@/lib/notify";
+import { apiJson, notifyApiError, safeMessage } from "@/lib/apiClient";
 
 const STATUSES: { value: string; label: string }[] = [
   { value: "all", label: "All" },
@@ -154,7 +155,7 @@ function QuotationsPageContent() {
 
         const data = await res.json();
         if (!res.ok) {
-          throw new Error(data?.error ?? "Failed to fetch quotations");
+          throw new Error(safeMessage(data?.error?.message ?? data?.error, "Failed to fetch quotations"));
         }
 
         if (data?.data && data?.pagination) {
@@ -254,12 +255,11 @@ function QuotationsPageContent() {
       variant: "danger",
       onConfirm: async () => {
         try {
-          const res = await fetch(`/api/quotations/${quotation.id}`, { method: "DELETE" });
-          if (!res.ok) throw new Error();
+          await apiJson.delete(`/api/quotations/${quotation.id}`);
           notify.success("Quotation deleted", "The quotation has been removed successfully.");
           fetchData(page, pageSize, debouncedSearch, statusFilter);
-        } catch {
-          notify.error("Unable to delete quotation", "Failed to delete quotation. Please try again.");
+        } catch (err: unknown) {
+          notifyApiError(err, "Unable to delete quotation", "Failed to delete quotation. Please try again.");
         }
       },
     });
@@ -269,27 +269,14 @@ function QuotationsPageContent() {
     if (q.status === targetStatus) return;
 
     try {
-      let res: Response;
       if (q.status === "draft" && targetStatus === "sent") {
-        res = await fetch(`/api/quotations/${q.id}/mark-sent`, { method: "POST" });
+        await apiJson.post(`/api/quotations/${q.id}/mark-sent`);
       } else if (q.status === "sent" && targetStatus === "approved") {
-        res = await fetch(`/api/quotations/${q.id}/transition`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "approve" }),
-        });
+        await apiJson.post(`/api/quotations/${q.id}/transition`, { action: "approve" });
       } else if (q.status === "sent" && targetStatus === "rejected") {
-        res = await fetch(`/api/quotations/${q.id}/transition`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "reject" }),
-        });
+        await apiJson.post(`/api/quotations/${q.id}/transition`, { action: "reject" });
       } else if (q.status === "approved" && targetStatus === "delivered") {
-        res = await fetch(`/api/quotations/${q.id}/transition`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "deliver" }),
-        });
+        await apiJson.post(`/api/quotations/${q.id}/transition`, { action: "deliver" });
       } else {
         notify.warning(
           "Invalid transition",
@@ -298,18 +285,12 @@ function QuotationsPageContent() {
         return;
       }
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || "Transition failed");
-      }
-
       setQuotations((prev) =>
         prev.map((item) => (item.id === q.id ? { ...item, status: targetStatus } : item))
       );
       notify.success("Quotation updated", `Quotation status changed to ${targetStatus}.`);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Unable to update quotation status.";
-      notify.error("Status update failed", msg);
+      notifyApiError(err, "Status update failed", "Unable to update quotation status.");
     }
   };
 

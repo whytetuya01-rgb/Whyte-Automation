@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Company } from "@/models";
 import { getNextSequence } from "@/lib/counter";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole, requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { updateCompanySchema } from "@/lib/validation/catalog";
 
@@ -27,7 +27,8 @@ export async function GET() {
 
 export async function PATCH(req: Request) {
   try {
-    await requireSession();
+    // Company settings writes are restricted to Super Admin / Admin.
+    await requireRole("super_admin", "admin");
     await connectMongoDB();
 
     // Explicit allowlist: a client can never write `_id` or `updatedAt`.

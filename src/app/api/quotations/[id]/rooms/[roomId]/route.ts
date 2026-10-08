@@ -52,11 +52,24 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     await QuotationRoom.findByIdAndUpdate(rId, { $set: data });
 
+    // Response-only populate: just the fields the editor/proposal/PDF render
+    // for an item's product (see `AGENTS.md`/Phase 3 audit) — never the
+    // catalog's full variant list.
     const room = await QuotationRoom.findById(rId)
       .populate({ path: "roomType" })
-      .populate({ path: "items", populate: { path: "product" } });
+      .populate({
+        path: "items",
+        populate: {
+          path: "product",
+          select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes",
+        },
+      });
 
-    return apiSuccess(normalizeQuotationRoom(room));
+    // See the matching comment on the items routes: `normalizeQuotationRoom`
+    // spreads its input, so a live Mongoose Document must be converted with
+    // `.toObject()` first or its internal bookkeeping leaks into the response.
+    const plainRoom = room?.toObject ? room.toObject() : room;
+    return apiSuccess(normalizeQuotationRoom(plainRoom));
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/quotations/[id]/rooms/[roomId]" });
   }

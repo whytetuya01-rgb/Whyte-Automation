@@ -7,9 +7,9 @@ import {
   calculateDealerEarning,
   isConfirmedEarningStatus,
   resolveCustomerDiscountPercent,
-  subtotalFromRooms,
   toPlainNumber,
 } from "@/lib/dealerEarnings";
+import { aggregateQuotationRoomTotals, totalsForQuotation } from "@/lib/quotationTotals";
 
 export const dynamic = "force-dynamic";
 
@@ -62,18 +62,17 @@ export async function GET(req: Request) {
       throw new ApiError("NOT_FOUND", "Dealer not found.");
     }
 
-    // Fetch all quotations for this dealer with populated rooms and items
-    // to calculate authoritative, canonical totals
+    // Fetch all of this dealer's quotations (scalar fields only — never
+    // `rooms`/`items`) to calculate authoritative, canonical totals. Every
+    // quotation's subtotal comes from one aggregation right after this,
+    // instead of a `rooms -> items` populate across the dealer's whole
+    // quotation history.
     const allQuotes = await Quotation.find({ dealerId: targetDealerId })
       .sort({ createdAt: -1 })
-      .populate({
-        path: "rooms",
-        populate: {
-          path: "items",
-          select: "quantity unitPrice",
-        },
-      })
       .lean();
+
+    const quoteIds = allQuotes.map((q) => String(q._id));
+    const aggregatedTotals = await aggregateQuotationRoomTotals(quoteIds);
 
     // Summary accumulator
     let totalQuotationValue = 0;
@@ -116,7 +115,7 @@ export async function GET(req: Request) {
       else if (qStatus === "rejected") rejectedCount++;
       else if (qStatus === "delivered") deliveredCount++;
 
-      let subtotal = subtotalFromRooms(q.rooms);
+      let subtotal = totalsForQuotation(aggregatedTotals, String(q._id)).subtotal;
 
       // Earnings use the quotation's own allocation snapshot, never the dealer's
       // current allocation, and the shared earning formula.

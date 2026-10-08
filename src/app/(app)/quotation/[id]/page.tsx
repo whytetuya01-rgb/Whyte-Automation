@@ -15,6 +15,7 @@ import {
 } from "@/lib/quotationNormalization";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { canViewQuotation } from "@/lib/quotationAccess";
+import { redactProductsForRole, redactQuotationForRole } from "@/lib/variantRedaction";
 
 export const dynamic = "force-dynamic";
 
@@ -46,16 +47,20 @@ export default async function QuotationPage(props: PageProps) {
           {
             path: "items",
             options: { sort: { sortOrder: 1 } },
+            // Only the fields the editor/proposal/PDF actually render — never
+            // the catalog's full variant list (price/cost included); that
+            // duplicated the whole catalog into every quotation payload. The
+            // top-level `products` catalog array (`pDocs` below, already sent
+            // separately) is the picker's data source. See `AGENTS.md`/
+            // Phase 3 audit and `QuotationItemVariantSummary` in `@/types`.
             populate: [
               {
                 path: "product",
-                populate: {
-                  path: "variants",
-                  match: { isActive: true },
-                },
+                select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes",
               },
               {
                 path: "productVariant",
+                select: "surfaceFinish automationTier",
               },
             ],
           },
@@ -108,9 +113,14 @@ export default async function QuotationPage(props: PageProps) {
 
   // Fast plain JSON normalization for client component hydration
   const [qDocWithActors] = await attachQuotationActors([qDoc]);
-  const quotation = serializeQuotationForClient(normalizeQuotation(JSON.parse(JSON.stringify(qDocWithActors))));
+  const quotation = redactQuotationForRole(
+    serializeQuotationForClient(normalizeQuotation(JSON.parse(JSON.stringify(qDocWithActors)))),
+    userRole
+  );
   const houseTypes = normalizeHouseTypes(JSON.parse(JSON.stringify(htDocs)));
-  const products = normalizeProducts(pDocs);
+  // Internal margin fields (cost / purchaseTaxPercent) are never sent to a
+  // non-admin role's browser, regardless of which screen asks for them.
+  const products = redactProductsForRole(normalizeProducts(pDocs), userRole);
   const categories = normalizeCategories(JSON.parse(JSON.stringify(cDocs)));
   const roomTypes = normalizeRoomTypes(JSON.parse(JSON.stringify(rtDocs)));
   const company = compDoc ? JSON.parse(JSON.stringify(compDoc)) : null;

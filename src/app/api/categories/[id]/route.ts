@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Category } from "@/models";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -14,7 +14,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const catId = parseNumericId((await context.params).id, "category id");
@@ -73,7 +73,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const catId = parseNumericId((await context.params).id, "category id");

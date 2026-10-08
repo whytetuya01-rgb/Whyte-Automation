@@ -1,7 +1,7 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { RoomType } from "@/models";
 import { getRoomTypeDependencies } from "@/lib/dependencies";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { updateRoomTypeSchema } from "@/lib/validation/catalog";
 
@@ -9,7 +9,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
     const { id } = await context.params;
     const roomTypeId = parseNumericId(id, "id");
 
@@ -47,7 +47,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
     const { id } = await context.params;
     const roomTypeId = parseNumericId(id, "id");
 

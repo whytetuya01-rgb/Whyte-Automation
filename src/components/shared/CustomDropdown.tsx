@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,13 @@ interface CustomDropdownProps {
   disabled?: boolean;
 }
 
+interface PopoverRect {
+  left: number;
+  minWidth: number;
+  top?: number;
+  bottom?: number;
+}
+
 export default function CustomDropdown({
   value,
   onChange,
@@ -39,40 +47,70 @@ export default function CustomDropdown({
 }: CustomDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
-  const [popoverPosition, setPopoverPosition] = useState<"up" | "down">("down");
+  const [popoverRect, setPopoverRect] = useState<PopoverRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const listboxRef = useRef<HTMLUListElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
-  // Determine popover direction
-  useEffect(() => {
-    if (isOpen) {
-      if (direction === "up") {
-        setPopoverPosition("up");
-      } else if (direction === "down") {
-        setPopoverPosition("down");
-      } else {
-        if (triggerRef.current) {
-          const rect = triggerRef.current.getBoundingClientRect();
-          const spaceBelow = window.innerHeight - rect.bottom;
-          if (spaceBelow < 260 && rect.top > 200) {
-            setPopoverPosition("up");
-          } else {
-            setPopoverPosition("down");
-          }
-        }
-      }
-    }
-  }, [isOpen, direction]);
+  // Position the popover from the trigger's actual viewport position (fixed,
+  // portalled to <body>) so it is never clipped by a scrollable/overflow-hidden
+  // ancestor such as a table wrapper — only the browser viewport can clip it.
+  const updatePosition = useCallback(() => {
+    if (!triggerRef.current) return;
+    const rect = triggerRef.current.getBoundingClientRect();
+    const GAP = 6;
 
-  // Close when clicking outside
+    let openUp: boolean;
+    if (direction === "up") openUp = true;
+    else if (direction === "down") openUp = false;
+    else {
+      const spaceBelow = window.innerHeight - rect.bottom;
+      openUp = spaceBelow < 260 && rect.top > 200;
+    }
+
+    setPopoverRect({
+      left: rect.left,
+      minWidth: rect.width,
+      ...(openUp
+        ? { bottom: window.innerHeight - rect.top + GAP }
+        : { top: rect.bottom + GAP }),
+    });
+  }, [direction]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    updatePosition();
+  }, [isOpen, updatePosition]);
+
+  // Reposition on resize; close on scroll of anything other than the
+  // popover's own option list (so scrolling the page/table can't leave a
+  // stale, misplaced popover floating on screen).
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleResize = () => updatePosition();
+    const handleScroll = (e: Event) => {
+      if (e.target instanceof Node && popoverRef.current?.contains(e.target)) return;
+      setIsOpen(false);
+    };
+    window.addEventListener("resize", handleResize);
+    window.addEventListener("scroll", handleScroll, true);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
+  }, [isOpen, updatePosition]);
+
+  // Close when clicking outside the trigger AND outside the (portalled) popover
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
       if (
         containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
+        !containerRef.current.contains(target) &&
+        !(popoverRef.current && popoverRef.current.contains(target))
       ) {
         setIsOpen(false);
       }
@@ -215,74 +253,84 @@ export default function CustomDropdown({
         />
       </button>
 
-      {/* Popover Dropdown Menu */}
-      {isOpen && (
-        <div
-          className={cn(
-            "absolute left-0 z-50 min-w-[200px] w-max max-w-xs bg-white border border-neutral-200 rounded-xl shadow-lg shadow-black/10 py-1.5 animate-fadeIn",
-            popoverPosition === "up" ? "bottom-full mb-1.5" : "top-full mt-1.5"
-          )}
-        >
-          <ul
-            ref={listboxRef}
-            role="listbox"
-            tabIndex={-1}
-            aria-activedescendant={
-              highlightedIndex >= 0
-                ? `${id || "dropdown"}-opt-${highlightedIndex}`
-                : undefined
-            }
-            className="max-h-64 overflow-y-auto divide-y divide-transparent focus:outline-none"
+      {/* Popover Dropdown Menu — portalled to <body> with fixed positioning so
+          it is never clipped by a scrollable/overflow-hidden ancestor (e.g. a
+          table wrapper), only ever by the viewport itself. */}
+      {isOpen &&
+        popoverRect &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            style={{
+              position: "fixed",
+              left: popoverRect.left,
+              top: popoverRect.top,
+              bottom: popoverRect.bottom,
+              minWidth: Math.max(popoverRect.minWidth, 200),
+            }}
+            className="z-[100] w-max max-w-xs bg-white border border-neutral-200 rounded-xl shadow-lg shadow-black/10 py-1.5 animate-fadeIn"
           >
-            {options.map((opt, idx) => {
-              const isSelected = opt.value === value;
-              const isHighlighted = idx === highlightedIndex;
+            <ul
+              ref={listboxRef}
+              role="listbox"
+              tabIndex={-1}
+              aria-activedescendant={
+                highlightedIndex >= 0
+                  ? `${id || "dropdown"}-opt-${highlightedIndex}`
+                  : undefined
+              }
+              className="max-h-64 overflow-y-auto divide-y divide-transparent focus:outline-none"
+            >
+              {options.map((opt, idx) => {
+                const isSelected = opt.value === value;
+                const isHighlighted = idx === highlightedIndex;
 
-              return (
-                <li
-                  key={opt.value}
-                  id={`${id || "dropdown"}-opt-${idx}`}
-                  role="option"
-                  aria-selected={isSelected}
-                  onClick={() => handleSelect(opt.value)}
-                  onMouseEnter={() => setHighlightedIndex(idx)}
-                  className={cn(
-                    "px-3 py-2 mx-1 rounded-lg text-sm flex items-center justify-between gap-3 cursor-pointer transition-colors select-none",
-                    isSelected
-                      ? "bg-accent-light text-accent-foreground font-semibold border border-accent-border/60"
-                      : isHighlighted
-                        ? "bg-accent-light/40 text-neutral-950"
-                        : "text-neutral-700 hover:bg-accent-light/30"
-                  )}
-                >
-                  <div className="flex items-center gap-2 truncate">
-                    {opt.icon && (
-                      <span className={cn("shrink-0", isSelected ? "text-accent" : "text-neutral-400")}>
-                        {opt.icon}
-                      </span>
+                return (
+                  <li
+                    key={opt.value}
+                    id={`${id || "dropdown"}-opt-${idx}`}
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => handleSelect(opt.value)}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    className={cn(
+                      "px-3 py-2 mx-1 rounded-lg text-sm flex items-center justify-between gap-3 cursor-pointer transition-colors select-none",
+                      isSelected
+                        ? "bg-accent-light text-accent-foreground font-semibold border border-accent-border/60"
+                        : isHighlighted
+                          ? "bg-accent-light/40 text-neutral-950"
+                          : "text-neutral-700 hover:bg-accent-light/30"
                     )}
-                    <span className="truncate">{opt.label}</span>
-                  </div>
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      {opt.icon && (
+                        <span className={cn("shrink-0", isSelected ? "text-accent" : "text-neutral-400")}>
+                          {opt.icon}
+                        </span>
+                      )}
+                      <span className="truncate">{opt.label}</span>
+                    </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {opt.badge && (
-                      <span className={cn(
-                        "text-[10px] font-semibold px-2 py-0.5 rounded-md",
-                        isSelected ? "bg-accent-border/50 text-accent-foreground" : "bg-neutral-100 text-neutral-600"
-                      )}>
-                        {opt.badge}
-                      </span>
-                    )}
-                    {isSelected && (
-                      <Check size={14} className="text-accent stroke-[2.5]" />
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-      )}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {opt.badge && (
+                        <span className={cn(
+                          "text-[10px] font-semibold px-2 py-0.5 rounded-md",
+                          isSelected ? "bg-accent-border/50 text-accent-foreground" : "bg-neutral-100 text-neutral-600"
+                        )}>
+                          {opt.badge}
+                        </span>
+                      )}
+                      {isSelected && (
+                        <Check size={14} className="text-accent stroke-[2.5]" />
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

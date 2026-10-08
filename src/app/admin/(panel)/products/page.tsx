@@ -5,7 +5,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Plus, RefreshCw } from "lucide-react";
 import { Product, Category } from "@/types";
 import notify from "@/lib/notify";
-import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { apiJson, notifyApiError, safeMessage } from "@/lib/apiClient";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import Modal from "@/components/shared/Modal";
 import ProductForm from "@/components/admin/ProductForm";
@@ -140,11 +140,11 @@ function ProductsPageContent() {
         return;
       }
 
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error("Failed to load products");
+        throw new Error(safeMessage(data?.error?.message, "Failed to load products"));
       }
 
-      const data = await res.json();
       if (data && Array.isArray(data.data) && data.pagination) {
         setProducts(data.data);
         const safeTotal = Number(data.pagination.total) || 0;

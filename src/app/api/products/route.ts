@@ -6,7 +6,7 @@ import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { getCategoryVariantMatrix } from "@/lib/categoryConfig";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole, requireSession } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -21,6 +21,7 @@ import {
   validateFinalVariantMatrix,
 } from "@/lib/productVariantService";
 import { normalizeProduct, normalizeProducts } from "@/lib/quotationNormalization";
+import { redactProductsForRole } from "@/lib/variantRedaction";
 
 export const dynamic = "force-dynamic";
 
@@ -55,8 +56,10 @@ export async function GET(req: Request) {
   // Every product read is business data, so the whole endpoint requires a
   // session. `?all=true` no longer needs its own check because the default
   // (active products) is authenticated too.
+  let callerRole: string | undefined;
   try {
-    await requireSession();
+    const session = await requireSession();
+    callerRole = (session.user as { role?: string }).role;
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products" });
   }
@@ -263,7 +266,7 @@ export async function GET(req: Request) {
         Category.countDocuments({ isActive: true }),
       ]);
 
-      const products = normalizeProducts(rawProducts);
+      const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole);
 
       const paginatedRes = createPaginatedResponse(products, total, paginationParams);
       return NextResponse.json({
@@ -282,7 +285,7 @@ export async function GET(req: Request) {
       .populate(populateOptions)
       .lean({ virtuals: true, getters: true });
 
-    const products = normalizeProducts(rawProducts);
+    const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole);
 
     return NextResponse.json(products);
   } catch (error) {
@@ -306,7 +309,9 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    await requireSession();
+    // Catalog writes are restricted to Super Admin / Admin. A dealer session
+    // must never be able to create products, even by calling this API directly.
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
 

@@ -68,7 +68,11 @@ export async function POST(req: Request, context: RouteContext) {
       .populate({ path: "roomType" })
       .populate({ path: "items" });
 
-    return apiSuccess(normalizeQuotationRoom(populatedRoom), { status: 201 });
+    // See the matching comment on the items routes: `normalizeQuotationRoom`
+    // spreads its input, so a live Mongoose Document must be converted with
+    // `.toObject()` first or its internal bookkeeping leaks into the response.
+    const plainRoom = populatedRoom?.toObject ? populatedRoom.toObject() : populatedRoom;
+    return apiSuccess(normalizeQuotationRoom(plainRoom), { status: 201 });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/rooms" });
   }

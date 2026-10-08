@@ -5,6 +5,7 @@ import { authOptions } from "@/lib/auth";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import SignOutButton from "@/components/shared/SignOutButton";
 import { Plus, FileText, LayoutDashboard, User, Wallet } from "lucide-react";
+import { isSessionActorStillValid } from "@/lib/sessionGuard";
 
 const ALLOWED_APP_ROLES = new Set(["dealer", "super_admin", "admin"]);
 
@@ -15,6 +16,14 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   if (!session?.user) redirect("/login");
   if (!role || !ALLOWED_APP_ROLES.has(role)) redirect("/login");
+
+  // Revalidate (short TTL cache) that this account is still real, active and
+  // the same role — a deactivated dealer's existing session should stop
+  // working within the cache window, not for the rest of the JWT's life.
+  const userId = Number((session.user as { id?: string }).id);
+  if (!(await isSessionActorStillValid(userId, role))) {
+    redirect("/login");
+  }
 
   const initials = userName
     .split(" ")

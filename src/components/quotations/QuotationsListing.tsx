@@ -22,10 +22,28 @@ import {
   X,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import { QuotationStatus, HouseType } from "@/types";
 import { Select } from "@/components/ui/Select";
 import { Check, Truck, Wallet } from "lucide-react";
+import Pagination from "@/components/shared/Pagination";
+
+/** Pre-aggregated summary over the FULL filtered set (not just the current page). */
+export interface QuotationSummaryMetrics {
+  total: number;
+  drafts: number;
+  completed: number;
+  pendingSent: number;
+  totalValue: number;
+}
+
+export interface QuotationPaginationMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
 
 export interface QuotationRowData {
   id: string;
@@ -62,6 +80,16 @@ interface Props {
   houseTypes: HouseType[];
   userRole?: string;
   dealerEarnings?: number;
+  /**
+   * Server-computed totals over every quotation the caller can see, not just
+   * the current page. Optional and additive: when omitted, the summary
+   * cards fall back to reducing `initialQuotations` exactly as before (the
+   * correct behaviour as long as the caller still sends every row, which it
+   * does unless `pagination` is also supplied).
+   */
+  summary?: QuotationSummaryMetrics;
+  /** Present only once there is more than one page; `page` navigates via `?page=`. */
+  pagination?: QuotationPaginationMeta;
 }
 
 const STATUS_CONFIG: Record<string, { label: string; dot: string; bg: string; text: string; border: string }> = {
@@ -87,6 +115,8 @@ export default function QuotationsListing({
   houseTypes,
   userRole,
   dealerEarnings = 0,
+  summary,
+  pagination,
 }: Props) {
   const router = useRouter();
   const [quotations, setQuotations] = useState<QuotationRowData[]>(initialQuotations);
@@ -100,8 +130,12 @@ export default function QuotationsListing({
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
   const confirm = useConfirm();
 
-  // Computed summary metrics from real database data
+  // Computed summary metrics from real database data. When the server already
+  // aggregated these over the full (unpaginated) set, that is authoritative;
+  // otherwise fall back to reducing the rows this component was given, which
+  // is only correct when every row was sent (no `pagination` in play).
   const summaryMetrics = useMemo(() => {
+    if (summary) return summary;
     const total = quotations.length;
     const drafts = quotations.filter((q) => q.status === "draft").length;
     const completed = quotations.filter((q) => q.status === "approved" || q.status === "sent" || q.status === "delivered").length;
@@ -109,29 +143,21 @@ export default function QuotationsListing({
     const totalValue = quotations.reduce((acc, q) => acc + (q.totalAmount || 0), 0);
 
     return { total, drafts, completed, pendingSent, totalValue };
-  }, [quotations]);
+  }, [summary, quotations]);
 
   // Transition handler (Sales / Admin approval actions)
   const handleTransition = async (quotationId: string, action: "approve" | "reject" | "deliver") => {
     setTransitioningId(quotationId);
     try {
-      const res = await fetch(`/api/quotations/${quotationId}/transition`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || `Failed to ${action} quotation`);
-      }
+      await apiJson.post(`/api/quotations/${quotationId}/transition`, { action });
       const targetStatus: QuotationStatus =
         action === "approve" ? "approved" : action === "reject" ? "rejected" : "delivered";
       setQuotations((prev) =>
         prev.map((q) => (q.id === quotationId ? { ...q, status: targetStatus } : q))
       );
       toast.success(`Quotation marked as ${targetStatus}!`);
-    } catch (err: any) {
-      toast.error(err.message || `Failed to ${action} quotation`);
+    } catch (err: unknown) {
+      toast.error(toErrorMessage(err, `Failed to ${action} quotation`));
     } finally {
       setTransitioningId(null);
     }
@@ -197,26 +223,20 @@ export default function QuotationsListing({
   const handleDuplicate = async (quotationId: string) => {
     setDuplicatingId(quotationId);
     try {
-      const res = await fetch(`/api/quotations/${quotationId}/duplicate`, {
-        method: "POST",
-      });
-
-      if (!res.ok) {
-        throw new Error("Failed to duplicate quotation");
-      }
-
-      // The API wraps its payload as { success, data }.
-      const body = await res.json();
-      const newQuote = body?.data ?? body;
-      const newId: string | undefined = newQuote?.id ?? newQuote?._id;
+      const newQuote = await apiJson.post<{ id?: string; _id?: string }>(
+        `/api/quotations/${quotationId}/duplicate`,
+        undefined,
+        { fallbackMessage: "Failed to duplicate quotation" }
+      );
+      const newId = newQuote?.id ?? newQuote?._id;
       if (!newId) {
         throw new Error("Quotation was duplicated but its id could not be read. Please refresh the list.");
       }
       toast.success("Quotation duplicated successfully!");
 
       router.push(`/quotation/${newId}`);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to duplicate quotation");
+    } catch (err: unknown) {
+      toast.error(toErrorMessage(err, "Failed to duplicate quotation"));
     } finally {
       setDuplicatingId(null);
       setActiveMenuId(null);
@@ -235,21 +255,11 @@ export default function QuotationsListing({
       variant: "danger",
       onConfirm: async () => {
         try {
-          const res = await fetch(`/api/quotations/${quotation.id}`, {
-            method: "DELETE",
-          });
-
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            throw new Error(data.error || "Failed to delete quotation");
-          }
-
+          await apiJson.delete(`/api/quotations/${quotation.id}`);
           toast.success("Quotation deleted");
           setQuotations((prev) => prev.filter((q) => q.id !== quotation.id));
-        } catch (err) {
-          toast.error(
-            err instanceof Error ? err.message : "Failed to delete quotation"
-          );
+        } catch (err: unknown) {
+          toast.error(toErrorMessage(err, "Failed to delete quotation"));
         }
       },
     });
@@ -664,9 +674,10 @@ export default function QuotationsListing({
                               <>
                                 <button
                                   type="button"
-                                  disabled={transitioningId === q.id}
+                                  disabled={transitioningId === q.id || q.productsCount === 0}
+                                  title={q.productsCount === 0 ? "Add at least one product before approving" : undefined}
                                   onClick={() => handleTransition(q.id, "approve")}
-                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition disabled:opacity-50"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                   <Check size={12} />
                                   Approve
@@ -828,8 +839,9 @@ export default function QuotationsListing({
                       <div className="flex gap-1.5">
                         <button
                           onClick={() => handleTransition(q.id, "approve")}
-                          disabled={transitioningId === q.id}
-                          className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold transition disabled:opacity-50"
+                          disabled={transitioningId === q.id || q.productsCount === 0}
+                          title={q.productsCount === 0 ? "Add at least one product before approving" : undefined}
+                          className="px-3 py-2 bg-emerald-600 text-white rounded-xl text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           Approve
                         </button>
@@ -868,6 +880,20 @@ export default function QuotationsListing({
             })}
           </div>
         </>
+      )}
+
+      {/* Only appears once there is more than one page: at today's data volume
+         every quotation fits on page 1, so this renders nothing and the page
+         looks exactly as it did before pagination was added. */}
+      {pagination && pagination.totalPages > 1 && (
+        <Pagination
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          totalPages={pagination.totalPages}
+          entityName="quotations"
+          onPageChange={(nextPage) => router.push(`/?page=${nextPage}`)}
+        />
       )}
 
       {/* Delete confirmation is raised through the global ConfirmProvider portal. */}

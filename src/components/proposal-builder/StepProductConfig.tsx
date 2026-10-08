@@ -1348,11 +1348,18 @@ export default function StepProductConfig({
               <button
                 type="button"
                 onClick={onContinue}
-                className="w-full py-3 bg-gray-950 text-white rounded-xl text-xs sm:text-sm font-bold hover:bg-gray-800 transition active:scale-[0.99] shadow-sm flex items-center justify-center gap-2 select-none"
+                disabled={totalProductsCount === 0}
+                title={totalProductsCount === 0 ? "Add at least one product before continuing" : undefined}
+                className="w-full py-3 bg-gray-950 text-white rounded-xl text-xs sm:text-sm font-bold hover:bg-gray-800 transition active:scale-[0.99] shadow-sm flex items-center justify-center gap-2 select-none disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-950"
               >
                 <span>Continue to Review</span>
                 <ArrowRight size={15} />
               </button>
+              {totalProductsCount === 0 && (
+                <p className="text-[11px] text-center text-gray-400 font-medium">
+                  Add at least one product to a space before continuing
+                </p>
+              )}
             </div>
           </div>
 
@@ -1528,7 +1535,9 @@ export default function StepProductConfig({
           <button
             type="button"
             onClick={onContinue}
-            className="px-4 py-2 bg-gray-950 text-white rounded-xl text-xs font-bold hover:bg-gray-800"
+            disabled={totalProductsCount === 0}
+            title={totalProductsCount === 0 ? "Add at least one product before continuing" : undefined}
+            className="px-4 py-2 bg-gray-950 text-white rounded-xl text-xs font-bold hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-950"
           >
             Review →
           </button>
@@ -1602,7 +1611,9 @@ export default function StepProductConfig({
         <button
           type="button"
           onClick={onContinue}
-          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3 bg-gray-950 text-white font-semibold text-sm rounded-xl hover:bg-gray-800 active:scale-[0.99] transition shadow-sm"
+          disabled={totalProductsCount === 0}
+          title={totalProductsCount === 0 ? "Add at least one product before continuing" : undefined}
+          className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-7 py-3 bg-gray-950 text-white font-semibold text-sm rounded-xl hover:bg-gray-800 active:scale-[0.99] transition shadow-sm disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-gray-950"
         >
           <span>Continue to Review Quotation</span>
           <ArrowRight size={16} />

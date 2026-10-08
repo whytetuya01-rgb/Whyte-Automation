@@ -89,13 +89,39 @@ export interface Product {
   variants?: ProductVariant[];
 }
 
+/**
+ * The quoted variant's rendering-relevant snapshot, embedded on a
+ * `QuotationItem`. Deliberately NOT the full `ProductVariant` shape: pricing
+ * (price/priceWithoutTax/taxPercent/taxAmount/cost/purchaseTaxPercent) is
+ * never read from here by any screen — it lives on the `QuotationItem`
+ * itself (`unitPrice`/`priceWithoutTax`/`taxPercent`/`taxAmount`), snapshotted
+ * at the time the item was added/changed, and that stays the only source of
+ * truth for price.
+ *
+ * Only `id`/`surfaceFinish`/`automationTier` are included. Phase 3 audit:
+ * before this type existed, `item.productVariant` was always built by
+ * `serializeVariant()`, whose own return object never had `config`,
+ * `imageUrl` or `imagePublicId` in the first place (verified against real
+ * data) — so a few call sites reading `item.productVariant?.config`/
+ * `.imageUrl`/`.imagePublicId` as a *fallback* source were already always
+ * reading `undefined` in production, every time, and fell through to their
+ * next fallback (`item.variantConfig`, `item.product?.imageUrl`, etc.).
+ * Leaving those three off this type matches that exact historical behaviour
+ * instead of silently starting to populate them.
+ */
+export interface QuotationItemVariantSummary {
+  id: number;
+  surfaceFinish: string | null;
+  automationTier: string | null;
+}
+
 export interface QuotationItem {
   id: number;
   quotationRoomId: number;
   productId: number;
   product?: Product;
   productVariantId: number | null;
-  productVariant?: ProductVariant | null;
+  productVariant?: QuotationItemVariantSummary | null;
   variantLabel: string | null;
   variantConfig: Record<string, string> | null; // config snapshot
   sbNumber: string | null;

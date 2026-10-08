@@ -25,6 +25,8 @@ import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import StatusBadge from "@/components/shared/StatusBadge";
 import {
   normalizeQuotation,
+  normalizeQuotationItem,
+  normalizeQuotationRoom,
   normalizeCategories,
   normalizeRoomTypes,
   normalizeHouseTypes,
@@ -151,6 +153,85 @@ export default function ProposalBuilder({
       console.error("Failed to refresh quotation:", e);
     }
   }, [quotationId, activeRoomId]);
+
+  // ── Local state updates from a mutation's own response ──────────────────
+  //
+  // Every item/room mutation endpoint already returns the created/updated
+  // entity, normalized the exact same way a GET does (same
+  // `normalizeQuotationItem`/`normalizeQuotationRoom` server-side). These
+  // helpers apply that response to local state directly, instead of
+  // discarding it and issuing a second full `GET /api/quotations/[id]`
+  // request. No quotation-level total (subtotal/grandTotal/GST/earning) is
+  // read from `quotation` directly anywhere in this wizard — every screen
+  // recomputes those from `quotation.rooms` — so updating `rooms` correctly
+  // is sufficient; there is no separate cached total to go stale.
+  //
+  // Ordering stays correct because the only new-position case (adding an
+  // item) always appends to the END of its target room, matching every
+  // existing item's `sortOrder: 0` (ties keep insertion order); replacing or
+  // removing an item/room never changes its position. `handleUpdateItem`/
+  // `handleReplaceItem` never send `quotationRoomId` (grep-verified: neither
+  // caller ever does), so an updated item always stays in the room it was
+  // already in.
+
+  const upsertItemLocally = useCallback((rawItem: any) => {
+    const item = normalizeQuotationItem(rawItem);
+    const targetRoomId = Number(item.quotationRoomId);
+    setQuotation((prev) => {
+      if (!prev) return prev;
+      let replaced = false;
+      const rooms = (prev.rooms || []).map((room) => {
+        const items = room.items || [];
+        const idx = items.findIndex((it) => Number(it.id ?? (it as any)._id) === Number(item.id));
+        if (idx === -1) return room;
+        replaced = true;
+        const nextItems = [...items];
+        nextItems[idx] = item;
+        return { ...room, items: nextItems };
+      });
+      if (replaced) return { ...prev, rooms };
+      // Not found anywhere: a new item, appended to its target room.
+      const withAppended = rooms.map((room) => {
+        const roomId = Number(room.id ?? (room as any)._id);
+        if (roomId !== targetRoomId) return room;
+        return { ...room, items: [...(room.items || []), item] };
+      });
+      return { ...prev, rooms: withAppended };
+    });
+  }, []);
+
+  const removeItemLocally = useCallback((itemId: number) => {
+    setQuotation((prev) => {
+      if (!prev) return prev;
+      const rooms = (prev.rooms || []).map((room) => ({
+        ...room,
+        items: (room.items || []).filter((it) => Number(it.id ?? (it as any)._id) !== Number(itemId)),
+      }));
+      return { ...prev, rooms };
+    });
+  }, []);
+
+  const upsertRoomLocally = useCallback((rawRoom: any) => {
+    const room = normalizeQuotationRoom(rawRoom, quotationId);
+    setQuotation((prev) => {
+      if (!prev) return prev;
+      const rooms = prev.rooms || [];
+      const idx = rooms.findIndex((r) => Number(r.id ?? (r as any)._id) === Number(room.id));
+      if (idx === -1) {
+        return { ...prev, rooms: [...rooms, room] };
+      }
+      const nextRooms = [...rooms];
+      nextRooms[idx] = room;
+      return { ...prev, rooms: nextRooms };
+    });
+  }, [quotationId]);
+
+  const removeRoomLocally = useCallback((roomId: number) => {
+    setQuotation((prev) => {
+      if (!prev) return prev;
+      return { ...prev, rooms: (prev.rooms || []).filter((r) => Number(r.id ?? (r as any)._id) !== Number(roomId)) };
+    });
+  }, []);
 
   // Load auxiliary data with step-aware prioritization and deduplication
   useEffect(() => {
@@ -372,7 +453,7 @@ export default function ProposalBuilder({
       if (createdId) {
         setActiveRoomId(createdId);
       }
-      await refreshQuotation();
+      upsertRoomLocally(createdRoom);
       setSaveStatus("saved");
       toast.success(`Space "${createdRoom.customName ?? "Room"}" added`);
     } catch (e: any) {
@@ -416,10 +497,13 @@ export default function ProposalBuilder({
         const err = await res.json().catch(() => ({}));
         throw new Error(extractErrorMessage(err, "Failed to update space"));
       }
-      await refreshQuotation();
+      const body = await res.json();
+      upsertRoomLocally(body?.data ?? body);
       setSaveStatus("saved");
     } catch (e: any) {
       toast.error(extractErrorMessage(e, "Failed to update space"));
+      // The optimistic update above may be wrong; only this path still needs
+      // a real refetch, to recover a known-correct state after a failure.
       await refreshQuotation();
       setSaveStatus("unsaved");
     }
@@ -443,7 +527,7 @@ export default function ProposalBuilder({
         setActiveRoomId(remaining[0]?.id ?? (remaining[0] as any)?._id ?? null);
       }
 
-      await refreshQuotation();
+      removeRoomLocally(roomId);
       setSaveStatus("saved");
       toast.success("Space removed");
     } catch (e: any) {
@@ -485,7 +569,8 @@ export default function ProposalBuilder({
         throw new Error(extractErrorMessage(err, "Failed to add product"));
       }
 
-      await refreshQuotation();
+      const body = await res.json();
+      upsertItemLocally(body?.data ?? body);
       setSaveStatus("saved");
       toast.success("Device added to space");
     } catch (e: any) {
@@ -508,7 +593,8 @@ export default function ProposalBuilder({
         const err = await res.json().catch(() => ({}));
         throw new Error(extractErrorMessage(err, "Failed to update item"));
       }
-      await refreshQuotation();
+      const body = await res.json();
+      upsertItemLocally(body?.data ?? body);
       setSaveStatus("saved");
     } catch (e: any) {
       toast.error(extractErrorMessage(e, "Failed to update item"));
@@ -543,7 +629,8 @@ export default function ProposalBuilder({
         const err = await res.json().catch(() => ({}));
         throw new Error(extractErrorMessage(err, "Failed to replace product"));
       }
-      await refreshQuotation();
+      const body = await res.json();
+      upsertItemLocally(body?.data ?? body);
       setSaveStatus("saved");
       toast.success("Product replaced");
     } catch (e: any) {
@@ -564,7 +651,7 @@ export default function ProposalBuilder({
         const err = await res.json().catch(() => ({}));
         throw new Error(extractErrorMessage(err, "Failed to remove item"));
       }
-      await refreshQuotation();
+      removeItemLocally(itemId);
       setSaveStatus("saved");
       toast.success("Device removed");
     } catch (e: any) {
@@ -587,7 +674,8 @@ export default function ProposalBuilder({
         const err = await res.json().catch(() => ({}));
         throw new Error(extractErrorMessage(err, "Failed to save notes"));
       }
-      await refreshQuotation();
+      const body = await res.json();
+      upsertRoomLocally(body?.data ?? body);
       setSaveStatus("saved");
       toast.success("Notes saved");
     } catch (e: any) {
@@ -618,7 +706,11 @@ export default function ProposalBuilder({
         const err = await res.json().catch(() => ({}));
         throw new Error(extractErrorMessage(err, "Failed to apply discount"));
       }
-      await refreshQuotation();
+      // The PATCH response is the full quotation, normalized the exact same
+      // way a GET would be (same server-side `normalizeQuotation` call) — no
+      // need to issue a second request to fetch what this response already is.
+      const body = await res.json();
+      setQuotation(normalizeQuotation(body?.data ?? body));
       setSaveStatus("saved");
       toast.success("Discount updated");
     } catch (e: any) {
@@ -627,23 +719,47 @@ export default function ProposalBuilder({
     }
   };
 
+  // A quotation only has a real product once some room item carries a positive quantity.
+  const hasAnyItems = useMemo(
+    () =>
+      (quotation?.rooms ?? []).some((r) =>
+        (r.items ?? []).some((i) => (Number(i.quantity) || 0) > 0)
+      ),
+    [quotation]
+  );
+
   // Determine which steps are completed
   const completedSteps = useMemo(() => {
     const list: ProposalStep[] = [];
     if (quotation?.clientName) list.push(1);
     if ((quotation?.rooms?.length ?? 0) > 0) list.push(2);
-    const hasItems = quotation?.rooms?.some((r) => r.items?.length > 0);
-    if (hasItems) list.push(3);
-    if (hasItems) list.push(4);
+    if (hasAnyItems) list.push(3);
+    if (hasAnyItems) list.push(4);
     return list;
-  }, [quotation]);
+  }, [quotation, hasAnyItems]);
 
   const canNavigateToStep = (step: ProposalStep) => {
     if (step === 1) return true;
     if (step === 2) return Boolean(quotation?.id);
-    if (step >= 3) return Boolean(quotation?.id && (quotation?.rooms?.length ?? 0) > 0);
+    if (step === 3) return Boolean(quotation?.id && (quotation?.rooms?.length ?? 0) > 0);
+    // Review & Proposal require at least one product added somewhere in the quotation.
+    if (step >= 4) return Boolean(quotation?.id && hasAnyItems);
     return false;
   };
+
+  // Guard against landing on Review/Proposal with no products via a direct URL,
+  // a stale bookmark, or browser back/forward — snap back to the furthest valid step.
+  useEffect(() => {
+    if (!quotation) return;
+    if (canNavigateToStep(currentStep)) return;
+    const hasRooms = (quotation.rooms?.length ?? 0) > 0;
+    const fallback: ProposalStep = currentStep >= 4 && hasRooms ? 3 : hasRooms ? 2 : 1;
+    navigateToStep(fallback);
+    if (currentStep >= 4 && !hasAnyItems) {
+      toast.error("Add at least one product before continuing to Review.");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quotation?.id, currentStep, hasAnyItems]);
 
   return (
     <div className="space-y-6 pb-20">
@@ -753,7 +869,14 @@ export default function ProposalBuilder({
           />
         )}
 
-        {currentStep === 4 && quotation && (
+        {currentStep === 4 && quotation && !hasAnyItems && (
+          <div className="flex flex-col items-center justify-center gap-3 py-24 text-gray-400">
+            <LoadingSpinner size="md" />
+            <p className="text-sm font-medium">Add a product before reviewing — redirecting…</p>
+          </div>
+        )}
+
+        {currentStep === 4 && quotation && hasAnyItems && (
           <StepReview
             quotation={quotation}
             products={products}
@@ -768,7 +891,14 @@ export default function ProposalBuilder({
           />
         )}
 
-        {currentStep === 5 && quotation && (
+        {currentStep === 5 && quotation && !hasAnyItems && (
+          <div className="flex flex-col items-center justify-center gap-3 py-24 text-gray-400">
+            <LoadingSpinner size="md" />
+            <p className="text-sm font-medium">Add a product before exporting — redirecting…</p>
+          </div>
+        )}
+
+        {currentStep === 5 && quotation && hasAnyItems && (
           <StepProposalPreview
             quotation={quotation}
             company={company}

@@ -4,7 +4,7 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Product, ProductVariant, ProductVariantHistory, Category } from "@/models";
 import { withTransaction } from "@/lib/transaction";
 import { getNextSequence } from "@/lib/counter";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole, requireSession } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -15,13 +15,15 @@ import {
 import { updateProductSchema } from "@/lib/validation/product";
 import { getProductDependencies } from "@/lib/dependencies";
 import { normalizeProduct } from "@/lib/quotationNormalization";
+import { redactProductForRole } from "@/lib/variantRedaction";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function GET(_req: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
-    await requireSession();
+    const session = await requireSession();
+    const role = (session.user as { role?: string }).role;
 
     await connectMongoDB();
     const productId = parseNumericId(id, "product id");
@@ -42,7 +44,8 @@ export async function GET(_req: Request, context: RouteContext) {
     if (!product) {
       throw new ApiError("NOT_FOUND", "Product not found.");
     }
-    return NextResponse.json(normalizeProduct(product.toObject ? product.toObject() : product));
+    const normalized = normalizeProduct(product.toObject ? product.toObject() : product);
+    return NextResponse.json(redactProductForRole(normalized, role));
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products/[id]" });
   }
@@ -57,7 +60,8 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    // Catalog writes are restricted to Super Admin / Admin.
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
@@ -174,8 +178,9 @@ export async function PATCH(req: Request, context: RouteContext) {
  */
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    // The session is kept so the soft-delete audit field records the actor.
-    const authSession = await requireSession();
+    // Catalog writes are restricted to Super Admin / Admin. The session is
+    // also kept so the soft-delete audit field records the actor.
+    const authSession = await requireRole("super_admin", "admin");
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
 

@@ -1,5 +1,5 @@
 import { connectMongoDB } from "@/lib/mongodb";
-import { requireSession } from "@/lib/api-auth";
+import { requireRole } from "@/lib/api-auth";
 import {
   apiSuccess,
   handleApiError,
@@ -31,7 +31,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    await requireSession();
+    await requireRole("super_admin", "admin");
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");

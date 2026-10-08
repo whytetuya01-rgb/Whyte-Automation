@@ -9,6 +9,7 @@ import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-re
 import { parseQuotationId, updateQuotationSchema } from "@/lib/validation/quotation";
 
 import { normalizeQuotation } from "@/lib/quotationNormalization";
+import { redactQuotationForRole } from "@/lib/variantRedaction";
 import { calculateDealerEarning, customerDiscountError, subtotalFromRooms, toPlainNumber } from "@/lib/dealerEarnings";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
@@ -28,17 +29,21 @@ async function fetchPopulatedQuotation(quotationId: string) {
         {
           path: "items",
           options: { sort: { sortOrder: 1 } },
+          // Only the fields the editor/proposal/PDF actually render for a
+          // quoted item's product/variant — never the catalog's full variant
+          // list (price/cost included), which duplicated the whole catalog
+          // into every quotation response. Price itself was never read from
+          // here either way: it lives on the item (`unitPrice` etc.), set
+          // once when the item was added/changed. See `AGENTS.md`/Phase 3
+          // audit and `QuotationItemVariantSummary` in `@/types`.
           populate: [
             {
               path: "product",
-              populate: {
-                path: "variants",
-                match: { isActive: true },
-                options: { sort: { sortOrder: 1 } },
-              },
+              select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes",
             },
             {
               path: "productVariant",
+              select: "surfaceFinish automationTier",
             },
           ],
         },
@@ -86,8 +91,10 @@ export async function GET(_req: Request, context: RouteContext) {
       rooms: filteredRooms,
     });
 
-    // GET responses stay unwrapped for existing consumers.
-    return NextResponse.json(normalized);
+    // GET responses stay unwrapped for existing consumers. Internal margin
+    // fields (cost / purchaseTaxPercent) on each item's product/variant are
+    // never sent to a non-admin role.
+    return NextResponse.json(redactQuotationForRole(normalized, role));
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/quotations/[id]" });
   }
@@ -249,7 +256,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       rooms: filteredRooms,
     });
 
-    return apiSuccess(normalized);
+    return apiSuccess(redactQuotationForRole(normalized, role));
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/quotations/[id]" });
   }
