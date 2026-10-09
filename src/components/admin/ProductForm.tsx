@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Product, ProductVariant, Category } from "@/types";
 import notify from "@/lib/notify";
 import { ApiClientError, apiJson, notifyApiError } from "@/lib/apiClient";
@@ -136,6 +136,30 @@ export default function ProductForm({
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [showSecondaryInfo, setShowSecondaryInfo] = useState(isEdit);
+
+  // Tracks a Cloudinary asset uploaded during THIS form session that has not
+  // yet been attached to a saved product (i.e. not the original product's
+  // own image). If the form is cancelled, closed, or unmounted for any
+  // reason (Cancel button, modal backdrop/X, Escape) while this is still
+  // set, the cleanup effect below deletes it — otherwise every upload that
+  // never gets saved leaves a permanent orphaned asset in Cloudinary.
+  const pendingUploadPublicIdRef = useRef<string | null>(null);
+
+  // Stable identity (no deps) so the mount/unmount effect below only ever
+  // runs once — it must NOT re-fire its cleanup on every render, only on
+  // actual unmount.
+  const deleteUploadedImage = useCallback((publicId: string) => {
+    // Best-effort: this is cleanup, not a user-facing operation — a failure
+    // here must never block cancelling/closing the form.
+    apiJson.delete("/api/upload", { body: JSON.stringify({ publicId }) }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      const publicId = pendingUploadPublicIdRef.current;
+      if (publicId) deleteUploadedImage(publicId);
+    };
+  }, [deleteUploadedImage]);
 
   // ── Edit-mode variant state ────────────────────────────────────────────────
   // Two tabs: "current" (editable list) | "matrix" (read-only category view)
@@ -559,6 +583,15 @@ export default function ProductForm({
         throw new Error("Upload succeeded but no image URL was returned.");
       }
 
+      // Replacing an earlier upload from this same unsaved session: that
+      // previous asset is now unreachable from the form and would otherwise
+      // become a second orphan, so delete it right away instead of waiting
+      // for unmount.
+      if (pendingUploadPublicIdRef.current && pendingUploadPublicIdRef.current !== uploadedPublicId) {
+        deleteUploadedImage(pendingUploadPublicIdRef.current);
+      }
+      pendingUploadPublicIdRef.current = uploadedPublicId;
+
       setForm((prev) => ({
         ...prev,
         imageUrl: uploadedUrl,
@@ -628,6 +661,19 @@ export default function ProductForm({
       if (isEdit && product) {
         await apiJson.patch(`/api/products/${product.id}`, payload);
 
+        // The new image (if any) is now saved on the product — it's no
+        // longer "pending", so the unmount cleanup must leave it alone.
+        pendingUploadPublicIdRef.current = null;
+
+        // If the image was replaced or removed, the product's *old*
+        // Cloudinary asset is no longer referenced anywhere — clean it up
+        // now that the replacement has saved successfully.
+        const oldPublicId = (product.imagePublicId ?? "").trim();
+        const newPublicId = form.imagePublicId.trim();
+        if (oldPublicId && oldPublicId !== newPublicId) {
+          deleteUploadedImage(oldPublicId);
+        }
+
         notify.success("Product updated", `Product "${form.name}" has been updated.`);
       } else {
         // Build the variants array from editable rows (only the remaining user-selected rows)
@@ -646,6 +692,10 @@ export default function ProductForm({
           "/api/products",
           { ...payload, variants: variantsPayload }
         );
+
+        // The uploaded image (if any) is now saved on the newly created
+        // product — no longer "pending".
+        pendingUploadPublicIdRef.current = null;
 
         const count = created?.variants?.length ?? variantsPayload.length;
         notify.success(
@@ -692,7 +742,16 @@ export default function ProductForm({
               {form.imageUrl && (
                 <button
                   type="button"
-                  onClick={() => setForm((prev) => ({ ...prev, imageUrl: "", imagePublicId: "" }))}
+                  onClick={() => {
+                    // If what's showing is this session's own unsaved upload
+                    // (not the product's pre-existing image), delete it now
+                    // instead of leaving it orphaned in Cloudinary.
+                    if (pendingUploadPublicIdRef.current && pendingUploadPublicIdRef.current === form.imagePublicId) {
+                      deleteUploadedImage(pendingUploadPublicIdRef.current);
+                      pendingUploadPublicIdRef.current = null;
+                    }
+                    setForm((prev) => ({ ...prev, imageUrl: "", imagePublicId: "" }));
+                  }}
                   className="absolute top-1 right-1 h-5 w-5 rounded-full bg-neutral-900/80 text-white flex items-center justify-center hover:bg-neutral-900 transition-colors"
                   title="Remove image"
                 >
