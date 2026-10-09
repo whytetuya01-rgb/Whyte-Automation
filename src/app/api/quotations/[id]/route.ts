@@ -20,7 +20,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 async function fetchPopulatedQuotation(quotationId: string) {
   return Quotation.findById(quotationId)
     .populate({ path: "houseType" })
-    .populate({ path: "dealer", select: "id name email firstName lastName contactNumber gstNumber" })
+    .populate({ path: "dealer", select: "id name email firstName lastName contactNumber companyName gstNumber businessEmail address" })
     .populate({
       path: "rooms",
       options: { sort: { sortOrder: 1 } },

@@ -47,7 +47,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    await requireRole("super_admin");
     const { id } = await context.params;
     const roomTypeId = parseNumericId(id, "id");
 

@@ -20,7 +20,12 @@ export interface IAdminUser {
   name: string | null;
   firstName: string | null;
   lastName: string | null;
+  companyName: string | null;
   gstNumber: string | null;
+  /** Public-facing contact email for client-facing documents (e.g. the proposal PDF).
+   *  Deliberately separate from `email` (the account's login identifier), so a
+   *  personal/internal login address is never shown to end clients. */
+  businessEmail: string | null;
   contactNumber: string | null;
   address: string | null;
   role: AdminRole | "sales";
@@ -61,7 +66,9 @@ const AdminUserSchema = new Schema<IAdminUserDocument>(
     name: { type: String, default: null, trim: true },
     firstName: { type: String, default: null, trim: true },
     lastName: { type: String, default: null, trim: true },
+    companyName: { type: String, default: null, trim: true },
     gstNumber: { type: String, default: null, trim: true, uppercase: true },
+    businessEmail: { type: String, default: null, trim: true, lowercase: true },
     contactNumber: { type: String, default: null, trim: true },
     address: { type: String, default: null, trim: true },
     role: {
@@ -129,6 +136,18 @@ if (existingAdminUserModel) {
   if (rolePath) {
     rolePath.enumValues = [];
     rolePath.enum({ values: [...ALL_ADMIN_USER_ROLES] });
+  }
+
+  if (!existingAdminUserModel.schema.path("companyName")) {
+    existingAdminUserModel.schema.add({
+      companyName: { type: String, default: null, trim: true },
+    });
+  }
+
+  if (!existingAdminUserModel.schema.path("businessEmail")) {
+    existingAdminUserModel.schema.add({
+      businessEmail: { type: String, default: null, trim: true, lowercase: true },
+    });
   }
 
   if (!existingAdminUserModel.schema.path("assignedSalesId")) {

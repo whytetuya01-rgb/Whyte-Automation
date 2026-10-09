@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useSession } from "next-auth/react";
 import { RoomType } from "@/types";
 import {
   Plus,
@@ -11,12 +12,14 @@ import {
   CheckCircle2,
   XCircle,
   Layers,
+  Trash2,
 } from "lucide-react";
 import { getRoomIcon } from "@/lib/utils";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
+import { useConfirm } from "@/components/providers/ConfirmProvider";
 import { useRoomTypes } from "@/lib/swr";
 import { Input, Button, Switch } from "@/components/ui";
 
@@ -132,6 +135,9 @@ function RoomTypeForm({
 }
 
 export default function RoomTypesPage() {
+  const { data: session } = useSession();
+  const isSuperAdmin = (session?.user as { role?: string } | undefined)?.role === "super_admin";
+  const confirm = useConfirm();
   const { data: roomTypes = [], isLoading: loading, mutate } = useRoomTypes();
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<RoomType | null>(null);
@@ -149,6 +155,26 @@ export default function RoomTypesPage() {
     } catch (err: unknown) {
       notifyApiError(err, "Status update failed", "Unable to update status.");
     }
+  };
+
+  const handleDelete = async (rt: RoomType) => {
+    await confirm({
+      title: "Delete Room Type",
+      message: `Are you sure you want to delete "${rt.name}"?`,
+      detail: "Room types still used in a house-type template or an existing quotation cannot be deleted. This action is irreversible.",
+      confirmText: "Delete Room Type",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await apiJson.delete(`/api/room-types/${rt.id}`);
+          notify.success("Room type deleted", `"${rt.name}" has been removed.`);
+          mutate();
+        } catch (err: unknown) {
+          notifyApiError(err, "Unable to delete room type", "Please try again.");
+        }
+      },
+    });
   };
 
   // Filtered & Searched Room Types
@@ -354,6 +380,16 @@ export default function RoomTypesPage() {
                     checked={rt.isActive}
                     onChange={() => handleToggle(rt)}
                   />
+
+                  {isSuperAdmin && (
+                    <button
+                      onClick={() => handleDelete(rt)}
+                      className="p-1.5 text-neutral-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                      title="Delete Room Type"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
               </div>
             );

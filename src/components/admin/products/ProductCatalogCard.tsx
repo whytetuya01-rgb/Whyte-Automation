@@ -130,8 +130,14 @@ export default function ProductCatalogCard({
           )}
         </div>
 
-        {/* Right rail: Variant count, Status, Price & Actions */}
-        <div className="ml-auto flex flex-wrap items-center gap-3.5 shrink-0 pt-2 border-t border-neutral-100 sm:border-0 sm:pt-0">
+        {/* Right rail: Variant count, Status, Price & Actions.
+            `w-full sm:w-auto` matters here: without an explicit width, a `shrink-0`
+            flex item that wraps onto its own line sizes to its max-content width
+            (fitting everything on one line) instead of the row's available width,
+            so its own `flex-wrap` never engages and content overflows invisibly
+            behind the card's `overflow-hidden`. Forcing full width below `sm:`
+            lets it actually wrap its children when space is tight. */}
+        <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap items-center gap-3.5 shrink-0 pt-2 border-t border-neutral-100 sm:border-0 sm:pt-0">
           {/* Variant count chip */}
           <button
             type="button"

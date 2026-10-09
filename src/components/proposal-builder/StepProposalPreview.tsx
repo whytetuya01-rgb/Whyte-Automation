@@ -16,6 +16,8 @@ import {
   Phone,
   Mail,
   Globe,
+  Building2,
+  MapPin,
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, Company } from "@/types";
 import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
@@ -23,6 +25,8 @@ import { getRoomFullTitle } from "@/lib/roomUtils";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
+import { isValidGstin } from "@/lib/validation/fields";
+import { resolvePlaceOfSupply } from "@/lib/gstPlaceOfSupply";
 
 interface Props {
   quotation: Quotation;
@@ -237,6 +241,58 @@ export function getRenderableProposalRooms(
     }));
 }
 
+export interface AuthorizedDealerInfo {
+  name: string;
+  phone: string | null;
+  email: string | null;
+  companyName: string | null;
+  gstNumber: string | null;
+  address: string | null;
+}
+
+/**
+ * The "Authorized Dealer" shown on the client-facing proposal is always
+ * `quotation.dealer` — the existing `dealerId` relation (populated server-side
+ * via the Quotation model's `dealer` virtual), with no second dealer concept.
+ * This one field already covers both ways a quotation can have a dealer:
+ *   - a dealer created it for themselves (dealerId === their own id), and
+ *   - an Admin/Super Admin created it and assigned a dealer (dealerId set by
+ *     the separate `/assign` endpoint; `createdBy` stays the admin's id).
+ * `createdBy` is never read here — only `assignedTo` (`dealerId`) determines
+ * who is shown as the Authorized Dealer. No dealer assigned -> null, and the
+ * section is omitted entirely (never an empty box, "N/A", or "Unassigned").
+ * Only business-safe, already-populated fields are used; nothing is invented
+ * and no internal id/role/auth/financial field is ever read here.
+ */
+export function getAuthorizedDealer(quotation: Quotation): AuthorizedDealerInfo | null {
+  const dealer = quotation.dealer;
+  if (!dealer) return null;
+
+  const name =
+    dealer.name?.trim() ||
+    [dealer.firstName, dealer.lastName].filter(Boolean).join(" ").trim();
+  if (!name) return null;
+
+  // The dealer's account login email (`dealer.email`) is an internal
+  // credential, not a business contact — it is never shown on a
+  // client-facing document. Only an explicitly-set `businessEmail` is
+  // shown, and only if one was actually set (never a placeholder).
+  const businessEmail = dealer.businessEmail?.trim() || null;
+
+  // A placeholder/invalid GSTIN must never reach the document: hide the
+  // chip entirely rather than show dummy or malformed data.
+  const gstNumber = dealer.gstNumber?.trim() || null;
+
+  return {
+    name,
+    phone: dealer.contactNumber?.trim() || null,
+    email: businessEmail,
+    companyName: dealer.companyName?.trim() || null,
+    gstNumber: gstNumber && isValidGstin(gstNumber) ? gstNumber : null,
+    address: dealer.address?.trim() || null,
+  };
+}
+
 /**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  */
@@ -251,9 +307,13 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
   // single-line estimate would suggest. Err generously: a page finishing
   // short is invisible, a page silently growing past 1123px is not (it gets
   // squashed to fit the fixed A4 image slot in the final PDF).
+  // Recalibrated for the larger proposal type scale (see font-size pass):
+  // every row's rendered height grew roughly 10-18% with it, so the header/
+  // footer/item budgets below are bumped ~15% to keep pages from overflowing
+  // and getting squashed into the fixed A4 image slot.
   const PAGE_CAPACITY = 940;
-  const FOOTER_RESERVE = 55;
-  const RUNNING_HEADER = 55;
+  const FOOTER_RESERVE = 63;
+  const RUNNING_HEADER = 63;
 
   const getCapacity = () => PAGE_CAPACITY - RUNNING_HEADER - FOOTER_RESERVE;
 
@@ -301,8 +361,8 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
     while (itemsLeft.length > 0) {
       const showSectionHeader = isFirstProductRoomSection && isFirstSlice;
-      const headerH = (showSectionHeader ? 90 : 0) + (isFirstSlice ? 65 + 45 : 45);
-      const minItemH = 85;
+      const headerH = (showSectionHeader ? 104 : 0) + (isFirstSlice ? 75 + 52 : 52);
+      const minItemH = 98;
 
       if (currentHeight + headerH + minItemH > getCapacity()) {
         pages.push({
@@ -322,7 +382,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
       while (itemsLeft.length > 0) {
         const item = itemsLeft[0];
-        const itemH = 85;
+        const itemH = 98;
         if (currentHeight + sliceH + itemH > getCapacity()) {
           break;
         }
@@ -333,7 +393,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
       const isLastSlice = itemsLeft.length === 0;
       if (isLastSlice) {
-        sliceH += 50;
+        sliceH += 58;
       }
 
       const hasSectionHeader = isFirstProductRoomSection && isFirstSlice;
@@ -454,6 +514,32 @@ export default function StepProposalPreview({
     grandTotal,
   } = gstCalculations;
 
+  // Display-only: whether the tax breakdown shows as CGST+SGST (same state
+  // as the supplier) or a single IGST line (different state). The total GST
+  // amount is identical either way — only how it's split/labelled changes.
+  const placeOfSupply = useMemo(() => {
+    return resolvePlaceOfSupply({
+      supplierGstin: company?.gstNumber,
+      clientGstin: quotation.clientGstNumber,
+      clientAddress: quotation.clientAddress,
+    });
+  }, [company?.gstNumber, quotation.clientGstNumber, quotation.clientAddress]);
+  const isInterState = placeOfSupply.type === "inter";
+  const igstAmount = cgstAmount + sgstAmount;
+
+  const authorizedDealer = useMemo(() => getAuthorizedDealer(quotation), [quotation]);
+
+  // A placeholder/invalid GSTIN (dealer or client) must never reach a
+  // generated document. Hiding it from the on-screen chip isn't enough for
+  // an exported PDF/print — generation itself is blocked with a clear error.
+  const invalidGstinReason = useMemo(() => {
+    const dealerGst = quotation.dealer?.gstNumber?.trim();
+    if (dealerGst && !isValidGstin(dealerGst)) return "The dealer's GSTIN is invalid.";
+    const clientGst = quotation.clientGstNumber?.trim();
+    if (clientGst && !isValidGstin(clientGst)) return "The client's GSTIN is invalid.";
+    return null;
+  }, [quotation.dealer?.gstNumber, quotation.clientGstNumber]);
+
   const configuredTiers = useMemo(() => {
     const set = new Set<string>();
     if (quotation.defaultTier) set.add(quotation.defaultTier);
@@ -482,8 +568,17 @@ export default function StepProposalPreview({
     return paginateQuotation(quotation);
   }, [quotation]);
 
+  const A4_WIDTH_MM = 210;
+  const A4_HEIGHT_MM = 297;
+
   const handleDownloadPDF = async () => {
     if (!quotation || pageRefs.current.length === 0) return;
+
+    if (invalidGstinReason) {
+      toast.error(`Cannot generate PDF: ${invalidGstinReason}`);
+      return;
+    }
+
     setDownloading(true);
 
     try {
@@ -523,13 +618,34 @@ export default function StepProposalPreview({
           pdf.addPage("a4", "portrait");
         }
 
-        const dataUrl = await htmlToImage.toPng(pageEl, {
+        // JPEG at a moderate pixelRatio keeps the file small (a few hundred
+        // KB/page instead of ~23MB/page as an uncompressed PNG at 3x), while
+        // staying crisp enough for text and product thumbnails.
+        const dataUrl = await htmlToImage.toJpeg(pageEl, {
           pixelRatio: 2,
+          quality: 0.85,
           backgroundColor: "#ffffff",
           cacheBust: true,
         });
 
-        pdf.addImage(dataUrl, "PNG", 0, 0, 210, 297, undefined, "FAST");
+        // Never stretch the captured page to a fixed A4 box: if a page's
+        // actual content overflowed its 1123px budget (rare, but possible
+        // for a dense room), its real aspect ratio differs from A4's
+        // 210:297. Compute placement that preserves that ratio — fitting
+        // to the page (shrinking uniformly on both axes, never distorting)
+        // instead of forcing a fixed height that would squash it.
+        const rect = pageEl.getBoundingClientRect();
+        const aspect = rect.height / rect.width;
+        const a4Aspect = A4_HEIGHT_MM / A4_WIDTH_MM;
+        let drawWidth = A4_WIDTH_MM;
+        let drawHeight = A4_WIDTH_MM * aspect;
+        if (aspect > a4Aspect) {
+          drawHeight = A4_HEIGHT_MM;
+          drawWidth = A4_HEIGHT_MM / aspect;
+        }
+        const offsetX = (A4_WIDTH_MM - drawWidth) / 2;
+
+        pdf.addImage(dataUrl, "JPEG", offsetX, 0, drawWidth, drawHeight, undefined, "FAST");
       }
 
       const filename = `${quotation.quotationNumber || "Proposal"}_Whyte_Automation.pdf`;
@@ -557,6 +673,10 @@ export default function StepProposalPreview({
   };
 
   const handlePrint = () => {
+    if (invalidGstinReason) {
+      toast.error(`Cannot print/export: ${invalidGstinReason}`);
+      return;
+    }
     markQuotationSent();
     window.print();
   };
@@ -580,7 +700,7 @@ export default function StepProposalPreview({
             <button
               type="button"
               onClick={onBackToEdit}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
             >
               <ArrowLeft size={14} />
               <span>Back to Review</span>
@@ -588,7 +708,7 @@ export default function StepProposalPreview({
           ) : (
             <Link
               href={`/quotation/${quotation.id}?step=4`}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
+              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
             >
               <ArrowLeft size={14} />
               <span>Back to Review</span>
@@ -600,7 +720,7 @@ export default function StepProposalPreview({
           <button
             type="button"
             onClick={handleShare}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
           >
             {copied ? (
               <Check size={14} className="text-emerald-600" />
@@ -615,8 +735,9 @@ export default function StepProposalPreview({
           <button
             type="button"
             onClick={handlePrint}
-            disabled={renderableRooms.length === 0}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
+            disabled={renderableRooms.length === 0 || !!invalidGstinReason}
+            title={invalidGstinReason ?? undefined}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
           >
             <Printer size={14} />
             <span className="hidden sm:inline">Print / Save as PDF</span>
@@ -626,8 +747,9 @@ export default function StepProposalPreview({
           <button
             type="button"
             onClick={handleDownloadPDF}
-            disabled={downloading || renderableRooms.length === 0}
-            className="inline-flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 transition active:scale-[0.99] shadow-sm disabled:opacity-50"
+            disabled={downloading || renderableRooms.length === 0 || !!invalidGstinReason}
+            title={invalidGstinReason ?? undefined}
+            className="inline-flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 transition active:scale-[0.99] shadow-sm disabled:opacity-50"
           >
             <Download size={14} />
             <span>{downloading ? "Building PDF..." : "Download PDF"}</span>
@@ -635,14 +757,20 @@ export default function StepProposalPreview({
         </div>
       </div>
 
+      {invalidGstinReason && (
+        <div className="max-w-3xl mx-auto mb-6 px-4 py-3 rounded-xl border border-red-200 bg-red-50 text-sm font-semibold text-red-700 print:hidden">
+          {invalidGstinReason} Fix it before generating or printing this proposal.
+        </div>
+      )}
+
       {/* Main Centered A4 Document Canvas */}
       {renderableRooms.length === 0 ? (
         <div className="bg-white max-w-xl mx-auto rounded-2xl border border-gray-200 p-12 text-center text-gray-400 space-y-3">
           <ShieldCheck size={36} className="mx-auto text-gray-300" />
-          <h3 className="text-base font-bold text-gray-900">
+          <h3 className="text-lg font-bold text-gray-900">
             No Spaces in Quotation
           </h3>
-          <p className="text-xs text-gray-500">
+          <p className="text-sm text-gray-500">
             Please add spaces and smart devices before viewing or exporting the
             client proposal.
           </p>
@@ -650,7 +778,7 @@ export default function StepProposalPreview({
             <button
               type="button"
               onClick={onBackToEdit}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-950 text-white text-xs font-semibold rounded-xl hover:bg-gray-800 transition mt-2"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-gray-950 text-white text-sm font-semibold rounded-xl hover:bg-gray-800 transition mt-2"
             >
               <ArrowLeft size={14} />
               <span>Back to Review</span>
@@ -666,16 +794,7 @@ export default function StepProposalPreview({
                 pageRefs.current[pageIdx] = el;
               }}
               className="proposal-page bg-white w-full max-w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-12 mb-8 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
-              style={
-                page.isFirstPage
-                  ? {
-                      boxSizing: "border-box",
-                      backgroundImage:
-                        "repeating-linear-gradient(to right, rgba(17,24,39,0.018) 0, rgba(17,24,39,0.018) 1px, transparent 1px, transparent 56px), repeating-linear-gradient(to bottom, rgba(17,24,39,0.018) 0, rgba(17,24,39,0.018) 1px, transparent 1px, transparent 56px)",
-                      backgroundPosition: "top left",
-                    }
-                  : { boxSizing: "border-box" }
-              }
+              style={{ boxSizing: "border-box" }}
             >
               {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
                   behind all content. Never a status/DRAFT/DUPLICATE stamp: the document's
@@ -708,7 +827,7 @@ export default function StepProposalPreview({
               <div className="relative z-10 space-y-6">
                 {/* Running Header on Page 2+ */}
                 {!page.isFirstPage && (
-                  <div className="pb-3 border-b border-gray-200 flex items-center justify-between text-xs">
+                  <div className="pb-3 border-b border-gray-200 flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2.5">
                       <WhyteLogo
                         theme="light"
@@ -719,11 +838,11 @@ export default function StepProposalPreview({
                         loading="eager"
                       />
                       <span className="text-gray-300">|</span>
-                      <span className="font-semibold text-gray-700 text-xs">
+                      <span className="font-semibold text-gray-700 text-sm">
                         Smart Living Ecosystems
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 text-gray-500 font-mono text-[11px]">
+                    <div className="flex items-center gap-3 text-gray-500 font-mono text-[13px]">
                       <span className="text-gray-950 font-bold">
                         {quotation.quotationNumber}
                       </span>
@@ -754,13 +873,13 @@ export default function StepProposalPreview({
                             loading="eager"
                           />
                           <div className="text-right">
-                            <span className="text-[9px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
+                            <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
                               Quotation Reference
                             </span>
-                            <p className="text-sm font-black font-mono tracking-tight text-gray-950">
+                            <p className="text-base font-black font-mono tracking-tight text-gray-950">
                               {quotation.quotationNumber}
                             </p>
-                            <p className="text-[11px] text-gray-500">
+                            <p className="text-[13px] text-gray-500">
                               {formatDate(quotation.createdAt)}
                             </p>
                           </div>
@@ -794,7 +913,7 @@ export default function StepProposalPreview({
                               <span className="text-accent">Proposal</span>
                             </h1>
                             <div className="h-[3px] w-[130px] rounded-full bg-gradient-to-r from-accent to-accent/0" />
-                            <p className="text-[11px] font-bold uppercase tracking-widest text-gray-500">
+                            <p className="text-[13px] font-bold uppercase tracking-widest text-gray-500">
                               Next-Gen <span className="text-gray-950">Smart Living</span> Ecosystems
                             </p>
                           </div>
@@ -810,23 +929,28 @@ export default function StepProposalPreview({
 
                         {/* Project Reference Information Strip: ONE bordered container,
                             four columns with visible vertical dividers between them. */}
-                        <div className="grid grid-cols-4 divide-x divide-gray-200 rounded-xl border border-gray-300 bg-white text-xs">
+                        <div className="grid grid-cols-4 divide-x divide-gray-200 rounded-xl border border-gray-300 bg-white text-sm">
                           <div className="px-4 py-3.5">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
                               Client
                             </p>
                             <p className="mt-0.5 truncate font-bold text-gray-950">
                               {quotation.clientName}
                             </p>
                             {quotation.clientPhone && (
-                              <p className="mt-0.5 text-[11px] text-gray-500">
+                              <p className="mt-0.5 text-[13px] text-gray-500">
                                 {quotation.clientPhone}
+                              </p>
+                            )}
+                            {quotation.clientEmail && (
+                              <p className="mt-0.5 text-[13px] text-gray-500 truncate">
+                                {quotation.clientEmail}
                               </p>
                             )}
                           </div>
 
                           <div className="px-4 py-3.5">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
                               Project Location
                             </p>
                             <p className="mt-0.5 line-clamp-2 font-semibold text-gray-900">
@@ -835,26 +959,26 @@ export default function StepProposalPreview({
                           </div>
 
                           <div className="px-4 py-3.5">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
                               Project Type
                             </p>
                             <p className="mt-0.5 font-semibold text-gray-900">
                               {quotation.houseType?.name ??
                                 "Residential Smart Home"}
                             </p>
-                            <p className="mt-0.5 text-[10px] text-gray-400">
+                            <p className="mt-0.5 text-[11px] text-gray-400">
                               Custom Automation
                             </p>
                           </div>
 
                           <div className="px-4 py-3.5">
-                            <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
                               Total Investment
                             </p>
-                            <p className="mt-0.5 font-black font-mono text-sm text-accent">
+                            <p className="mt-0.5 font-black font-mono text-base text-accent">
                               {formatCurrency(grandTotal, { decimals: 2 })}
                             </p>
-                            <p className="mt-0.5 text-[10px] text-gray-500">
+                            <p className="mt-0.5 text-[11px] text-gray-500">
                               {renderableRooms.length} Spaces • {totalProducts} Devices
                             </p>
                           </div>
@@ -869,13 +993,13 @@ export default function StepProposalPreview({
                       <div key={sIdx} className="space-y-6">
                         {/* Section Header */}
                         <div>
-                          <span className="text-[10px] uppercase tracking-widest text-accent font-bold block">
+                          <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
                             Company Profile & Ecosystem
                           </span>
-                          <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
+                          <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
                             About Whyte Automations
                           </h2>
-                          <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+                          <p className="text-sm text-gray-600 mt-1 leading-relaxed">
                             Founded in Gandhinagar, Gujarat, Whyte Automations is
                             dedicated to bringing the next generation of smart
                             living to modern premises through the Internet of
@@ -887,42 +1011,42 @@ export default function StepProposalPreview({
                         {/* Proven Milestone Statistics */}
                         <div className="grid grid-cols-5 gap-2 p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-center">
                           <div>
-                            <p className="text-xl sm:text-2xl font-black font-mono text-gray-950">
+                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
                               250+
                             </p>
-                            <p className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">
+                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
                               Installations
                             </p>
                           </div>
                           <div>
-                            <p className="text-xl sm:text-2xl font-black font-mono text-gray-950">
+                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
                               20,000+
                             </p>
-                            <p className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">
+                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
                               Switches
                             </p>
                           </div>
                           <div>
-                            <p className="text-xl sm:text-2xl font-black font-mono text-gray-950">
+                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
                               35+
                             </p>
-                            <p className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">
+                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
                               Products
                             </p>
                           </div>
                           <div>
-                            <p className="text-xl sm:text-2xl font-black font-mono text-gray-950">
+                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
                               25+
                             </p>
-                            <p className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">
+                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
                               Features
                             </p>
                           </div>
                           <div>
-                            <p className="text-xl sm:text-2xl font-black font-mono text-gray-950">
+                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
                               10+
                             </p>
-                            <p className="text-[9px] uppercase tracking-wider text-gray-500 font-bold">
+                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
                               Cities
                             </p>
                           </div>
@@ -930,7 +1054,7 @@ export default function StepProposalPreview({
 
                         {/* Bespoke Premise Solutions */}
                         <div className="space-y-2.5">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-950">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
                             Bespoke Automation Solutions
                           </h3>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
@@ -943,10 +1067,10 @@ export default function StepProposalPreview({
                                 />
                               </div>
                               <div className="p-2">
-                                <p className="font-bold text-gray-950 text-xs">
+                                <p className="font-bold text-gray-950 text-sm">
                                   Home
                                 </p>
-                                <p className="text-[10px] text-gray-500 leading-tight mt-0.5">
+                                <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
                                   Feather-touch & scene automation.
                                 </p>
                               </div>
@@ -961,10 +1085,10 @@ export default function StepProposalPreview({
                                 />
                               </div>
                               <div className="p-2">
-                                <p className="font-bold text-gray-950 text-xs">
+                                <p className="font-bold text-gray-950 text-sm">
                                   Office
                                 </p>
-                                <p className="text-[10px] text-gray-500 leading-tight mt-0.5">
+                                <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
                                   Meeting & energy automation.
                                 </p>
                               </div>
@@ -979,10 +1103,10 @@ export default function StepProposalPreview({
                                 />
                               </div>
                               <div className="p-2">
-                                <p className="font-bold text-gray-950 text-xs">
+                                <p className="font-bold text-gray-950 text-sm">
                                   Hotels
                                 </p>
-                                <p className="text-[10px] text-gray-500 leading-tight mt-0.5">
+                                <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
                                   Guest bedside touch panels.
                                 </p>
                               </div>
@@ -997,10 +1121,10 @@ export default function StepProposalPreview({
                                 />
                               </div>
                               <div className="p-2">
-                                <p className="font-bold text-gray-950 text-xs">
+                                <p className="font-bold text-gray-950 text-sm">
                                   Hospitals
                                 </p>
-                                <p className="text-[10px] text-gray-500 leading-tight mt-0.5">
+                                <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
                                   Hygienic touch interfaces.
                                 </p>
                               </div>
@@ -1010,16 +1134,16 @@ export default function StepProposalPreview({
 
                         {/* Why Whyte: Engineering & Guarantees */}
                         <div className="space-y-2.5">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-950">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
                             Why Whyte
                           </h3>
-                          <div className="grid grid-cols-2 gap-3 text-xs">
+                          <div className="grid grid-cols-2 gap-3 text-sm">
                             <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 space-y-1">
                               <div className="flex items-center gap-1.5 font-bold text-gray-950">
                                 <ShieldCheck size={14} className="text-gray-950" />
                                 <span>5* Years Limited Warranty</span>
                               </div>
-                              <p className="text-[11px] text-gray-500 leading-relaxed">
+                              <p className="text-[13px] text-gray-500 leading-relaxed">
                                 Backed by Whyte comprehensive hardware warranty
                                 and dedicated support for long-term reliability.
                               </p>
@@ -1030,7 +1154,7 @@ export default function StepProposalPreview({
                                 <Sliders size={14} className="text-gray-950" />
                                 <span>Modular & 100% Retrofit</span>
                               </div>
-                              <p className="text-[11px] text-gray-500 leading-relaxed">
+                              <p className="text-[13px] text-gray-500 leading-relaxed">
                                 Direct drop-in replacement compatible with
                                 standard concealed metal boxes with zero civil
                                 rewiring.
@@ -1040,14 +1164,14 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Government & Industry Backing */}
-                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between text-xs text-gray-600">
+                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between text-sm text-gray-600">
                           <div className="flex items-center gap-2">
                             <Award size={15} className="text-gray-950" />
                             <span className="font-semibold text-gray-900">
                               Backed by Startup Gujarat (Govt. of Gujarat – 2021)
                             </span>
                           </div>
-                          <span className="text-[11px] text-gray-500">
+                          <span className="text-[13px] text-gray-500">
                             VSTS Startup Arena Winner
                           </span>
                         </div>
@@ -1061,13 +1185,13 @@ export default function StepProposalPreview({
                       <div key={sIdx} className="space-y-6">
                         {/* Section Header */}
                         <div>
-                          <span className="text-[10px] uppercase tracking-widest text-accent font-bold block">
+                          <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
                             Specification & Scope
                           </span>
-                          <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
+                          <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
                             Your Project Overview
                           </h2>
-                          <p className="text-xs text-gray-600 mt-0.5">
+                          <p className="text-sm text-gray-600 mt-0.5">
                             Tailored smart automation configuration designed for{" "}
                             <strong className="text-gray-950">
                               {quotation.clientName}
@@ -1076,9 +1200,69 @@ export default function StepProposalPreview({
                           </p>
                         </div>
 
+                        {/* Authorized Dealer — only ever quotation.dealer (the existing
+                            dealerId/"assignedTo" relation). Omitted entirely, with no
+                            placeholder, when the quotation has no dealer. */}
+                        {(() => {
+                          if (!authorizedDealer) return null;
+                          const hasContactRow =
+                            authorizedDealer.address || authorizedDealer.phone || authorizedDealer.email;
+                          return (
+                            <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3.5">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div className="flex items-start gap-2.5">
+                                  <div className="w-9 h-9 rounded-lg bg-gray-950 text-white flex items-center justify-center shrink-0">
+                                    <Building2 size={16} />
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
+                                      Authorized Dealer
+                                    </p>
+                                    <p className="text-base font-black text-gray-950 tracking-tight mt-0.5">
+                                      {authorizedDealer.companyName || authorizedDealer.name}
+                                    </p>
+                                    {authorizedDealer.companyName && (
+                                      <p className="text-[13px] text-gray-500 font-medium">
+                                        {authorizedDealer.name}
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                                {authorizedDealer.gstNumber && (
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-bold text-gray-600 tracking-wide shrink-0">
+                                    GSTIN {authorizedDealer.gstNumber}
+                                  </span>
+                                )}
+                              </div>
+                              {hasContactRow && (
+                                <div className="mt-2.5 pt-2.5 border-t border-gray-200/70 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-gray-500 font-medium">
+                                  {authorizedDealer.address && (
+                                    <span className="flex items-center gap-1.5">
+                                      <MapPin size={11} className="text-gray-400 shrink-0" />
+                                      {authorizedDealer.address}
+                                    </span>
+                                  )}
+                                  {authorizedDealer.phone && (
+                                    <span className="flex items-center gap-1.5">
+                                      <Phone size={11} className="text-gray-400 shrink-0" />
+                                      {authorizedDealer.phone}
+                                    </span>
+                                  )}
+                                  {authorizedDealer.email && (
+                                    <span className="flex items-center gap-1.5">
+                                      <Mail size={11} className="text-gray-400 shrink-0" />
+                                      {authorizedDealer.email}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+
                         {/* Selected Automated Spaces */}
                         <div className="space-y-2.5">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-950">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
                             Configured Spaces ({renderableRooms.length}{" "}
                             {renderableRooms.length === 1 ? "Space" : "Spaces"})
                           </h3>
@@ -1096,13 +1280,13 @@ export default function StepProposalPreview({
                                 return (
                                   <div
                                     key={roomId}
-                                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs"
+                                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm"
                                   >
                                     <Icon size={13} className="text-accent" />
                                     <span className="font-semibold text-gray-900">
                                       {getRoomFullTitle(r, renderableRooms)}
                                     </span>
-                                    <span className="font-mono text-[10px] bg-accent-light text-accent-foreground border border-accent-border/60 px-1.5 py-0.5 rounded font-bold">
+                                    <span className="font-mono text-[11px] bg-accent-light text-accent-foreground border border-accent-border/60 px-1.5 py-0.5 rounded font-bold">
                                       {count} {count === 1 ? "device" : "devices"}
                                     </span>
                                   </div>
@@ -1110,7 +1294,7 @@ export default function StepProposalPreview({
                               })}
                             </div>
                           ) : (
-                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-xs text-gray-400 italic">
+                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-400 italic">
                               No spaces configured with active products
                             </div>
                           )}
@@ -1118,10 +1302,10 @@ export default function StepProposalPreview({
 
                         {/* Automation Scope */}
                         <div className="space-y-2 pt-1">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-950">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
                             Automation Scope
                           </h3>
-                          <div className="p-4 rounded-xl bg-gray-50/70 border border-gray-200 text-xs space-y-1.5 text-gray-700">
+                          <div className="p-4 rounded-xl bg-gray-50/70 border border-gray-200 text-sm space-y-1.5 text-gray-700">
                             <p className="flex items-center gap-2 font-medium">
                               <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
                               <span>
@@ -1142,7 +1326,7 @@ export default function StepProposalPreview({
                                 <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
                                 <span>
                                   Specified Automation Tier:{" "}
-                                  <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[11px]">
+                                  <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[13px]">
                                     {configuredTiers.join(", ")}
                                   </strong>
                                 </span>
@@ -1153,7 +1337,7 @@ export default function StepProposalPreview({
                                 <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
                                 <span>
                                   Specified Surface Finish:{" "}
-                                  <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[11px]">
+                                  <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[13px]">
                                     {configuredFinishes.join(", ")}
                                   </strong>
                                 </span>
@@ -1171,65 +1355,65 @@ export default function StepProposalPreview({
 
                         {/* Official Whyte Tactus Features */}
                         <div className="space-y-2.5 pt-1">
-                          <h3 className="text-xs font-bold uppercase tracking-wider text-gray-950">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
                             Whyte Tactus Touch Series Technology
                           </h3>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-xs">
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-sm">
                             <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-xs">
+                              <p className="font-bold text-gray-950 text-sm">
                                 Dual Intensity Light
                               </p>
-                              <p className="text-[10px] text-gray-500 leading-snug">
+                              <p className="text-[11px] text-gray-500 leading-snug">
                                 Visual feedback indication showing active ON/OFF
                                 state.
                               </p>
                             </div>
 
                             <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-xs">
+                              <p className="font-bold text-gray-950 text-sm">
                                 Night Recognizable
                               </p>
-                              <p className="text-[10px] text-gray-500 leading-snug">
+                              <p className="text-[11px] text-gray-500 leading-snug">
                                 Soft dim ambient glow makes switches easy to
                                 locate in the dark.
                               </p>
                             </div>
 
                             <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-xs">
+                              <p className="font-bold text-gray-950 text-sm">
                                 Voice Automation Ready
                               </p>
-                              <p className="text-[10px] text-gray-500 leading-snug">
+                              <p className="text-[11px] text-gray-500 leading-snug">
                                 Full compatibility with Amazon Alexa and Google
                                 Assistant.
                               </p>
                             </div>
 
                             <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-xs">
+                              <p className="font-bold text-gray-950 text-sm">
                                 Sleep & Child Lock
                               </p>
-                              <p className="text-[10px] text-gray-500 leading-snug">
+                              <p className="text-[11px] text-gray-500 leading-snug">
                                 Built-in safety and uninterrupted sleep mode
                                 settings.
                               </p>
                             </div>
 
                             <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-xs">
+                              <p className="font-bold text-gray-950 text-sm">
                                 Shock & Splash Proof
                               </p>
-                              <p className="text-[10px] text-gray-500 leading-snug">
+                              <p className="text-[11px] text-gray-500 leading-snug">
                                 Toughened glass design provides optimal safety in
                                 all spaces.
                               </p>
                             </div>
 
                             <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-xs">
+                              <p className="font-bold text-gray-950 text-sm">
                                 Two-Way Switching
                               </p>
-                              <p className="text-[10px] text-gray-500 leading-snug">
+                              <p className="text-[11px] text-gray-500 leading-snug">
                                 Convenient provision for multi-point staircase and
                                 bedside control.
                               </p>
@@ -1267,56 +1451,48 @@ export default function StepProposalPreview({
                         {showSectionHeader && (
                           <div className="pb-2.5 border-b border-gray-200 flex items-end justify-between mb-3">
                             <div>
-                              <span className="text-[10px] uppercase tracking-widest text-accent font-bold block">
+                              <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
                                 Proposed Smart Equipment & Specifications
                               </span>
-                              <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
+                              <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
                                 Product Summary &amp; Specifications
                               </h2>
                             </div>
-                            <p className="text-[11px] text-gray-500 font-medium text-right max-w-xs">
+                            <p className="text-[13px] text-gray-500 font-medium text-right max-w-xs">
                               Room-wise equipment details, panel specifications & itemized pricing
                             </p>
                           </div>
                         )}
 
-                        {/* Room Header Banner */}
+                        {/* Room Header Banner — device count only; the subtotal is
+                            shown exactly once, in the room's footer banner below. */}
                         {showRoomHeader && (
                           <div className="bg-gray-50 px-4 py-2.5 rounded-t-xl border border-gray-200 flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Icon size={14} className="text-accent" />
-                              <h3 className="font-extrabold text-gray-950 text-xs sm:text-sm uppercase tracking-wider">
+                              <h3 className="font-extrabold text-gray-950 text-sm sm:text-base uppercase tracking-wider">
                                 {getRoomFullTitle(room, renderableRooms)}
                               </h3>
-                              <span className="text-[10px] font-mono text-accent-foreground bg-accent-light px-2 py-0.5 rounded border border-accent-border/60">
-                                {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)}{" "}
-                                {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0) === 1
-                                  ? "device"
-                                  : "devices"}
-                              </span>
                             </div>
-                            <span className="font-mono font-bold text-xs sm:text-sm text-gray-950">
-                              Subtotal: {formatCurrency(roomSubtotal)}
+                            <span className="text-[11px] font-mono text-accent-foreground bg-accent-light px-2 py-0.5 rounded border border-accent-border/60">
+                              {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)}{" "}
+                              {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0) === 1
+                                ? "device"
+                                : "devices"}
                             </span>
                           </div>
                         )}
 
                         {/* Room Continuation */}
                         {isContinuation && (
-                          <div className="bg-gray-50/80 px-4 py-1.5 rounded-t-xl border border-gray-200 text-xs font-semibold text-gray-700 flex items-center justify-between">
-                            <span>
-                              {getRoomFullTitle(room, renderableRooms)}{" "}
-                              (Continued)
-                            </span>
-                            <span className="font-mono text-[11px] text-gray-500">
-                              Subtotal: {formatCurrency(roomSubtotal)}
-                            </span>
+                          <div className="bg-gray-50/80 px-4 py-1.5 rounded-t-xl border border-gray-200 text-sm font-semibold text-gray-700">
+                            {getRoomFullTitle(room, renderableRooms)} (Continued)
                           </div>
                         )}
 
                         {/* Room Notes (if any) */}
                         {showRoomHeader && room.notes && (
-                          <div className="px-4 py-1.5 bg-amber-50/50 border-x border-b border-amber-100 text-[11px] text-amber-900">
+                          <div className="px-4 py-1.5 bg-amber-50/50 border-x border-b border-amber-100 text-[13px] text-amber-900">
                             <span className="font-semibold">Space Note: </span>
                             {room.notes}
                           </div>
@@ -1329,9 +1505,9 @@ export default function StepProposalPreview({
                               showRoomFooter ? "rounded-b-none" : "rounded-b-xl"
                             }`}
                           >
-                            <table className="w-full text-left border-collapse text-xs">
+                            <table className="w-full text-left border-collapse text-sm">
                               <thead>
-                                <tr className="bg-gray-50/80 border-b border-gray-200 text-[10px] uppercase font-bold text-gray-500 tracking-wider">
+                                <tr className="bg-gray-50/80 border-b border-gray-200 text-[11px] uppercase font-bold text-gray-500 tracking-wider">
                                   <th className="py-2.5 px-4">PRODUCT</th>
                                   <th className="py-2.5 px-4 w-20 text-center">
                                     QTY
@@ -1385,11 +1561,11 @@ export default function StepProposalPreview({
 
                                           <div className="min-w-0 flex-1 space-y-0.5">
                                             <div className="flex items-center gap-2">
-                                              <p className="font-bold text-gray-950 text-xs sm:text-sm leading-snug">
+                                              <p className="font-bold text-gray-950 text-sm sm:text-base leading-snug">
                                                 {formattedName}
                                               </p>
                                               {sbLabel && (
-                                                <span className="font-mono text-[9px] font-bold text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded shrink-0">
+                                                <span className="font-mono text-[10px] font-bold text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded shrink-0">
                                                   {sbLabel}
                                                 </span>
                                               )}
@@ -1397,27 +1573,27 @@ export default function StepProposalPreview({
 
                                             <div className="flex flex-wrap items-center gap-1.5">
                                               {moduleSize && (
-                                                <span className="text-[9px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80">
+                                                <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80">
                                                   {moduleSize}
                                                 </span>
                                               )}
                                               {finish && (
-                                                <span className="text-[9px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
+                                                <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
                                                   {finish}
                                                 </span>
                                               )}
                                               {color && (
-                                                <span className="text-[9px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
+                                                <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
                                                   {color}
                                                 </span>
                                               )}
                                               {tier && (
-                                                <span className="text-[9px] font-bold text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize">
+                                                <span className="text-[10px] font-bold text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize">
                                                   {tier}
                                                 </span>
                                               )}
                                               {hasValidLocation && (
-                                                <span className="text-[11px] text-gray-600 ml-1">
+                                                <span className="text-[13px] text-gray-600 ml-1">
                                                   <span className="text-gray-400 font-medium">Location: </span>
                                                   <span className="font-medium text-gray-900">{item.notes}</span>
                                                 </span>
@@ -1428,12 +1604,12 @@ export default function StepProposalPreview({
                                       </td>
 
                                       {/* Qty */}
-                                      <td className="py-2.5 px-4 text-center font-mono font-bold text-gray-900 text-xs sm:text-sm align-middle">
+                                      <td className="py-2.5 px-4 text-center font-mono font-bold text-gray-900 text-sm sm:text-base align-middle">
                                         {item.quantity || 1}
                                       </td>
 
                                       {/* Unit Price */}
-                                      <td className="py-2.5 px-4 text-right font-mono text-gray-700 text-xs sm:text-sm align-middle">
+                                      <td className="py-2.5 px-4 text-right font-mono text-gray-700 text-sm sm:text-base align-middle">
                                         {formatCurrency(unitPrice)}
                                       </td>
                                     </tr>
@@ -1446,7 +1622,7 @@ export default function StepProposalPreview({
 
                         {/* Room Subtotal Banner */}
                         {showRoomFooter && items.length > 0 && (
-                          <div className="flex justify-between items-center px-4 py-2 bg-gray-50/70 border-x border-b border-gray-200 rounded-b-xl text-xs font-semibold text-gray-800">
+                          <div className="flex justify-between items-center px-4 py-2 bg-gray-50/70 border-x border-b border-gray-200 rounded-b-xl text-sm font-semibold text-gray-800">
                             <span>
                               {room.customName ?? room.roomType?.name} Subtotal
                             </span>
@@ -1465,10 +1641,10 @@ export default function StepProposalPreview({
                       <div key={sIdx} className="space-y-3">
                         {/* Section Header — same eyebrow + h2 pattern as every other page. */}
                         <div>
-                          <span className="text-[10px] uppercase tracking-widest text-accent font-bold block">
+                          <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
                             Pricing & Commercial Summary
                           </span>
-                          <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
+                          <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
                             Investment &amp; Next Steps
                           </h2>
                         </div>
@@ -1476,15 +1652,15 @@ export default function StepProposalPreview({
                         {/* Financial Summary */}
                         <div className="space-y-1.5">
                           <div className="pb-1 border-b border-gray-200 flex items-center justify-between">
-                            <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-gray-950">
+                            <h3 className="text-sm sm:text-base font-bold uppercase tracking-wider text-gray-950">
                               Financial Summary
                             </h3>
-                            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+                            <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
                               Investment Overview
                             </span>
                           </div>
 
-                          <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 space-y-2 text-xs">
+                          <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 space-y-2 text-sm">
                             {/* Subtotal */}
                             <div className="flex justify-between items-center text-gray-600">
                               <span className="font-medium text-gray-600">Subtotal</span>
@@ -1493,30 +1669,30 @@ export default function StepProposalPreview({
                               </span>
                             </div>
 
-                            {/* Discount */}
-                            <div className="flex justify-between items-center text-gray-600">
-                              <span className="flex items-center gap-1.5 font-medium text-gray-600">
-                                <span>Discount</span>
-                                {hasDiscount && quotation.discountType === "percentage" && (
-                                  <span className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                                    {quotation.discountValue}%
-                                  </span>
-                                )}
-                              </span>
-                              <span className={`font-mono font-medium ${clampedDiscount > 0 ? "text-emerald-600" : "text-gray-900"}`}>
-                                {clampedDiscount > 0
-                                  ? `-${formatCurrency(clampedDiscount, { decimals: 2 })}`
-                                  : formatCurrency(0, { decimals: 2 })}
-                              </span>
-                            </div>
+                            {/* Discount — hidden entirely when there is none */}
+                            {clampedDiscount > 0 && (
+                              <div className="flex justify-between items-center text-gray-600">
+                                <span className="flex items-center gap-1.5 font-medium text-gray-600">
+                                  <span>Discount</span>
+                                  {hasDiscount && quotation.discountType === "percentage" && (
+                                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                      {quotation.discountValue}%
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="font-mono font-medium text-emerald-600">
+                                  -{formatCurrency(clampedDiscount, { decimals: 2 })}
+                                </span>
+                              </div>
+                            )}
 
                             {/* Net Subtotal */}
                             <div className="pt-2 border-t border-gray-200/80 flex justify-between items-baseline py-0.5">
                               <div>
-                                <span className="font-bold text-gray-950 block text-xs sm:text-sm">Net Subtotal</span>
-                                <span className="text-[10px] text-gray-400 font-medium">Taxable amount after discount</span>
+                                <span className="font-bold text-gray-950 block text-sm sm:text-base">Net Subtotal</span>
+                                <span className="text-[11px] text-gray-400 font-medium">Taxable amount after discount</span>
                               </div>
-                              <span className="font-mono font-bold text-gray-950 text-sm sm:text-base">
+                              <span className="font-mono font-bold text-gray-950 text-base sm:text-lg">
                                 {formatCurrency(netSubtotal, { decimals: 2 })}
                               </span>
                             </div>
@@ -1524,40 +1700,51 @@ export default function StepProposalPreview({
                             {/* Tax Summary Box */}
                             <div className="p-3 rounded-lg bg-white border border-gray-200/80 space-y-1.5">
                               <div className="flex items-center justify-between pb-1 border-b border-gray-100">
-                                <span className="text-[10px] uppercase font-bold tracking-wider text-gray-500">
+                                <span className="text-[11px] uppercase font-bold tracking-wider text-gray-500">
                                   Tax Summary
                                 </span>
-                                <span className="text-[10px] font-mono font-bold text-accent px-1.5 py-0.5 rounded bg-accent/5 border border-accent/20">
+                                <span className="text-[11px] font-mono font-bold text-accent px-1.5 py-0.5 rounded bg-accent/5 border border-accent/20">
                                   GST
                                 </span>
                               </div>
-                              <div className="space-y-1 text-xs">
-                                <div className="flex justify-between items-center text-gray-600">
-                                  <span className="text-gray-700 font-medium">CGST</span>
-                                  <span className="font-mono font-semibold text-gray-900">
-                                    {formatCurrency(cgstAmount, { decimals: 2 })}
-                                  </span>
-                                </div>
-                                <div className="flex justify-between items-center text-gray-600">
-                                  <span className="text-gray-700 font-medium">SGST/UTGST</span>
-                                  <span className="font-mono font-semibold text-gray-900">
-                                    {formatCurrency(sgstAmount, { decimals: 2 })}
-                                  </span>
-                                </div>
+                              <div className="space-y-1 text-sm">
+                                {isInterState ? (
+                                  <div className="flex justify-between items-center text-gray-600">
+                                    <span className="text-gray-700 font-medium">IGST @ 18%</span>
+                                    <span className="font-mono font-semibold text-gray-900">
+                                      {formatCurrency(igstAmount, { decimals: 2 })}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex justify-between items-center text-gray-600">
+                                      <span className="text-gray-700 font-medium">CGST @ 9%</span>
+                                      <span className="font-mono font-semibold text-gray-900">
+                                        {formatCurrency(cgstAmount, { decimals: 2 })}
+                                      </span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-gray-600">
+                                      <span className="text-gray-700 font-medium">SGST/UTGST @ 9%</span>
+                                      <span className="font-mono font-semibold text-gray-900">
+                                        {formatCurrency(sgstAmount, { decimals: 2 })}
+                                      </span>
+                                    </div>
+                                  </>
+                                )}
                               </div>
                             </div>
 
                             {/* Grand Total */}
                             <div className="pt-2.5 border-t-2 border-gray-950/20 flex justify-between items-baseline">
                               <div>
-                                <span className="text-sm font-black uppercase tracking-wider text-gray-950 block">
+                                <span className="text-base font-black uppercase tracking-wider text-gray-950 block">
                                   Grand Total
                                 </span>
-                                <span className="text-[10px] text-gray-400">
+                                <span className="text-[11px] text-gray-400">
                                   Total Investment (Incl. Taxes)
                                 </span>
                               </div>
-                              <span className="text-2xl font-black font-mono text-gray-950 tracking-tight">
+                              <span className="text-3xl font-black font-mono text-gray-950 tracking-tight">
                                 {formatCurrency(grandTotal, { decimals: 2 })}
                               </span>
                             </div>
@@ -1566,25 +1753,25 @@ export default function StepProposalPreview({
 
                         {/* Final Investment Callout */}
                         <div className="p-3.5 rounded-xl border border-accent-border/80 bg-accent-light/30 text-center space-y-1">
-                          <p className="text-[10px] uppercase font-bold tracking-widest text-accent">
+                          <p className="text-[11px] uppercase font-bold tracking-widest text-accent">
                             ESTIMATED PROJECT INVESTMENT
                           </p>
-                          <p className="text-2xl sm:text-3xl font-black font-mono tracking-tight text-gray-950">
+                          <p className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-gray-950">
                             {formatCurrency(grandTotal, { decimals: 2 })}
                           </p>
-                          <p className="text-[11px] text-gray-500">
+                          <p className="text-[13px] text-gray-500">
                             Final pricing is based on the products and configuration selected in this proposal.
                           </p>
                         </div>
 
                         {/* Proposal Includes & Commercial Information */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                           {/* Proposal Includes */}
                           <div className="p-3.5 rounded-xl border border-gray-200 bg-white space-y-1.5">
-                            <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[10px]">
+                            <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">
                               Proposal Includes
                             </h4>
-                            <ul className="space-y-1 text-[11px] text-gray-600">
+                            <ul className="space-y-1 text-[13px] text-gray-600">
                               <li>• Selected smart automation products</li>
                               <li>• Room-wise space configuration & mapping</li>
                               {configuredTiers.length > 0 && (
@@ -1610,10 +1797,10 @@ export default function StepProposalPreview({
 
                           {/* Commercial Terms & Validity */}
                           <div className="p-3.5 rounded-xl border border-gray-200 bg-white space-y-1.5">
-                            <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[10px]">
+                            <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">
                               Commercial Terms & Validity
                             </h4>
-                            <div className="space-y-1 text-[11px] text-gray-600">
+                            <div className="space-y-1 text-[13px] text-gray-600">
                               <p>
                                 <strong className="text-gray-900">
                                   Validity:{" "}
@@ -1654,30 +1841,30 @@ export default function StepProposalPreview({
 
                         {/* Next Steps */}
                         <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5">
-                          <h4 className="font-bold uppercase tracking-wider text-gray-950 text-[10px]">
+                          <h4 className="font-bold uppercase tracking-wider text-gray-950 text-[11px]">
                             Next Steps
                           </h4>
-                          <ol className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-gray-700">
+                          <ol className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[13px] text-gray-700">
                             <li className="p-2 bg-white rounded-lg border border-gray-200">
-                              <span className="font-bold text-gray-950 block text-xs">
+                              <span className="font-bold text-gray-950 block text-sm">
                                 1. Review
                               </span>
                               Review the proposed automation configuration.
                             </li>
                             <li className="p-2 bg-white rounded-lg border border-gray-200">
-                              <span className="font-bold text-gray-950 block text-xs">
+                              <span className="font-bold text-gray-950 block text-sm">
                                 2. Confirm
                               </span>
                               Confirm product selection and quantities.
                             </li>
                             <li className="p-2 bg-white rounded-lg border border-gray-200">
-                              <span className="font-bold text-gray-950 block text-xs">
+                              <span className="font-bold text-gray-950 block text-sm">
                                 3. Align
                               </span>
                               Confirm on-site installation requirements.
                             </li>
                             <li className="p-2 bg-white rounded-lg border border-gray-200">
-                              <span className="font-bold text-gray-950 block text-xs">
+                              <span className="font-bold text-gray-950 block text-sm">
                                 4. Proceed
                               </span>
                               Proceed with final order & commissioning.
@@ -1686,7 +1873,7 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Official Whyte Closing & Contact Card */}
-                        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-xs">
+                        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-sm">
                           <div className="space-y-1">
                             <WhyteLogo
                               theme="light"
@@ -1698,11 +1885,11 @@ export default function StepProposalPreview({
                             <p className="font-bold text-gray-950">
                               Whyte Automations Private Limited
                             </p>
-                            <p className="text-[11px] text-gray-500">
+                            <p className="text-[13px] text-gray-500">
                               Gandhinagar, Gujarat, India • Next-Gen Smart Living
                             </p>
                           </div>
-                          <div className="space-y-1 text-right sm:text-right font-medium text-[11px] text-gray-600">
+                          <div className="space-y-1 text-right sm:text-right font-medium text-[13px] text-gray-600">
                             <p className="flex items-center gap-1.5 sm:justify-end">
                               <Phone size={11} className="text-gray-400" />
                               <span>+91 98982 34336 / +91 98989 26336</span>
@@ -1726,31 +1913,9 @@ export default function StepProposalPreview({
               </div>
 
               {/* Document Footer on Every Page */}
-              {page.isFirstPage ? (
-                <div className="pt-4 text-center text-[10px] font-medium text-gray-400">
-                  www.whyte.co.in
-                </div>
-              ) : (
-                <div className="pt-4 mt-6 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[10px] text-gray-400 font-medium">
-                  <div>
-                    <span className="font-bold text-gray-700">
-                      {company?.name || "WHYTE Automations"}
-                    </span>
-                    <span>
-                      {" "}
-                      • {company?.tagline || "Next-Gen Smart Living Ecosystems"}
-                    </span>
-                    <span className="hidden sm:inline"> • sales@whyte.co.in</span>
-                  </div>
-                  <div className="flex items-center gap-3 font-mono">
-                    <span>{quotation.quotationNumber}</span>
-                    <span>•</span>
-                    <span>
-                      {String(page.pageNumber).padStart(2, "0")} / {String(page.totalPages).padStart(2, "0")}
-                    </span>
-                  </div>
-                </div>
-              )}
+              <div className="pt-4 text-center text-[11px] font-medium text-gray-400">
+                www.whyte.co.in
+              </div>
             </div>
           ))}
         </div>

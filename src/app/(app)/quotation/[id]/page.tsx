@@ -1,5 +1,5 @@
 import { connectMongoDB } from "@/lib/mongodb";
-import { Quotation, Product, Category, RoomType, HouseType, Company } from "@/models";
+import { Quotation, Category, RoomType, HouseType, Company } from "@/models";
 import ProposalBuilder from "@/components/proposal-builder/ProposalBuilder";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
@@ -10,12 +10,12 @@ import {
   normalizeCategories,
   normalizeRoomTypes,
   normalizeHouseTypes,
-  normalizeProducts,
   serializeQuotationForClient,
 } from "@/lib/quotationNormalization";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { canViewQuotation } from "@/lib/quotationAccess";
-import { redactProductsForRole, redactQuotationForRole } from "@/lib/variantRedaction";
+import { getEditorCatalog } from "@/lib/editorCatalog";
+import { redactQuotationForRole } from "@/lib/variantRedaction";
 
 export const dynamic = "force-dynamic";
 
@@ -35,10 +35,10 @@ export default async function QuotationPage(props: PageProps) {
 
   await connectMongoDB();
 
-  const [qDoc, htDocs, pDocs, cDocs, rtDocs, compDoc] = await Promise.all([
+  const [qDoc, htDocs, products, cDocs, rtDocs, compDoc] = await Promise.all([
     Quotation.findById(id)
       .populate({ path: "houseType" })
-      .populate({ path: "dealer", select: "id name email firstName lastName" })
+      .populate({ path: "dealer", select: "id name email firstName lastName contactNumber companyName gstNumber address" })
       .populate({
         path: "rooms",
         options: { sort: { sortOrder: 1 } },
@@ -50,9 +50,9 @@ export default async function QuotationPage(props: PageProps) {
             // Only the fields the editor/proposal/PDF actually render — never
             // the catalog's full variant list (price/cost included); that
             // duplicated the whole catalog into every quotation payload. The
-            // top-level `products` catalog array (`pDocs` below, already sent
-            // separately) is the picker's data source. See `AGENTS.md`/
-            // Phase 3 audit and `QuotationItemVariantSummary` in `@/types`.
+            // top-level `products` catalog array (`getEditorCatalog()` below,
+            // already sent separately) is the picker's data source. See
+            // `AGENTS.md`/Phase 3 audit and `QuotationItemVariantSummary` in `@/types`.
             populate: [
               {
                 path: "product",
@@ -75,15 +75,7 @@ export default async function QuotationPage(props: PageProps) {
         populate: { path: "roomType" },
       })
       .lean({ virtuals: true }),
-    Product.find({ isActive: true })
-      .sort({ sortOrder: 1, createdAt: -1 })
-      .populate({ path: "category" })
-      .populate({
-        path: "variants",
-        match: { isActive: true },
-        options: { sort: { sortOrder: 1 } },
-      })
-      .lean({ virtuals: true, getters: true }),
+    getEditorCatalog(),
     Category.find({ level: 1 })
       .sort({ sortOrder: 1 })
       .populate({
@@ -118,9 +110,8 @@ export default async function QuotationPage(props: PageProps) {
     userRole
   );
   const houseTypes = normalizeHouseTypes(JSON.parse(JSON.stringify(htDocs)));
-  // Internal margin fields (cost / purchaseTaxPercent) are never sent to a
-  // non-admin role's browser, regardless of which screen asks for them.
-  const products = redactProductsForRole(normalizeProducts(pDocs), userRole);
+  // `products` never carries internal margin fields (cost / purchaseTaxPercent):
+  // the editor catalog doesn't select them, so it is the same for every role.
   const categories = normalizeCategories(JSON.parse(JSON.stringify(cDocs)));
   const roomTypes = normalizeRoomTypes(JSON.parse(JSON.stringify(rtDocs)));
   const company = compDoc ? JSON.parse(JSON.stringify(compDoc)) : null;

@@ -246,11 +246,6 @@ export default function StepProjectDetails({
                           value: String(ht.id ?? (ht as any)._id),
                           label: `${ht.name}${ht.description ? ` (${ht.description})` : ""}`,
                         })),
-                        { value: "residential", label: "Residential / Apartment" },
-                        { value: "villa", label: "Luxury Villa" },
-                        { value: "commercial", label: "Commercial / Retail" },
-                        { value: "office", label: "Corporate Office" },
-                        { value: "hotel", label: "Hospitality / Hotel" },
                       ]}
                       triggerClassName="h-11 rounded-xl text-sm"
                     />

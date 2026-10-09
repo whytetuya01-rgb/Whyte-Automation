@@ -4,7 +4,7 @@ import { AdminUser, Quotation } from "@/models";
 import { requireRole } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { z } from "zod";
-import { mobileSchema, optionalGstinSchema } from "@/lib/validation/fields";
+import { mobileSchema, optionalEmailSchema, optionalGstinSchema } from "@/lib/validation/fields";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +17,11 @@ const patchDealerSchema = z.object({
   lastName: z.string().trim().max(60).optional(),
   contactNumber: mobileSchema.optional(),
   gstNumber: optionalGstinSchema,
+  companyName: z
+    .union([z.string().trim().max(120), z.null()])
+    .optional()
+    .transform((value) => (value === "" ? null : value)),
+  businessEmail: optionalEmailSchema,
   address: z.string().trim().max(500).optional(),
 }).strict();
 
@@ -133,6 +138,8 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
     if (body.contactNumber !== undefined) dealer.contactNumber = body.contactNumber;
     if (body.gstNumber !== undefined) dealer.gstNumber = body.gstNumber;
+    if (body.companyName !== undefined) dealer.companyName = body.companyName;
+    if (body.businessEmail !== undefined) dealer.businessEmail = body.businessEmail;
     if (body.address !== undefined) dealer.address = body.address;
 
     await dealer.save();

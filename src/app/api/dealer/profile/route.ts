@@ -100,7 +100,9 @@ export async function PATCH(req: Request) {
     if (parsed.firstName !== undefined) account.firstName = parsed.firstName;
     if (parsed.lastName !== undefined) account.lastName = parsed.lastName;
     if (parsed.contactNumber !== undefined) account.contactNumber = parsed.contactNumber;
+    if (parsed.companyName !== undefined) account.companyName = parsed.companyName;
     if (parsed.gstNumber !== undefined) account.gstNumber = parsed.gstNumber;
+    if (parsed.businessEmail !== undefined) account.businessEmail = parsed.businessEmail;
     if (parsed.address !== undefined) account.address = parsed.address;
 
     account.name = [account.firstName, account.lastName].filter(Boolean).join(" ").trim() || account.email;

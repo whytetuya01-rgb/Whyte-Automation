@@ -1,4 +1,4 @@
-import { Product, ProductVariant } from "@/types";
+import { EditorCatalogProduct, EditorCatalogVariant } from "@/types";
 
 export interface FilterOptions {
   categoryId?: number | null;
@@ -15,11 +15,11 @@ export interface FilterOptions {
 }
 
 export interface FilteredProductResult {
-  product: Product;
-  eligibleVariants: ProductVariant[];
+  product: EditorCatalogProduct;
+  eligibleVariants: EditorCatalogVariant[];
   minPrice: number;
   maxPrice: number;
-  exactVariant: ProductVariant | null;
+  exactVariant: EditorCatalogVariant | null;
 }
 
 /**
@@ -84,7 +84,7 @@ export function matchDimension(
 /**
  * Retrieves the automation tier identifier from a variant using automationTier as source of truth.
  */
-export function getVariantTier(v: ProductVariant): string | null {
+export function getVariantTier(v: EditorCatalogVariant): string | null {
   if (v.automationTier && v.automationTier.trim()) return v.automationTier.trim();
   return null;
 }
@@ -92,7 +92,7 @@ export function getVariantTier(v: ProductVariant): string | null {
 /**
  * Retrieves the surface finish identifier from a variant using surfaceFinish as source of truth.
  */
-export function getVariantFinish(v: ProductVariant): string | null {
+export function getVariantFinish(v: EditorCatalogVariant): string | null {
   if (v.surfaceFinish && v.surfaceFinish.trim()) return v.surfaceFinish.trim();
   return null;
 }
@@ -101,7 +101,7 @@ export function getVariantFinish(v: ProductVariant): string | null {
  * Determines whether a variant satisfies the active automation tier and surface finish filters.
  */
 export function isVariantEligible(
-  variant: ProductVariant,
+  variant: EditorCatalogVariant,
   filters: Pick<FilterOptions, "automationTier" | "surfaceFinish" | "configuredTiers" | "configuredFinishes">
 ): boolean {
   if (!variant.isActive) return false;
@@ -121,7 +121,7 @@ export function isVariantEligible(
  * Produces filtered results where products remain visible only if at least one variant matches.
  */
 export function filterProductCatalog(
-  products: Product[],
+  products: EditorCatalogProduct[],
   options: FilterOptions
 ): FilteredProductResult[] {
   const {
@@ -187,7 +187,7 @@ export function filterProductCatalog(
       ? product.variants.filter((v) => v.isActive)
       : [];
 
-    let eligibleVariants: ProductVariant[] = [];
+    let eligibleVariants: EditorCatalogVariant[] = [];
 
     if (activeVariants.length > 0) {
       eligibleVariants = activeVariants.filter((v) =>
@@ -227,7 +227,7 @@ export function filterProductCatalog(
     // Calculate price information based on eligible variants or base price
     let minPrice = 0;
     let maxPrice = 0;
-    let exactVariant: ProductVariant | null = null;
+    let exactVariant: EditorCatalogVariant | null = null;
 
     if (eligibleVariants.length > 0) {
       const prices = eligibleVariants.map((v) => Number(v.price || 0));

@@ -90,6 +90,32 @@ export interface Product {
 }
 
 /**
+ * Variant as shipped to the quotation editor's product picker (`initialProducts`).
+ * Only what `productFiltering`, `variant-dimension`, `VariantPicker`,
+ * `StepProductConfig` and `StepReview` read - no cost, tax breakdown, labels,
+ * `productId` or sort order. `config` is typed because those readers consult it,
+ * but the editor never receives it: `serializeVariant` has never emitted it.
+ * A full `ProductVariant` is structurally assignable, so the shared helpers
+ * accept either.
+ */
+export type EditorCatalogVariant = Pick<
+  ProductVariant,
+  "id" | "automationTier" | "surfaceFinish" | "price" | "isActive"
+> &
+  Partial<Pick<ProductVariant, "name" | "code" | "variantCode" | "config">>;
+
+/** Product as shipped to the quotation editor's product picker; see {@link EditorCatalogVariant}. */
+export type EditorCatalogProduct = Pick<
+  Product,
+  "id" | "name" | "code" | "description" | "type" | "categoryId" | "imageUrl" | "isActive" | "isMatrix" | "matrixDimensions"
+> &
+  Partial<Pick<Product, "automationTier" | "surfaceFinish" | "price" | "moduleSize">> & {
+    /** Display name only: the picker reads `category?.name`, never the rest of the category. */
+    category?: Pick<Category, "id" | "name">;
+    variants?: EditorCatalogVariant[];
+  };
+
+/**
  * The quoted variant's rendering-relevant snapshot, embedded on a
  * `QuotationItem`. Deliberately NOT the full `ProductVariant` shape: pricing
  * (price/priceWithoutTax/taxPercent/taxAmount/cost/purchaseTaxPercent) is
@@ -280,7 +306,9 @@ export interface AdminUser {
   name: string | null;
   firstName?: string | null;
   lastName?: string | null;
+  companyName?: string | null;
   gstNumber?: string | null;
+  businessEmail?: string | null;
   contactNumber?: string | null;
   address?: string | null;
   role: AdminRole;

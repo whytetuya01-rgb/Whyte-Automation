@@ -1,0 +1,130 @@
+/**
+ * Verifies the new "Business Email" dealer-profile field: a dealer can set
+ * it, and the proposal shows it (plus companyName) under Authorized Dealer
+ * — while the dealer's internal login email never appears.
+ *
+ *   node tests/browser-verify-dealer-business-email.mjs
+ */
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { startIsolatedServer, Decimal128 } from "./helpers/isolatedServer.mjs";
+
+const BROWSERS = ["C:/Program Files/Google/Chrome/Application/chrome.exe", "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"];
+const browserPath = BROWSERS.find((p) => existsSync(p));
+assert.ok(browserPath, "Chrome or Edge is required");
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let server, chrome, profileDir;
+let exitCode = 0;
+const results = [];
+const pass = (name) => { results.push(name); console.log(`  ✓ ${name}`); };
+
+try {
+  server = await startIsolatedServer("dealer-biz-email", [
+    { _id: 1, email: "admin_user@example.com", role: "admin", name: "Admin User" },
+    {
+      _id: 2, email: "bhavik.login@example.com", role: "dealer", name: "Bhavik Shah",
+      firstName: "Bhavik", lastName: "Shah",
+      contactNumber: "+91 98765 11223", gstNumber: "24AAAAA0000A1Z8",
+      address: "Ahmedabad, Gujarat",
+    },
+  ], { production: true });
+  const { db, login, api, baseUrl } = server;
+
+  await db.collection("housetypes").insertOne({ _id: 1, name: "2 BHK", isActive: true, sortOrder: 0 });
+  await db.collection("products").insertOne({
+    _id: 1, name: "Touch Curtain Switch", isActive: true, categoryId: 1,
+    price: Decimal128.fromString("5000.00"), priceWithoutTax: Decimal128.fromString("4237.29"),
+    taxPercent: Decimal128.fromString("18.00"), cost: Decimal128.fromString("2000.00"),
+    purchaseTaxPercent: Decimal128.fromString("18.00"),
+  });
+
+  const admin = await login("admin_user@example.com", "admin");
+  const dealer = await login("bhavik.login@example.com", "user");
+
+  // Dealer sets a business email + company name via the real PATCH route.
+  const patchRes = await api(dealer, "PATCH", "/api/dealer/profile", {
+    companyName: "Shah Smart Homes",
+    businessEmail: "sales@shahsmarthomes.in",
+  });
+  assert.ok(patchRes.status < 300, `profile patch: ${patchRes.text}`);
+
+  const quotRes = await api(admin, "POST", "/api/quotations", { clientName: "Test Client", houseTypeId: 1 });
+  assert.ok(quotRes.status < 300, `quotation create: ${quotRes.text}`);
+  const quotId = quotRes.data.id;
+  await db.collection("quotationrooms").insertOne({ _id: 9001, quotationId: quotId, sortOrder: 0, createdAt: new Date(), updatedAt: new Date() });
+  await db.collection("quotationitems").insertOne({
+    _id: 9002, quotationRoomId: 9001, productId: 1, quantity: 1,
+    unitPrice: Decimal128.fromString("5000.00"), sortOrder: 0,
+  });
+  const assignRes = await api(admin, "POST", `/api/quotations/${quotId}/assign`, { dealerId: 2 });
+  assert.ok(assignRes.status < 300, `assign: ${assignRes.text}`);
+
+  profileDir = await mkdtemp(join(tmpdir(), "whyte-bizemail-chrome-"));
+  const port = 9950 + Math.floor(Math.random() * 300);
+  chrome = spawn(browserPath, ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profileDir}`, "--no-first-run", "--disable-gpu", "--window-size=1000,1300", "about:blank"], { stdio: "ignore" });
+  let target;
+  for (let i = 0; i < 60 && !target; i++) {
+    try { target = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === "page"); } catch {}
+    if (!target) await sleep(500);
+  }
+  assert.ok(target, "browser did not start");
+  const ws = new WebSocket(target.webSocketDebuggerUrl);
+  await new Promise((resolve, reject) => { ws.addEventListener("open", resolve); ws.addEventListener("error", reject); });
+  let nextId = 0;
+  const pending = new Map();
+  ws.addEventListener("message", (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.id && pending.has(msg.id)) {
+      const { resolve, reject } = pending.get(msg.id);
+      pending.delete(msg.id);
+      msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result);
+    }
+  });
+  const send = (method, params = {}) => new Promise((resolve, reject) => { const id = ++nextId; pending.set(id, { resolve, reject }); ws.send(JSON.stringify({ id, method, params })); });
+  const evaluate = async (expression) => {
+    const r = await send("Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+    if (r.exceptionDetails) throw new Error(`evaluate failed: ${r.exceptionDetails.exception?.description || r.exceptionDetails.text}`);
+    return r.result.value;
+  };
+  const waitFor = async (expression, label, timeoutMs = 20000) => {
+    const end = Date.now() + timeoutMs;
+    while (Date.now() < end) {
+      if (await evaluate(expression).catch(() => false)) return;
+      await sleep(250);
+    }
+    throw new Error(`timed out waiting for: ${label}`);
+  };
+  await send("Page.enable"); await send("Runtime.enable");
+  for (const pair of admin.split("; ")) {
+    const i = pair.indexOf("=");
+    await send("Network.setCookie", { name: pair.slice(0, i), value: pair.slice(i + 1), url: baseUrl });
+  }
+
+  await send("Page.navigate", { url: `${baseUrl}/quotation/${quotId}/preview` });
+  await waitFor(`!!document.querySelector('.proposal-page')`, "proposal render", 30000);
+  await sleep(300);
+  const text = await evaluate(`document.body.innerText`);
+
+  assert.match(text, /AUTHORIZED DEALER/i);
+  assert.match(text, /Shah Smart Homes/);
+  assert.match(text, /Bhavik Shah/);
+  assert.match(text, /sales@shahsmarthomes\.in/);
+  assert.doesNotMatch(text, /bhavik\.login@example\.com/);
+  pass("Dealer-set companyName + businessEmail both appear under Authorized Dealer; login email never shown");
+
+  console.log(`\nDealer business email verification PASSED (${results.length} checks).`);
+} catch (error) {
+  console.error("VERIFICATION FAILED:", error instanceof Error ? error.message : error);
+  exitCode = 1;
+} finally {
+  if (chrome) spawn("taskkill", ["/pid", String(chrome.pid), "/t", "/f"], { stdio: "ignore" });
+  if (server) await server.cleanup();
+  await sleep(500);
+  if (profileDir) await rm(profileDir, { recursive: true, force: true }).catch(() => {});
+  process.exit(exitCode);
+}

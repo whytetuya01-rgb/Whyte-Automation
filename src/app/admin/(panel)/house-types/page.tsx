@@ -1,13 +1,17 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useSession } from "next-auth/react";
+import Image from "next/image";
 import { HouseType, RoomType } from "@/types";
 import { isBathroomLikeRoomName, getRoomIcon } from "@/lib/utils";
+import { getHouseTypeImage } from "@/lib/houseTypeImageMap";
 import {
   Plus,
   ChevronDown,
   ChevronUp,
   Pencil,
+  Trash2,
   Building2,
   Search,
   X,
@@ -21,8 +25,29 @@ import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
+import { useConfirm } from "@/components/providers/ConfirmProvider";
 import { useHouseTypes, useRoomTypes } from "@/lib/swr";
 import { Input, Button, Checkbox } from "@/components/ui";
+
+const HOUSE_TYPE_CARD_IMAGE_SIZES = "(min-width: 1024px) 50vw, 100vw";
+
+/** Decorative house-type photo + light overlay, most visible near the card's top edge, fading to white toward the body below. */
+function HouseTypeBackdrop({ houseTypeId }: { houseTypeId: number }) {
+  const entry = getHouseTypeImage(houseTypeId);
+  return (
+    <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+      <Image
+        src={entry.src}
+        alt=""
+        fill
+        sizes={HOUSE_TYPE_CARD_IMAGE_SIZES}
+        className="object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+        style={{ objectPosition: `50% ${Math.round(entry.focalY * 100)}%` }}
+      />
+      <div className="absolute inset-0 bg-gradient-to-b from-white/88 via-white/55 to-white/15" />
+    </div>
+  );
+}
 
 interface HouseTypeFormProps {
   houseType?: HouseType | null;
@@ -214,6 +239,9 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
 }
 
 export default function HouseTypesPage() {
+  const { data: session } = useSession();
+  const isSuperAdmin = (session?.user as { role?: string } | undefined)?.role === "super_admin";
+  const confirm = useConfirm();
   const { data: houseTypes = [], isLoading: loadingHT, mutate: mutateHouseTypes } = useHouseTypes();
   const { data: roomTypes = [], isLoading: loadingRT } = useRoomTypes();
   const loading = loadingHT || loadingRT;
@@ -222,6 +250,26 @@ export default function HouseTypesPage() {
   const [showForm, setShowForm] = useState(false);
   const [editTarget, setEditTarget] = useState<HouseType | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  const handleDelete = async (ht: HouseType) => {
+    await confirm({
+      title: "Delete House Type",
+      message: `Are you sure you want to delete "${ht.name}"?`,
+      detail: "House types with a configured room template or an existing quotation cannot be deleted. This action is irreversible.",
+      confirmText: "Delete House Type",
+      cancelText: "Cancel",
+      variant: "danger",
+      onConfirm: async () => {
+        try {
+          await apiJson.delete(`/api/house-types/${ht.id}`);
+          notify.success("House type deleted", `"${ht.name}" has been removed.`);
+          mutateHouseTypes();
+        } catch (err: unknown) {
+          notifyApiError(err, "Unable to delete house type", "Please try again.");
+        }
+      },
+    });
+  };
 
   const filteredHouseTypes = useMemo(() => {
     return houseTypes.filter((ht: HouseType) => {
@@ -390,87 +438,106 @@ export default function HouseTypesPage() {
                 {/* ── Card Header & Summary (Clickable expand) ── */}
                 <div
                   onClick={() => setExpanded(isExpanded ? null : ht.id)}
-                  className="p-4 sm:p-5 flex-1 cursor-pointer select-none space-y-3.5 hover:bg-neutral-50/40 transition-colors"
+                  className="group flex-1 cursor-pointer select-none"
                 >
-                  {/* Top Row: Index Badge + Title & Multi-floor tag + Actions */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="h-8 w-8 rounded-xl bg-neutral-900 text-white flex items-center justify-center shrink-0 font-bold text-xs font-mono shadow-2xs">
-                        {String(index + 1).padStart(2, "0")}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-base font-bold text-neutral-900 tracking-tight truncate">
-                            {ht.name}
-                          </h3>
-                          {isMultiFloor && (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-100 border border-neutral-200/80 text-[10px] font-semibold text-neutral-700">
-                              <Layers size={10} className="text-neutral-500" />
-                              Multiple floors
-                            </span>
+                  {/* Header banner: house-type photo, title & actions */}
+                  <div className="relative h-24 sm:h-28">
+                    <HouseTypeBackdrop houseTypeId={ht.id} />
+                    <div className="relative flex h-full items-start justify-between gap-3 p-4 sm:p-5">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="h-8 w-8 rounded-xl bg-neutral-900 text-white flex items-center justify-center shrink-0 font-bold text-xs font-mono shadow-2xs">
+                          {String(index + 1).padStart(2, "0")}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-base font-bold text-neutral-900 tracking-tight truncate">
+                              {ht.name}
+                            </h3>
+                            {isMultiFloor && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white/85 backdrop-blur-sm border border-neutral-200/80 text-[10px] font-semibold text-neutral-700">
+                                <Layers size={10} className="text-neutral-500" />
+                                Multiple floors
+                              </span>
+                            )}
+                          </div>
+                          {ht.description && (
+                            <p className="text-xs text-neutral-600 mt-0.5 line-clamp-1">{ht.description}</p>
                           )}
                         </div>
-                        {ht.description && (
-                          <p className="text-xs text-neutral-500 mt-0.5 line-clamp-1">{ht.description}</p>
-                        )}
                       </div>
-                    </div>
 
-                    {/* Action buttons */}
-                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setEditTarget(ht);
-                          setShowForm(true);
-                        }}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition-colors flex items-center gap-1.5"
-                        title="Edit House Type"
+                      {/* Action buttons */}
+                      <div
+                        className="flex items-center gap-1 shrink-0 bg-white/80 backdrop-blur-sm rounded-xl p-0.5 border border-white/70 shadow-2xs"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <Pencil size={13} className="text-neutral-500" />
-                        <span>Edit</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setExpanded(isExpanded ? null : ht.id)}
-                        className={`p-1.5 rounded-lg transition-all ${
-                          isExpanded
-                            ? "bg-neutral-100 text-neutral-900"
-                            : "text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100/60"
-                        }`}
-                        aria-label={isExpanded ? "Collapse details" : "Expand details"}
-                      >
-                        {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditTarget(ht);
+                            setShowForm(true);
+                          }}
+                          className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition-colors flex items-center gap-1.5"
+                          title="Edit House Type"
+                        >
+                          <Pencil size={13} className="text-neutral-500" />
+                          <span>Edit</span>
+                        </button>
+                        {isSuperAdmin && (
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(ht)}
+                            className="p-1.5 rounded-lg text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                            title="Delete House Type"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setExpanded(isExpanded ? null : ht.id)}
+                          className={`p-1.5 rounded-lg transition-all ${
+                            isExpanded
+                              ? "bg-neutral-100 text-neutral-900"
+                              : "text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100/60"
+                          }`}
+                          aria-label={isExpanded ? "Collapse details" : "Expand details"}
+                        >
+                          {isExpanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Room Composition Line */}
-                  {roomCompositionString ? (
-                    <div className="text-xs font-medium text-neutral-700 bg-neutral-50 px-3 py-2 rounded-xl border border-neutral-100 flex items-center gap-2">
-                      <Home size={13} className="text-neutral-400 shrink-0" />
-                      <span className="truncate">{roomCompositionString}</span>
-                    </div>
-                  ) : (
-                    <div className="text-xs italic text-neutral-400 bg-neutral-50 px-3 py-2 rounded-xl border border-neutral-100">
-                      No spaces configured
-                    </div>
-                  )}
+                  {/* Body: composition line + metrics */}
+                  <div className="p-4 sm:p-5 pt-3.5 space-y-3.5 hover:bg-neutral-50/40 transition-colors">
+                    {/* Room Composition Line */}
+                    {roomCompositionString ? (
+                      <div className="text-xs font-medium text-neutral-700 bg-neutral-50 px-3 py-2 rounded-xl border border-neutral-100 flex items-center gap-2">
+                        <Home size={13} className="text-neutral-400 shrink-0" />
+                        <span className="truncate">{roomCompositionString}</span>
+                      </div>
+                    ) : (
+                      <div className="text-xs italic text-neutral-400 bg-neutral-50 px-3 py-2 rounded-xl border border-neutral-100">
+                        No spaces configured
+                      </div>
+                    )}
 
-                  {/* Metrics Row */}
-                  <div className="flex items-center justify-between pt-1 border-t border-neutral-100 text-xs">
-                    {/* Spaces Count with Whyte Pink subtle accent */}
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-xs font-bold font-mono text-pink-600 bg-pink-50 border border-pink-200/60 px-2 py-0.5 rounded-md">
-                        {totalSpaces}
-                      </span>
-                      <span className="font-semibold text-neutral-800">Spaces</span>
-                    </div>
+                    {/* Metrics Row */}
+                    <div className="flex items-center justify-between pt-1 border-t border-neutral-100 text-xs">
+                      {/* Spaces Count with Whyte Pink subtle accent */}
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold font-mono text-pink-600 bg-pink-50 border border-pink-200/60 px-2 py-0.5 rounded-md">
+                          {totalSpaces}
+                        </span>
+                        <span className="font-semibold text-neutral-800">Spaces</span>
+                      </div>
 
-                    {/* Room Types Count */}
-                    <div className="flex items-center gap-1 text-neutral-500 font-medium text-[11px]">
-                      <LayoutGrid size={12} className="text-neutral-400" />
-                      <span>{templateRooms.length} {templateRooms.length === 1 ? "room type" : "room types"}</span>
+                      {/* Room Types Count */}
+                      <div className="flex items-center gap-1 text-neutral-500 font-medium text-[11px]">
+                        <LayoutGrid size={12} className="text-neutral-400" />
+                        <span>{templateRooms.length} {templateRooms.length === 1 ? "room type" : "room types"}</span>
+                      </div>
                     </div>
                   </div>
                 </div>

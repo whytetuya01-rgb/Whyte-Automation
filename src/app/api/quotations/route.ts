@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, HouseTypeRoomTemplate, HouseType } from "@/models";
-import { getNextSequence } from "@/lib/counter";
+import { getNextSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
@@ -351,11 +351,15 @@ export async function POST(req: Request) {
             )
         );
 
+        const totalRooms = validTemplates.reduce((sum, t) => sum + (Number(t.defaultCount) || 1), 0);
+        const roomIds = await reserveSequenceBlock("quotationRoom", totalRooms, QuotationRoom, dbSession);
+        let roomIdCursor = 0;
+
         const roomsToCreate = [];
         for (const t of validTemplates) {
           const defaultCount = Number(t.defaultCount) || 1;
           for (let i = 0; i < defaultCount; i++) {
-            const nextRoomId = await getNextSequence("quotationRoom", QuotationRoom, dbSession);
+            const nextRoomId = roomIds[roomIdCursor++];
             roomsToCreate.push({
               _id: nextRoomId,
               quotationId,

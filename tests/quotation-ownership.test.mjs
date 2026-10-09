@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const rootRequire = createRequire(join(repo, "package.json"));
-const { MongoClient } = rootRequire("mongodb");
+const { MongoClient, Decimal128 } = rootRequire("mongodb");
 const bcrypt = rootRequire("bcryptjs");
 
 function checkSafeTarget(uri, dbName) {
@@ -482,6 +482,10 @@ try {
   await assertCase("Status changes are audited (mark-sent, approve)", async () => {
     const created = await api(dealerA, "POST", "/api/quotations", { clientName: "Lifecycle" });
     const id = created.data.id;
+    // mark-sent/approve require at least one product (tests/quotation-status-product-gate.test.mjs),
+    // so the fixture needs a room holding an item before it can leave draft.
+    await db.collection("quotationrooms").insertOne({ _id: 9001, quotationId: id, sortOrder: 0, createdAt: new Date(), updatedAt: new Date() });
+    await db.collection("quotationitems").insertOne({ _id: 9001, quotationRoomId: 9001, productId: 1, productVariantId: null, quantity: 1, unitPrice: Decimal128.fromString("1000.00"), sortOrder: 0 });
     assert.equal((await api(dealerA, "POST", `/api/quotations/${id}/mark-sent`)).status, 200);
     assert.equal((await api(admin, "POST", `/api/quotations/${id}/transition`, { action: "approve" })).status, 200);
     const events = await eventsOf(id);

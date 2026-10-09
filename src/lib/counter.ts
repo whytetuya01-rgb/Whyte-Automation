@@ -23,6 +23,64 @@ export const Counter: Model<ICounterDocument> =
   mongoose.models.Counter || mongoose.model<ICounterDocument>("Counter", CounterSchema);
 
 /**
+ * Atomically reserves `count` consecutive IDs in one round of counter updates
+ * and returns them in ascending order. Same stale-counter safety as
+ * `getNextSequence`, but a loop that needs N IDs costs 3 queries instead of up
+ * to 4N. IDs from a transaction that aborts are simply skipped, as before.
+ */
+export async function reserveSequenceBlock(
+  sequenceName: string,
+  count: number,
+  modelForMaxCheck?: Model<any>,
+  session?: mongoose.ClientSession
+): Promise<number[]> {
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error(`Invalid sequence block size for ${sequenceName}: ${count}`);
+  }
+  if (count === 0) return [];
+
+  await connectMongoDB();
+
+  let currentMax = 0;
+  if (modelForMaxCheck) {
+    const highestDoc = await modelForMaxCheck
+      .findOne({}, { _id: 1 })
+      .sort({ _id: -1 })
+      .session(session || null)
+      .lean();
+    if (highestDoc && typeof (highestDoc as any)._id === "number") {
+      currentMax = (highestDoc as any)._id as number;
+    }
+  }
+
+  await Counter.findByIdAndUpdate(
+    sequenceName,
+    { $setOnInsert: { seq: currentMax } },
+    { upsert: true, session: session || null }
+  );
+
+  if (currentMax > 0) {
+    await Counter.findByIdAndUpdate(
+      sequenceName,
+      { $max: { seq: currentMax } },
+      { session: session || null }
+    );
+  }
+
+  const counter = await Counter.findByIdAndUpdate(
+    sequenceName,
+    { $inc: { seq: count } },
+    { returnDocument: "after", upsert: true, setDefaultsOnInsert: true, session: session || null }
+  );
+  if (!counter) {
+    throw new Error(`Failed to reserve sequence block for ${sequenceName}`);
+  }
+
+  const first = counter.seq - count + 1;
+  return Array.from({ length: count }, (_, i) => first + i);
+}
+
+/**
  * Atomically increments and returns the next sequential integer for a given sequence name.
  *
  * Safety guarantee: before incrementing, the stored sequence is advanced to at least the

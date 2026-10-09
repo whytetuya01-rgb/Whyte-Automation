@@ -9,7 +9,6 @@ import {
   Mail,
   Phone,
   Building,
-  MapPin,
   Lock,
   Shield,
   Percent,
@@ -25,7 +24,7 @@ import notify from "@/lib/notify";
 import { Input, Button, Textarea, Badge } from "@/components/ui";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { formatDate } from "@/lib/utils";
-import { gstinError, mobileError, normalizeGstin } from "@/lib/validation/fields";
+import { emailError, gstinError, mobileError, normalizeGstin } from "@/lib/validation/fields";
 
 interface DealerProfileData {
   id: number;
@@ -34,7 +33,9 @@ interface DealerProfileData {
   firstName: string | null;
   lastName: string | null;
   contactNumber: string | null;
+  companyName: string | null;
   gstNumber: string | null;
+  businessEmail: string | null;
   address: string | null;
   role: string;
   discountAllocationPercent: number;
@@ -53,7 +54,9 @@ export default function DealerProfilePage() {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [contactNumber, setContactNumber] = useState("");
+  const [companyName, setCompanyName] = useState("");
   const [gstNumber, setGstNumber] = useState("");
+  const [businessEmail, setBusinessEmail] = useState("");
   const [address, setAddress] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileErrors, setProfileErrors] = useState<Record<string, string>>({});
@@ -81,7 +84,9 @@ export default function DealerProfilePage() {
       setFirstName(data.firstName || "");
       setLastName(data.lastName || "");
       setContactNumber(data.contactNumber || "");
+      setCompanyName(data.companyName || "");
       setGstNumber(data.gstNumber || "");
+      setBusinessEmail(data.businessEmail || "");
       setAddress(data.address || "");
     } catch {
       notify.error("Error loading profile", "Unable to retrieve your dealer registration details.");
@@ -114,9 +119,12 @@ export default function DealerProfilePage() {
     if (!lastName.trim()) errors.lastName = "Last name is required.";
     const contactErr = mobileError(contactNumber, { required: true });
     if (contactErr) errors.contactNumber = contactErr;
-    const gstErr = gstinError(gstNumber);
+    if (!companyName.trim()) errors.companyName = "Company name is required.";
+    const gstErr = gstinError(gstNumber, { required: true });
     if (gstErr) errors.gstNumber = gstErr;
-    if (!address.trim()) errors.address = "Address is required.";
+    const businessEmailErr = emailError(businessEmail, { required: false });
+    if (businessEmailErr) errors.businessEmail = businessEmailErr;
+    if (!address.trim()) errors.address = "Company address is required.";
 
     if (Object.keys(errors).length > 0) {
       setProfileErrors(errors);
@@ -132,7 +140,9 @@ export default function DealerProfilePage() {
           firstName: firstName.trim(),
           lastName: lastName.trim(),
           contactNumber: contactNumber.trim(),
-          gstNumber: gstNumber.trim() ? normalizeGstin(gstNumber) : null,
+          companyName: companyName.trim(),
+          gstNumber: normalizeGstin(gstNumber),
+          businessEmail: businessEmail.trim() || null,
           address: address.trim(),
         }),
       });
@@ -308,6 +318,31 @@ export default function DealerProfilePage() {
                 />
               </div>
 
+              <div>
+                <Input
+                  label="Company Name"
+                  required
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  error={profileErrors.companyName}
+                  leftIcon={<Building size={16} />}
+                  placeholder="Your company name"
+                  helperText="Shown as the Authorized Dealer on your proposals."
+                />
+              </div>
+
+              <div>
+                <Input
+                  label="Business Email"
+                  value={businessEmail}
+                  onChange={(e) => setBusinessEmail(e.target.value)}
+                  error={profileErrors.businessEmail}
+                  leftIcon={<Mail size={16} />}
+                  placeholder="e.g. sales@yourcompany.com"
+                  helperText="Optional — shown to clients on your proposals instead of your login email. Leave blank to show no email."
+                />
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Input
                   label="Contact Number"
@@ -320,26 +355,28 @@ export default function DealerProfilePage() {
                   helperText="Primary phone for proposal communication."
                 />
                 <Input
-                  label="GST Number (Optional)"
+                  label="GST Number"
+                  required
                   value={gstNumber}
                   onChange={(e) => setGstNumber(e.target.value.toUpperCase())}
                   error={profileErrors.gstNumber}
-                  leftIcon={<Building size={16} />}
+                  leftIcon={<FileText size={16} />}
                   placeholder="e.g. 27AAAAA0000A1Z5"
+                  maxLength={15}
                   helperText="Displayed on generated proposal PDFs."
                 />
               </div>
 
               <div>
                 <Textarea
-                  label="Business Address"
+                  label="Company Address"
                   required
                   rows={3}
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
                   error={profileErrors.address}
                   placeholder="Full office or showroom address"
-                  helperText="Registered business location."
+                  helperText="Registered business location, shown on proposals."
                 />
               </div>
 

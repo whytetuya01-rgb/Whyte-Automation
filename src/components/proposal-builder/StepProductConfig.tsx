@@ -25,12 +25,12 @@ import {
   RotateCcw,
 } from "lucide-react";
 import {
-  Product,
+  EditorCatalogProduct,
   Category,
   Quotation,
   QuotationRoom,
   QuotationItem,
-  ProductVariant,
+  EditorCatalogVariant,
 } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
 import {
@@ -52,7 +52,7 @@ import { Select } from "@/components/ui/Select";
 
 interface Props {
   quotation: Quotation;
-  products: Product[];
+  products: EditorCatalogProduct[];
   categories: Category[];
   activeRoomId: number | null;
   onSelectRoom: (roomId: number) => void;
@@ -185,7 +185,7 @@ export default function StepProductConfig({
   const [productTypeFilter, setProductTypeFilter] = useState<string>("all");
 
   // Variant Picker Modal State
-  const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
+  const [pickerProduct, setPickerProduct] = useState<EditorCatalogProduct | null>(null);
 
   // Expanded Product Card Variants state
   const [expandedCardIds, setExpandedCardIds] = useState<Set<number>>(new Set());
@@ -200,7 +200,7 @@ export default function StepProductConfig({
   };
 
   // Helper to extract clean display name for a variant
-  const getVariantName = (v: ProductVariant) => {
+  const getVariantName = (v: EditorCatalogVariant) => {
     const tier = formatTierLabel(v.automationTier);
     const finish = formatFinishLabel(v.surfaceFinish);
     const parts: string[] = [];
@@ -391,7 +391,7 @@ export default function StepProductConfig({
   };
 
   // Add specific variant directly
-  const handleAddVariant = async (product: Product, variant: ProductVariant) => {
+  const handleAddVariant = async (product: EditorCatalogProduct, variant: EditorCatalogVariant) => {
     if (!currentRoom) return;
     const roomId = Number(currentRoom.id ?? (currentRoom as any)._id);
     const prodId = Number(product.id ?? (product as any)._id);
@@ -413,7 +413,7 @@ export default function StepProductConfig({
   };
 
   // Remove one instance of product in current room (decrement quantity or delete)
-  const handleRemoveProductInstance = async (product: Product) => {
+  const handleRemoveProductInstance = async (product: EditorCatalogProduct) => {
     if (!currentRoom) return;
     const prodId = Number(product.id ?? (product as any)._id);
     const matchingItems = (currentRoom.items || []).filter((i) => {

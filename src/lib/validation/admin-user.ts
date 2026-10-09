@@ -5,9 +5,17 @@ import {
   nameField,
   numericIdSchema,
   optionalText,
+  requiredText,
   strictObject,
 } from "@/lib/validation/common";
-import { emailSchema, mobileSchema, optionalGstinSchema, optionalMobileSchema } from "@/lib/validation/fields";
+import {
+  emailSchema,
+  gstinSchema,
+  mobileSchema,
+  optionalEmailSchema,
+  optionalGstinSchema,
+  optionalMobileSchema,
+} from "@/lib/validation/fields";
 
 export const adminRoleEnum = z.enum(["super_admin", "admin", "dealer"]);
 
@@ -62,8 +70,10 @@ export const updateDealerProfileSchema = strictObject({
   firstName: nameField(60, "First name is required.").optional(),
   lastName: nameField(60, "Last name is required.").optional(),
   contactNumber: mobileSchema.optional(),
-  gstNumber: optionalGstinSchema,
-  address: optionalText(500).optional(),
+  companyName: nameField(120, "Company name is required.").optional(),
+  gstNumber: gstinSchema.optional(),
+  businessEmail: optionalEmailSchema,
+  address: requiredText(500, "Company address is required.").optional(),
   currentPassword: z.string().optional(),
   newPassword: z
     .string()

@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem } from "@/models";
-import { getNextSequence } from "@/lib/counter";
+import { getNextSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
@@ -158,8 +158,17 @@ export async function POST(req: Request, context: RouteContext) {
       }
 
       const rooms = Array.isArray(origDoc.rooms) ? origDoc.rooms : [];
-      for (const room of rooms) {
-        const nextRoomId = await getNextSequence("quotationRoom", QuotationRoom, dbSession);
+      const totalItems = rooms.reduce(
+        (sum: number, room: { items?: unknown[] }) => sum + (Array.isArray(room.items) ? room.items.length : 0),
+        0
+      );
+      const roomIds = await reserveSequenceBlock("quotationRoom", rooms.length, QuotationRoom, dbSession);
+      const itemIds = await reserveSequenceBlock("quotationItem", totalItems, QuotationItem, dbSession);
+      let itemIdCursor = 0;
+
+      for (let roomIdx = 0; roomIdx < rooms.length; roomIdx++) {
+        const room = rooms[roomIdx];
+        const nextRoomId = roomIds[roomIdx];
         const newRoom = new QuotationRoom({
           _id: nextRoomId,
           quotationId: newQuotationId,
@@ -179,7 +188,7 @@ export async function POST(req: Request, context: RouteContext) {
         const items = Array.isArray(room.items) ? room.items : [];
         const itemsToCreate = [];
         for (const item of items) {
-          const nextItemId = await getNextSequence("quotationItem", QuotationItem, dbSession);
+          const nextItemId = itemIds[itemIdCursor++];
           itemsToCreate.push({
             _id: nextItemId,
             quotationRoomId: nextRoomId,

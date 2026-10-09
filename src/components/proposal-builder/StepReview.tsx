@@ -18,7 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
-import { Quotation, QuotationRoom, QuotationItem, Product, Category } from "@/types";
+import { Quotation, QuotationRoom, QuotationItem, EditorCatalogProduct, Category } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
@@ -143,7 +143,7 @@ function CategoryPillScroller({
 
 interface Props {
   quotation: Quotation;
-  products?: Product[];
+  products?: EditorCatalogProduct[];
   categories?: Category[];
   onAddItem?: (
     roomId: number,
@@ -198,7 +198,7 @@ export default function StepReview({
 
   // Variant Picker state for Matrix products
   const [pickerProduct, setPickerProduct] = useState<{
-    product: Product;
+    product: EditorCatalogProduct;
     mode: "add" | "change";
     roomId: number;
     targetItemId?: number;
@@ -366,7 +366,7 @@ export default function StepReview({
   }, [products, categories, selectedCategoryId, productTypeFilter, search]);
 
   // Handle Product Selection in Modal
-  const handleSelectProduct = async (product: Product) => {
+  const handleSelectProduct = async (product: EditorCatalogProduct) => {
     if (!selectorState) return;
 
     const prodId = Number(product.id ?? (product as any)._id);

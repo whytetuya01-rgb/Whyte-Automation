@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Product, ProductVariant, MatrixDimension } from "@/types";
+import { EditorCatalogProduct, EditorCatalogVariant, MatrixDimension } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 import { X, ChevronRight, AlertCircle } from "lucide-react";
 
 interface Props {
-  product: Product;
+  product: EditorCatalogProduct;
   onSelect: (variantId: number, config: Record<string, string>) => void;
   onClose: () => void;
 }
@@ -28,8 +28,8 @@ function Grid2DPicker({
 }: {
   dim1: NormalizedDimension;
   dim2: NormalizedDimension;
-  variants: ProductVariant[];
-  onSelect: (v: ProductVariant) => void;
+  variants: EditorCatalogVariant[];
+  onSelect: (v: EditorCatalogVariant) => void;
 }) {
   const dim1Options = Array.isArray(dim1?.options) ? dim1.options : [];
   const dim2Options = Array.isArray(dim2?.options) ? dim2.options : [];
@@ -100,8 +100,8 @@ function List1DPicker({
   onSelect,
 }: {
   dim: NormalizedDimension;
-  variants: ProductVariant[];
-  onSelect: (v: ProductVariant) => void;
+  variants: EditorCatalogVariant[];
+  onSelect: (v: EditorCatalogVariant) => void;
 }) {
   const options = Array.isArray(dim?.options) ? dim.options : [];
 
@@ -160,8 +160,8 @@ function CascadingPicker({
   onSelect,
 }: {
   dimensions: NormalizedDimension[];
-  variants: ProductVariant[];
-  onSelect: (v: ProductVariant) => void;
+  variants: EditorCatalogVariant[];
+  onSelect: (v: EditorCatalogVariant) => void;
 }) {
   const [selections, setSelections] = useState<Record<string, string>>({});
 
@@ -244,7 +244,7 @@ export default function VariantPicker({ product, onSelect, onClose }: Props) {
 
   if (!product) return null;
 
-  const handleSelect = (variant: ProductVariant) => {
+  const handleSelect = (variant: EditorCatalogVariant) => {
     const rawConfig = (variant.config as Record<string, string>) ?? {};
     const config: Record<string, string> = { ...rawConfig };
 

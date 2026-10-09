@@ -150,8 +150,8 @@ export function phoneError(value: string, { required = false } = {}): string | n
   return isValidPhone(value) ? null : PHONE_MESSAGE;
 }
 
-export function gstinError(value: string): string | null {
-  if (isBlank(value)) return null;
+export function gstinError(value: string, { required = false } = {}): string | null {
+  if (isBlank(value)) return required ? "GSTIN is required." : null;
   return isValidGstin(value) ? null : GSTIN_MESSAGE;
 }
 
@@ -229,6 +229,19 @@ export const optionalPhoneSchema = z
       return z.NEVER;
     }
     return value.trim();
+  });
+
+/** Required GSTIN, stored upper-case. */
+export const gstinSchema = z
+  .string({ message: "GSTIN is required." })
+  .trim()
+  .min(1, "GSTIN is required.")
+  .transform((value, ctx) => {
+    if (!isValidGstin(value)) {
+      ctx.addIssue({ code: "custom", message: GSTIN_MESSAGE });
+      return z.NEVER;
+    }
+    return normalizeGstin(value);
   });
 
 /** Optional GSTIN: preserves `undefined`, blank becomes null, stored upper-case. */

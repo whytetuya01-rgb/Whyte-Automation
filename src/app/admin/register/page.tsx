@@ -9,7 +9,7 @@ import { Button, Input, Textarea } from "@/components/ui";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import { EMAIL_MESSAGE, gstinError, isValidEmail, mobileError } from "@/lib/validation/fields";
 
-type Field = "firstName" | "lastName" | "email" | "password" | "gstNumber" | "contactNumber" | "address";
+type Field = "firstName" | "lastName" | "email" | "password" | "companyName" | "gstNumber" | "contactNumber" | "address";
 type RegistrationErrors = Partial<Record<Field, string>>;
 
 const initialForm = {
@@ -17,6 +17,7 @@ const initialForm = {
   lastName: "",
   email: "",
   password: "",
+  companyName: "",
   gstNumber: "",
   contactNumber: "",
   address: "",
@@ -56,9 +57,10 @@ export default function AdminRegisterPage() {
       const contactErr = mobileError(form.contactNumber);
       if (contactErr) nextErrors.contactNumber = contactErr;
     }
-    const gstErr = gstinError(form.gstNumber);
+    if (!form.companyName.trim()) nextErrors.companyName = "Please enter your company name.";
+    const gstErr = gstinError(form.gstNumber, { required: true });
     if (gstErr) nextErrors.gstNumber = gstErr;
-    if (!form.address.trim()) nextErrors.address = "Please enter your address.";
+    if (!form.address.trim()) nextErrors.address = "Please enter your company address.";
     setErrors(nextErrors);
     setFormError(null);
     if (Object.keys(nextErrors).length > 0) return;
@@ -126,11 +128,12 @@ export default function AdminRegisterPage() {
             </div>
             <Input id="dealer-email" label="Email ID" type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} leftIcon={<AlertCircle size={16} />} placeholder="you@company.com" autoComplete="email" required disabled={loading} error={errors.email} />
             <Input id="dealer-password" label="Password" type={showPassword ? "text" : "password"} value={form.password} onChange={(event) => updateField("password", event.target.value)} leftIcon={<Lock size={16} />} rightIcon={<button type="button" onClick={() => setShowPassword((visible) => !visible)} className="text-neutral-400 hover:text-neutral-700" aria-label={showPassword ? "Hide password" : "Show password"} disabled={loading}>{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>} placeholder="At least 8 characters" autoComplete="new-password" required disabled={loading} error={errors.password} />
+            <Input id="dealer-company-name" label="Company Name" value={form.companyName} onChange={(event) => updateField("companyName", event.target.value)} placeholder="Your company name" autoComplete="organization" required disabled={loading} error={errors.companyName} />
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input id="dealer-gst-number" label="GST Number" value={form.gstNumber} onChange={(event) => updateField("gstNumber", event.target.value)} placeholder="Optional, e.g. 27AAPFU0939F1ZV" maxLength={15} autoComplete="off" disabled={loading} error={errors.gstNumber} />
+              <Input id="dealer-gst-number" label="GST Number" value={form.gstNumber} onChange={(event) => updateField("gstNumber", event.target.value)} placeholder="e.g. 27AAPFU0939F1ZV" maxLength={15} autoComplete="off" required disabled={loading} error={errors.gstNumber} />
               <Input id="dealer-contact-number" label="Contact Number" type="tel" value={form.contactNumber} onChange={(event) => updateField("contactNumber", event.target.value)} placeholder="+91 98765 43210" autoComplete="tel" inputMode="tel" required disabled={loading} error={errors.contactNumber} />
             </div>
-            <Textarea id="dealer-address" label="Address" value={form.address} onChange={(event) => updateField("address", event.target.value)} placeholder="Building, street, city, state and PIN code" autoComplete="street-address" rows={4} required disabled={loading} error={errors.address} />
+            <Textarea id="dealer-address" label="Company Address" value={form.address} onChange={(event) => updateField("address", event.target.value)} placeholder="Building, street, city, state and PIN code" autoComplete="street-address" rows={4} required disabled={loading} error={errors.address} />
             <Button type="submit" fullWidth variant="primary" size="lg" loading={loading} className="mt-2 h-12 bg-black text-sm text-white shadow-sm hover:bg-neutral-800 sm:text-base">Register</Button>
           </form>
           <div className="mt-7 flex flex-col items-center justify-between gap-3 border-t border-neutral-200 pt-6 text-sm sm:flex-row"><span className="text-neutral-500">Already registered? <Link href="/login" className="font-medium text-neutral-900 underline underline-offset-4">Login</Link></span><span className="flex items-center gap-1.5 text-xs text-neutral-500"><CheckCircle2 size={14} className="text-admin-primary" /> Dealer-only account</span></div>

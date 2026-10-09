@@ -7,7 +7,7 @@ import toast from "react-hot-toast";
 import { ArrowLeft, Check, Clock, Home, Save } from "lucide-react";
 import {
   Quotation,
-  Product,
+  EditorCatalogProduct,
   Category,
   RoomType,
   HouseType,
@@ -48,7 +48,7 @@ function extractErrorMessage(err: any, fallback: string): string {
 interface Props {
   initialQuotation?: Quotation | null;
   initialHouseTypes?: HouseType[];
-  initialProducts?: Product[];
+  initialProducts?: EditorCatalogProduct[];
   initialCategories?: Category[];
   initialRoomTypes?: RoomType[];
   initialCompany?: Company | null;
@@ -79,7 +79,7 @@ export default function ProposalBuilder({
     initialQuotation ? normalizeQuotation(initialQuotation) : null
   );
   const [houseTypes, setHouseTypes] = useState<HouseType[]>(normalizeHouseTypes(initialHouseTypes));
-  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const [products, setProducts] = useState<EditorCatalogProduct[]>(initialProducts);
   const [categories, setCategories] = useState<Category[]>(normalizeCategories(initialCategories));
   const [roomTypes, setRoomTypes] = useState<RoomType[]>(normalizeRoomTypes(initialRoomTypes));
   const [company, setCompany] = useState<Company | null>(initialCompany);

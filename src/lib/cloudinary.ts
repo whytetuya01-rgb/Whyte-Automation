@@ -156,7 +156,8 @@ interface UploadedImage {
 
 export async function uploadImage(
   fileBuffer: Buffer,
-  folder = "whyte/products"
+  folder = "whyte/products",
+  options?: { publicId?: string }
 ): Promise<UploadedImage> {
   const { credentials, client } = configure();
 
@@ -165,6 +166,7 @@ export async function uploadImage(
       {
         folder,
         resource_type: "image",
+        ...(options?.publicId ? { public_id: options.publicId, overwrite: false } : {}),
       },
       (error, result) => {
         if (error || !result) {

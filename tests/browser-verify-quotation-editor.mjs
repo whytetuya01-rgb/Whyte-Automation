@@ -360,7 +360,7 @@ try {
     const ready = await gotoAndWait("/quotation/q_draft_rich?step=4", `document.body.innerText.includes('Net Subtotal') || document.body.innerText.includes('Grand Total')`);
     assert.ok(ready, "Review step did not render");
     const grandTotalBefore = await evaluate(`(() => {
-      const re = /(?:Grand Total|Total Investment)[\\s\\S]{0,200}?₹\\s?([\\d,]+(?:\\.\\d+)?)/;
+      const re = /(?:Grand Total|Total Investment)[\\s\\S]{0,200}?₹\\s?([\\d,]+(?:\\.\\d+)?)/i;
       const m = document.body.innerText.match(re);
       return m ? Number(m[1].replace(/,/g,'')) : null;
     })()`);
@@ -412,12 +412,12 @@ try {
     assert.equal(fullGets.length, 0, `expected no extra full GET refetch after a discount update, saw: ${JSON.stringify(fullGets)}`);
 
     const grandTotalAfter = await evaluate(`(() => {
-      const re = /(?:Grand Total|Total Investment)[\\s\\S]{0,200}?₹\\s?([\\d,]+(?:\\.\\d+)?)/;
+      const re = /(?:Grand Total|Total Investment)[\\s\\S]{0,200}?₹\\s?([\\d,]+(?:\\.\\d+)?)/i;
       const m = document.body.innerText.match(re);
       return m ? Number(m[1].replace(/,/g,'')) : null;
     })()`);
     if (!Number.isFinite(grandTotalBefore) || !Number.isFinite(grandTotalAfter)) {
-      const snippet = await evaluate(`(() => { const i = document.body.innerText.indexOf('Grand Total'); return i === -1 ? 'NO_GRAND_TOTAL_TEXT' : document.body.innerText.slice(i, i + 200); })()`);
+      const snippet = await evaluate(`(() => { const t = document.body.innerText; const i = t.toLowerCase().indexOf('grand total'); return i === -1 ? 'NO_GRAND_TOTAL_TEXT' : t.slice(i, i + 200); })()`);
       console.log("   could not parse Grand Total; nearby text:", JSON.stringify(snippet));
     }
     assert.ok(Number.isFinite(grandTotalBefore) && Number.isFinite(grandTotalAfter), `could not read Grand Total (before=${grandTotalBefore}, after=${grandTotalAfter})`);

@@ -33,6 +33,8 @@ interface DealerItem {
   firstName: string | null;
   lastName: string | null;
   email: string;
+  companyName: string | null;
+  businessEmail: string | null;
   contactNumber: string | null;
   gstNumber: string | null;
   address: string | null;
@@ -80,6 +82,12 @@ export default function DealersPage() {
   const [discountDealer, setDiscountDealer] = useState<DealerItem | null>(null);
   const [newDiscountPercent, setNewDiscountPercent] = useState<number>(0);
   const [savingDiscount, setSavingDiscount] = useState(false);
+
+  // Edit Dealer Details Modal (what shows under "Authorized Dealer" on proposals)
+  const [editDealer, setEditDealer] = useState<DealerItem | null>(null);
+  const [editCompanyName, setEditCompanyName] = useState("");
+  const [editBusinessEmail, setEditBusinessEmail] = useState("");
+  const [savingDealerDetails, setSavingDealerDetails] = useState(false);
 
   // Debounce search input
   useEffect(() => {
@@ -169,6 +177,33 @@ export default function DealersPage() {
       notifyApiError(err, "Update failed", "Could not update discount allocation.");
     } finally {
       setSavingDiscount(false);
+    }
+  };
+
+  const handleOpenEditDealerModal = (dealer: DealerItem) => {
+    setEditDealer(dealer);
+    setEditCompanyName(dealer.companyName || "");
+    setEditBusinessEmail(dealer.businessEmail || "");
+  };
+
+  const handleSaveDealerDetails = async () => {
+    if (!editDealer) return;
+    setSavingDealerDetails(true);
+    try {
+      await apiJson.patch(`/api/admin/dealers/${editDealer.id}`, {
+        companyName: editCompanyName.trim() || null,
+        businessEmail: editBusinessEmail.trim() || null,
+      });
+      notify.success(
+        "Dealer details saved",
+        "Company name and business email updated. These appear under Authorized Dealer on this dealer's proposals."
+      );
+      setEditDealer(null);
+      fetchDealers();
+    } catch (err: unknown) {
+      notifyApiError(err, "Update failed", "Could not update dealer details.");
+    } finally {
+      setSavingDealerDetails(false);
     }
   };
 
@@ -268,7 +303,15 @@ export default function DealersPage() {
                       <tr key={dealer.id} className="hover:bg-gray-50/70 transition-colors">
                         <td className="px-4 py-3.5">
                           <p className="font-bold text-gray-950 text-sm">{dealer.name}</p>
+                          {dealer.companyName && (
+                            <p className="text-gray-600 text-xs font-medium">{dealer.companyName}</p>
+                          )}
                           <p className="text-gray-400 text-xs">{dealer.email}</p>
+                          {dealer.businessEmail && (
+                            <p className="text-gray-400 text-xs" title="Business email shown on proposals">
+                              {dealer.businessEmail}
+                            </p>
+                          )}
                           {dealer.gstNumber && (
                             <span className="inline-block mt-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-gray-100 text-gray-600">
                               GST: {dealer.gstNumber}
@@ -341,6 +384,13 @@ export default function DealersPage() {
 
                         <td className="px-4 py-3.5 text-right">
                           <div className="inline-flex items-center gap-2">
+                            <button
+                              onClick={() => handleOpenEditDealerModal(dealer)}
+                              className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition cursor-pointer"
+                              title="Edit Company Name & Business Email (shown on proposals)"
+                            >
+                              <Building size={16} />
+                            </button>
                             <Link
                               href={`/admin/quotations?dealerId=${dealer.id}`}
                               className="p-1.5 text-gray-400 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition"
@@ -366,7 +416,13 @@ export default function DealersPage() {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <h3 className="font-bold text-gray-950 text-sm">{dealer.name}</h3>
+                        {dealer.companyName && (
+                          <p className="text-gray-600 text-xs font-medium">{dealer.companyName}</p>
+                        )}
                         <p className="text-gray-400 text-xs">{dealer.email}</p>
+                        {dealer.businessEmail && (
+                          <p className="text-gray-400 text-xs">{dealer.businessEmail}</p>
+                        )}
                       </div>
                       <span
                         className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
@@ -398,6 +454,12 @@ export default function DealersPage() {
                         className="px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg font-semibold hover:bg-purple-100 transition"
                       >
                         Set Discount
+                      </button>
+                      <button
+                        onClick={() => handleOpenEditDealerModal(dealer)}
+                        className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg font-semibold hover:bg-blue-100 transition"
+                      >
+                        Edit Details
                       </button>
                       <Link
                         href={`/admin/quotations?dealerId=${dealer.id}`}
@@ -497,6 +559,56 @@ export default function DealersPage() {
                 loading={savingDiscount}
               >
                 Save Allocation
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit Dealer Details Modal — feeds the Authorized Dealer section on proposals */}
+      {editDealer && (
+        <Modal
+          isOpen={Boolean(editDealer)}
+          onClose={() => setEditDealer(null)}
+          title={`Edit Details for ${editDealer.name}`}
+          size="md"
+        >
+          <div className="space-y-4 pt-2">
+            <p className="text-xs text-gray-500">
+              Shown under &quot;Authorized Dealer&quot; on this dealer&apos;s proposal PDFs. The dealer&apos;s
+              login email is never shown to clients — only the business email set here.
+            </p>
+            <Input
+              label="Company Name"
+              value={editCompanyName}
+              onChange={(e) => setEditCompanyName(e.target.value)}
+              placeholder="e.g. Shah Smart Homes"
+              helperText="Leave blank to show the dealer's personal name instead."
+            />
+            <Input
+              label="Business Email"
+              value={editBusinessEmail}
+              onChange={(e) => setEditBusinessEmail(e.target.value)}
+              placeholder="e.g. sales@dealercompany.com"
+              helperText="Leave blank to show no email on proposals."
+            />
+
+            <div className="flex items-center justify-end gap-2 pt-4 border-t border-gray-200">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setEditDealer(null)}
+                disabled={savingDealerDetails}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSaveDealerDetails}
+                loading={savingDealerDetails}
+              >
+                Save Details
               </Button>
             </div>
           </div>

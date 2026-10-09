@@ -1,4 +1,4 @@
-import { Product, ProductVariant } from "@/types";
+import { EditorCatalogProduct, EditorCatalogVariant } from "@/types";
 
 export interface NormalizedDimension {
   key: string;
@@ -11,7 +11,7 @@ export function capitalize(str: string): string {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-export function buildVariantLabel(variant: ProductVariant, config?: Record<string, string>): string {
+export function buildVariantLabel(variant: EditorCatalogVariant, config?: Record<string, string>): string {
   if (variant.automationTier && variant.surfaceFinish) {
     return `${capitalize(variant.automationTier)} + ${capitalize(variant.surfaceFinish)}`;
   }
@@ -35,8 +35,8 @@ export function buildVariantLabel(variant: ProductVariant, config?: Record<strin
 }
 
 export function normalizeProductDimensions(
-  product: Product,
-  variants: ProductVariant[]
+  product: EditorCatalogProduct,
+  variants: EditorCatalogVariant[]
 ): NormalizedDimension[] {
   const rawDims = (product as any)?.matrixDimensions;
 
@@ -122,9 +122,9 @@ export function normalizeProductDimensions(
 }
 
 export function findVariant(
-  variants: ProductVariant[],
+  variants: EditorCatalogVariant[],
   config: Record<string, string>
-): ProductVariant | undefined {
+): EditorCatalogVariant | undefined {
   const configEntries = Object.entries(config).filter(([, v]) => Boolean(v));
   if (configEntries.length === 0) return variants[0];
 

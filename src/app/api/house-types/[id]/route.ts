@@ -4,6 +4,7 @@ import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { requireRole } from "@/lib/api-auth";
+import { getHouseTypeDependencies } from "@/lib/dependencies";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { updateHouseTypeSchema } from "@/lib/validation/catalog";
 
@@ -86,5 +87,53 @@ export async function PATCH(req: Request, context: RouteContext) {
     return apiSuccess(updatedHouseType);
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/house-types/[id]" });
+  }
+}
+
+export async function DELETE(_req: Request, context: RouteContext) {
+  try {
+    await requireRole("super_admin");
+    const { id } = await context.params;
+    const houseTypeId = parseNumericId(id, "id");
+
+    await connectMongoDB();
+
+    const houseType = await HouseType.findById(houseTypeId).select("_id").lean();
+    if (!houseType) {
+      throw new ApiError("NOT_FOUND", "House type not found.");
+    }
+
+    const dependencies = await getHouseTypeDependencies(houseTypeId);
+    const blocking: Array<{ type: string; label: string; count: number }> = [];
+    if (dependencies.roomTemplates > 0) {
+      blocking.push({
+        type: "roomTemplates",
+        label: "configured room template(s)",
+        count: dependencies.roomTemplates,
+      });
+    }
+    if (dependencies.quotations > 0) {
+      blocking.push({
+        type: "quotations",
+        label: "quotation(s)",
+        count: dependencies.quotations,
+      });
+    }
+    if (blocking.length > 0) {
+      const summary = blocking
+        .map((item) => `${item.count} ${item.label}`)
+        .join(" and ");
+      throw new ApiError(
+        "DEPENDENCY_EXISTS",
+        `Cannot delete house type: it is still used in ${summary}. Remove those references first.`,
+        { dependencies: blocking }
+      );
+    }
+
+    await HouseType.findByIdAndDelete(houseTypeId);
+
+    return apiSuccess({ id: houseTypeId, deleted: true });
+  } catch (error) {
+    return handleApiError(error, { logPrefix: "DELETE /api/house-types/[id]" });
   }
 }

@@ -14,6 +14,7 @@ import {
   Store,
   UserCheck,
   Sparkles,
+  Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
@@ -26,6 +27,8 @@ interface NavGroup {
     href: string;
     label: string;
     icon: React.ElementType;
+    /** Omit to show to every admin-panel role; set to restrict to specific roles. */
+    roles?: Array<"super_admin" | "admin">;
   }[];
 }
 
@@ -53,6 +56,12 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: "OVERSIGHT",
+    items: [
+      { href: "/admin/activity", label: "Activity Log", icon: Activity, roles: ["super_admin"] },
+    ],
+  },
+  {
     title: "SYSTEM SETTINGS",
     items: [
       { href: "/admin/company", label: "Company Profile", icon: Building2 },
@@ -73,19 +82,23 @@ export default function AdminSidebar({ onClose }: { onClose?: () => void }) {
 
   const userName = session?.user?.name || "Administrator";
   const userEmail = session?.user?.email || "";
-  const userRole = (session?.user as { role?: string })?.role === "super_admin" ? "Super Admin" : "Admin";
+  const currentRole = (session?.user as { role?: string })?.role === "super_admin" ? "super_admin" : "admin";
+  const userRole = currentRole === "super_admin" ? "Super Admin" : "Admin";
 
   return (
     <aside className="w-full bg-[#111111] flex flex-col h-full border-r border-[#1E1E22] select-none">
       {/* Scrollable Navigation Groups */}
       <nav className="flex-1 p-3 sm:p-4 space-y-6 overflow-y-auto custom-scrollbar">
-        {navGroups.map((group) => (
+        {navGroups.map((group) => {
+          const visibleItems = group.items.filter((item) => !item.roles || item.roles.includes(currentRole));
+          if (visibleItems.length === 0) return null;
+          return (
           <div key={group.title} className="space-y-1.5">
             <div className="px-3 text-[10px] font-bold text-[#666672] uppercase tracking-wider flex items-center gap-1.5">
               <span>{group.title}</span>
             </div>
             <div className="space-y-1">
-              {group.items.map((item) => {
+              {visibleItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = pathname === item.href || (item.href !== "/admin/dashboard" && pathname.startsWith(item.href));
                 return (
@@ -120,7 +133,8 @@ export default function AdminSidebar({ onClose }: { onClose?: () => void }) {
               })}
             </div>
           </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* User Profile & Sign Out Footer */}
