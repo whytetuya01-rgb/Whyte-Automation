@@ -3,7 +3,7 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation, QuotationRoom, QuotationItem } from "@/models";
 import type { QuotationAuditAction } from "@/models";
 import { withTransaction } from "@/lib/transaction";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { assignQuotationSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { calculateDealerEarning, customerDiscountError, resolveCustomerDiscountPercent } from "@/lib/dealerEarnings";
@@ -17,8 +17,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 /**
  * POST /api/quotations/[id]/assign   { dealerId: number | null }
  *
- * Assigns, reassigns or (dealerId = null) unassigns a quotation. Super Admin and
- * Admin only; dealers can never move a quotation, including their own.
+ * Assigns, reassigns or (dealerId = null) unassigns a quotation.
+ * Requires quotations:assign_dealer permission.
  *
  * `createdBy` / `createdAt` are never touched. `assignedBy` and `assignedOn` come
  * from the session and the server clock, never from the request body.
@@ -29,7 +29,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const session = await requireRole("super_admin", "admin");
+    const session = await requirePermission("quotations:assign_dealer");
     const userId = Number((session.user as { id?: string }).id);
 
     const { id } = await context.params;

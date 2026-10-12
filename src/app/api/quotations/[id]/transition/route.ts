@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { calculateDealerEarning, resolveCustomerDiscountPercent, toPlainNumber } from "@/lib/dealerEarnings";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
@@ -16,13 +16,13 @@ type RouteContext = { params: Promise<{ id: string }> };
 /**
  * POST /api/quotations/[id]/transition
  * Enforces the strict quotation lifecycle:
- *   - approve: Sent -> Approved (Super Admin or Admin)
- *   - reject:  Sent -> Rejected (Super Admin or Admin)
- *   - deliver: Approved -> Delivered (Super Admin or Admin)
+ *   - approve: Sent -> Approved (quotations:transition)
+ *   - reject:  Sent -> Rejected (quotations:transition)
+ *   - deliver: Approved -> Delivered (quotations:transition)
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const session = await requireRole("super_admin", "admin");
+    const session = await requirePermission("quotations:transition");
     const userId = Number((session.user as any).id);
 
     const { id } = await context.params;

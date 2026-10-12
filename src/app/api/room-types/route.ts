@@ -4,7 +4,7 @@ import { RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { ensureRoomTypesAndTemplatesSeeded } from "@/lib/seedRoomData";
-import { requireRole, requireSession } from "@/lib/api-auth";
+import { requirePermission, requireRole, requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createRoomTypeSchema } from "@/lib/validation/catalog";
 
@@ -29,8 +29,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    // Catalog master data writes are restricted to Super Admin / Admin.
-    await requireRole("super_admin", "admin");
+    // Creating room types requires spaces:manage permission.
+    await requirePermission("spaces:manage");
     await connectMongoDB();
 
     const input = createRoomTypeSchema.parse(await readJsonBody(req));

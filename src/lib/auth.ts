@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser } from "@/models";
 
-const ADMIN_PORTAL_ROLES = new Set(["super_admin", "admin"]);
+const ADMIN_PORTAL_ROLES = new Set(["super_admin", "admin", "configurable_admin"]);
 const USER_PORTAL_ROLES = new Set(["dealer"]);
 
 export const authOptions = {
@@ -42,6 +42,7 @@ export const authOptions = {
           email: user.email,
           name: user.name ?? user.email,
           role: user.role,
+          permissions: (user as any).permissions ?? [],
         };
       },
     }),
@@ -54,6 +55,7 @@ export const authOptions = {
       if (user) {
         token.role = (user as any).role;
         token.id = user.id;
+        token.permissions = (user as any).permissions ?? [];
       }
       return token;
     },
@@ -61,6 +63,7 @@ export const authOptions = {
       if (session.user) {
         (session.user as any).role = token.role;
         (session.user as any).id = token.id;
+        (session.user as any).permissions = token.permissions ?? [];
       }
       return session;
     },

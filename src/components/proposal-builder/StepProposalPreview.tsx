@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import {
@@ -8,6 +8,7 @@ import {
   Download,
   Share2,
   ArrowLeft,
+  AlertTriangle,
   Check,
   ShieldCheck,
   Sliders,
@@ -18,6 +19,7 @@ import {
   Globe,
   Building2,
   MapPin,
+  X,
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, Company } from "@/types";
 import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
@@ -463,7 +465,62 @@ export default function StepProposalPreview({
 }: Props) {
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [unavailableBannerDismissed, setUnavailableBannerDismissed] = useState(false);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // The proposal page is laid out against fixed pixel coordinates — a true
+  // 794x1123 A4-at-96dpi canvas (see the "cover" section below) — so it must
+  // NEVER be allowed to reflow at a narrower CSS width: letting it shrink to
+  // the viewport (the old `w-full` behavior) squeezed that fixed-coordinate
+  // layout into less space than it was built for, which is what produced the
+  // overlapping header/stats/price text on a phone screen. `zoom` (not
+  // `transform: scale`) shrinks it uniformly for on-screen display instead —
+  // every internal px value still relates to every other exactly as designed
+  // (nothing reflows or overlaps), and unlike a transform, the parent's layout
+  // box shrinks to match automatically, so no extra height bookkeeping is
+  // needed. PDF/print capture always resets this back to 1 first (see
+  // `handleDownloadPDF` and the `@media print` rule in globals.css), so the
+  // exported document is never downscaled just because it was generated from
+  // a small screen.
+  const pagesWrapperRef = useRef<HTMLDivElement | null>(null);
+  const [previewScale, setPreviewScale] = useState(1);
+  const PAGE_WIDTH_PX = 794;
+
+  useEffect(() => {
+    const el = pagesWrapperRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const updateScale = () => {
+      const available = el.clientWidth;
+      if (!available) return;
+      setPreviewScale(Math.min(1, available / PAGE_WIDTH_PX));
+    };
+    updateScale();
+    const ro = new ResizeObserver(updateScale);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // `onBackToEdit` is only ever passed when this step is rendered inside
+  // `ProposalBuilder` (step 5), which already shows its own top-level
+  // version of this same banner across every step — rendering a second
+  // copy here would just duplicate it. The standalone route
+  // (`/quotation/[id]/preview`, also the PDF/print target) renders this
+  // component with no parent banner, so it needs its own.
+  const isStandalonePreview = !onBackToEdit;
+  const isLockedForBanner = quotation.status === "approved" || quotation.status === "delivered";
+  const unavailableItemLabels = useMemo(() => {
+    const labels = new Set<string>();
+    for (const room of quotation.rooms ?? []) {
+      if (room.isUnavailable) {
+        labels.add(room.customName || room.roomType?.name || "A space in this quotation");
+        continue;
+      }
+      for (const item of room.items ?? []) {
+        if (item.isUnavailable) labels.add(item.product?.name || item.variantLabel || "A product in this quotation");
+      }
+    }
+    return [...labels];
+  }, [quotation.rooms]);
 
   const rawRooms = useMemo(() => quotation.rooms || [], [quotation.rooms]);
   const renderableRooms = useMemo(
@@ -591,6 +648,17 @@ export default function StepProposalPreview({
 
     setDownloading(true);
 
+    // The page is zoomed down for on-screen mobile display (see
+    // `previewScale` above). The export must always be captured at full,
+    // un-zoomed resolution — a PDF generated from a phone should look
+    // identical to one generated from a desktop, not a shrunk-down capture of
+    // whatever the current screen happened to fit. Reset every page's zoom to
+    // 1 before capturing, and restore it in `finally` no matter how capture
+    // goes, so a failed/cancelled download never leaves the on-screen preview
+    // stuck at full size.
+    const pagesToRestore = pageRefs.current.filter((el): el is HTMLDivElement => el !== null);
+    for (const el of pagesToRestore) el.style.zoom = "1";
+
     try {
       if (document.fonts?.ready) {
         await document.fonts.ready;
@@ -668,6 +736,7 @@ export default function StepProposalPreview({
         "Failed to generate PDF. You can also use the Print button to Save as PDF."
       );
     } finally {
+      for (const el of pagesToRestore) el.style.zoom = String(previewScale);
       setDownloading(false);
     }
   };
@@ -703,6 +772,39 @@ export default function StepProposalPreview({
 
   return (
     <div className="w-full">
+      {/* Unavailable-catalog-reference warning — only rendered here when this
+          component is NOT embedded in ProposalBuilder (which shows its own
+          copy already). Informational, dismissible per visit, re-appears on
+          the next load since nothing about it is persisted — see the
+          matching comment on `unavailableItemLabels` above. Hidden from the
+          actual exported PDF/print output, same as the header bar below. */}
+      {isStandalonePreview && unavailableItemLabels.length > 0 && !unavailableBannerDismissed && (
+        <div role="alert" className="max-w-3xl mx-auto mb-6 flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 print:hidden">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" aria-hidden="true" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">
+              {isLockedForBanner
+                ? "One or more products in this quotation are no longer available in the catalog."
+                : "One or more products in this quotation are no longer available."}
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5 break-words">
+              {isLockedForBanner
+                ? `This is informational only — the saved amounts on this ${quotation.status} quotation are unaffected. `
+                : "They have been excluded from the totals below. "}
+              {unavailableItemLabels.join(", ")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUnavailableBannerDismissed(true)}
+            className="shrink-0 p-1 rounded-lg hover:bg-amber-100 text-amber-600"
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Top Header & Action Bar (Hidden in Print) */}
       <div className="flex items-center justify-between gap-4 pb-4 mb-8 border-b border-gray-200 print:hidden">
         <div>
@@ -796,15 +898,15 @@ export default function StepProposalPreview({
           )}
         </div>
       ) : (
-        <div className="w-full flex flex-col items-center">
+        <div ref={pagesWrapperRef} className="w-full flex flex-col items-center">
           {proposalPages.map((page, pageIdx) => (
             <div
               key={page.pageNumber}
               ref={(el) => {
                 pageRefs.current[pageIdx] = el;
               }}
-              className="proposal-page bg-white w-full max-w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-12 mb-8 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
-              style={{ boxSizing: "border-box" }}
+              className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-12 mb-8 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
+              style={{ boxSizing: "border-box", zoom: previewScale }}
             >
               {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
                   behind all content. Never a status/DRAFT/DUPLICATE stamp: the document's

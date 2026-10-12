@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem, RoomType } from "@/models";
-import { requireSession } from "@/lib/api-auth";
+import { getAuthenticatedActor } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationRoomSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
@@ -13,9 +13,7 @@ type RouteContext = { params: Promise<{ id: string; roomId: string }> };
 /** Session required: editing and removing rooms are business operations. */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
 
     const { id, roomId } = await context.params;
     const quotationId = parseQuotationId(id);
@@ -23,14 +21,14 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status dealerId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
     if (quotation.status === "approved" || quotation.status === "delivered") {
       throw new ApiError("FORBIDDEN", `Quotation is ${quotation.status} and locked. Please clone it to make revisions.`);
     }
-    if (!canModifyQuotation(role, userId, quotation)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 
@@ -78,9 +76,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { session, role, userId, permissions } = await getAuthenticatedActor();
     const actor = actorFromSession(session);
 
     const { id, roomId } = await context.params;
@@ -89,14 +85,14 @@ export async function DELETE(_req: Request, context: RouteContext) {
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status dealerId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
     if (quotation.status === "approved" || quotation.status === "delivered") {
       throw new ApiError("FORBIDDEN", `Quotation is ${quotation.status} and locked. Please clone it to make revisions.`);
     }
-    if (!canModifyQuotation(role, userId, quotation)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 

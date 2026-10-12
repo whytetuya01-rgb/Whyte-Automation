@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationAuditEvent } from "@/models";
-import { requireSession } from "@/lib/api-auth";
+import { getAuthenticatedActor } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
 import { parseQuotationId } from "@/lib/validation/quotation";
 import { canViewQuotation } from "@/lib/quotationAccess";
@@ -17,9 +17,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as { id?: string }).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
 
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
@@ -29,7 +27,7 @@ export async function GET(_req: Request, context: RouteContext) {
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
-    if (!canViewQuotation(role, userId, quotation)) {
+    if (!canViewQuotation(role, userId, quotation, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
     }
 

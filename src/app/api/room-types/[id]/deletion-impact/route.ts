@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { RoomType } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { getRoomTypeDeletionImpact } from "@/lib/deletionImpact";
 
@@ -10,7 +10,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, context: RouteContext) {
   try {
     // Matches DELETE /api/room-types/[id], which is super_admin-only.
-    await requireRole("super_admin");
+    await requirePermission("spaces:hard_delete");
     await connectMongoDB();
     const roomTypeId = parseNumericId((await context.params).id, "room type id");
 

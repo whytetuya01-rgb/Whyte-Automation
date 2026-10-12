@@ -1,5 +1,5 @@
 import type { NextResponse } from "next/server";
-import { requireRole } from "@/lib/api-auth";
+import { requireAnyPermission } from "@/lib/api-auth";
 import {
   CloudinaryAuthError,
   CloudinaryConfigError,
@@ -98,8 +98,8 @@ function detectImageSignature(buffer: Buffer): string | null {
 
 export async function POST(req: Request) {
   try {
-    // Only the admin product catalog uploads images; restrict to Super Admin / Admin.
-    await requireRole("super_admin", "admin");
+    // Only administrators with catalog permissions may upload product images
+    await requireAnyPermission("catalog:create", "catalog:edit");
 
     let formData: FormData;
     try {
@@ -163,7 +163,7 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireRole("super_admin", "admin");
+    await requireAnyPermission("catalog:edit", "catalog:delete");
 
     const { publicId } = deleteUploadSchema.parse(await readJsonBody(req));
     // A publicId is caller-controlled: keep deletes inside the folder this

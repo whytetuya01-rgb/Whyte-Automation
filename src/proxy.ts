@@ -31,7 +31,7 @@ const PUBLIC_PAGES = ["/login", "/register", "/admin/login", "/admin/register"];
 const PUBLIC_API_PREFIX = "/api/auth";
 const PUBLIC_REGISTRATION_API = "/api/admin/register";
 const DEALER_LANDING_PAGE = "/dealer/access";
-const ADMIN_ROLES = new Set(["super_admin", "admin"]);
+const ADMIN_ROLES = new Set(["super_admin", "admin", "configurable_admin"]);
 
 function isPublicPage(pathname: string): boolean {
   return PUBLIC_PAGES.some((path) => pathname === path || pathname.startsWith(`${path}/`));
@@ -98,7 +98,7 @@ export async function proxy(request: NextRequest) {
     return redirectTo(request, "/login");
   }
 
-  if (role && ADMIN_ROLES.has(role)) {
+  if (role && (ADMIN_ROLES.has(role) || (role !== "dealer" && role !== "sales"))) {
     if (!isApiRequest(pathname) && !isAdminPage(pathname) && !isPublicPage(pathname) && !pathname.startsWith("/quotation/")) {
       return redirectTo(request, "/admin/dashboard");
     }

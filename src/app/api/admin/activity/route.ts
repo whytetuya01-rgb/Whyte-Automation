@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation, QuotationAuditEvent, QUOTATION_AUDIT_ACTIONS } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { apiSuccess, handleApiError } from "@/lib/api-response";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { parseSearchQueryParam, parseStringQueryParam } from "@/lib/validation/common";
@@ -26,7 +26,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   try {
-    await requireRole("super_admin");
+    await requirePermission("activity:view");
 
     const { searchParams } = new URL(req.url);
     const { skip, take, page, pageSize } = parsePaginationParams(searchParams, {

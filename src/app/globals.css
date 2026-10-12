@@ -402,6 +402,7 @@ table {
     margin: 0 !important;
     max-width: 100% !important;
     min-height: auto !important;
+    zoom: 1 !important;
     page-break-after: always;
     break-after: page;
   }

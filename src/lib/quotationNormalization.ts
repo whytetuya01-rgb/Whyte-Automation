@@ -198,11 +198,22 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
   // apart from "legacy row with no populated reference at all" (never flagged).
   const productIsDeleted = item.product?.isDeleted === true;
   const variantIsDeleted = item.productVariantId != null && item.productVariant?.isDeleted === true;
-  const isUnavailable = productIsDeleted || variantIsDeleted;
+  // `normalizeProduct`/the embedded variant summary below both drop `isDeleted`
+  // from their output (see the comment above), so re-normalizing an ALREADY
+  // normalized item (every client call site does this — the API response it
+  // fetches is itself a `normalizeQuotationItem` result) sees `item.product`/
+  // `item.productVariant` with no `isDeleted` to read anymore. Falling back to
+  // the item's own already-computed `isUnavailable`/`unavailableReason` makes
+  // this function idempotent — a `true` the server correctly derived from the
+  // raw populated document is never silently reset to `false` by a later pass
+  // that no longer has that raw data to look at.
+  const isUnavailable = productIsDeleted || variantIsDeleted || item.isUnavailable === true;
   const unavailableReason: "product" | "variant" | null = productIsDeleted
     ? "product"
     : variantIsDeleted
     ? "variant"
+    : item.unavailableReason === "product" || item.unavailableReason === "variant"
+    ? item.unavailableReason
     : null;
 
   const product = item.product ? normalizeProduct(item.product) : undefined;

@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation } from "@/models";
-import { requireSession } from "@/lib/api-auth";
+import { getAuthenticatedActor } from "@/lib/api-auth";
+import { hasPermission } from "@/lib/permissions";
 import { ApiError, handleApiError, parseNumericId } from "@/lib/api-response";
 import {
   calculateDealerEarning,
@@ -21,13 +22,11 @@ export const dynamic = "force-dynamic";
  * Scoping:
  * - Dealer role: always scoped strictly to their own authenticated session ID.
  *   Any client-supplied dealerId is ignored to guarantee IDOR protection.
- * - Super Admin / Admin: can pass ?dealerId=... to inspect earnings for a dealer.
+ * - Super Admin / Admin / Configurable Admin (with dealers:read): can pass ?dealerId=... to inspect earnings for a dealer.
  */
 export async function GET(req: Request) {
   try {
-    const session = await requireSession();
-    const callerId = Number((session.user as any).id);
-    const role = (session.user as { role?: string }).role;
+    const { session, role, userId: callerId, permissions } = await getAuthenticatedActor();
 
     const { searchParams } = new URL(req.url);
     const paramDealerId = searchParams.get("dealerId");
@@ -36,7 +35,11 @@ export async function GET(req: Request) {
 
     if (role === "dealer") {
       targetDealerId = callerId;
-    } else if (role === "super_admin" || role === "admin") {
+    } else if (
+      role === "super_admin" ||
+      role === "admin" ||
+      (role === "configurable_admin" && hasPermission("configurable_admin", permissions, "dealers:read"))
+    ) {
       if (paramDealerId) {
         targetDealerId = parseNumericId(paramDealerId, "dealerId");
       } else {
@@ -71,7 +74,7 @@ export async function GET(req: Request) {
       .sort({ createdAt: -1 })
       .lean();
 
-    const quoteIds = allQuotes.map((q) => String(q._id));
+    const quoteIds = (allQuotes as Array<{ _id: unknown }>).map((q) => String(q._id));
     // Approved/Delivered quotations keep their historical totals regardless
     // of any catalog deletion since; every other status excludes an
     // unavailable room/item from the sum. See `isProtectedQuotationStatus`.

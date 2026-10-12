@@ -5,6 +5,8 @@ import { Quotation, HouseType } from "@/models";
 import { dealerVisibilityFilter } from "@/lib/quotationAccess";
 import { getConfirmedEarningsForDealer } from "@/lib/dealerEarningsService";
 import { aggregateQuotationRoomTotals, isProtectedQuotationStatus, totalsForQuotation } from "@/lib/quotationTotals";
+import { getSessionActor } from "@/lib/sessionGuard";
+import { hasPermission } from "@/lib/permissions";
 import QuotationsListing, {
   QuotationRowData,
   QuotationSummaryMetrics,
@@ -81,6 +83,11 @@ export default async function HomePage(props: PageProps) {
       // Confirmed earnings: Approved + Delivered quotations assigned to this dealer,
       // calculated server-side from each quotation's allocation snapshot.
       dealerEarnings = await getConfirmedEarningsForDealer(userId);
+    } else if (userRole === "configurable_admin") {
+      const actor = await getSessionActor(userId, userRole);
+      if (!hasPermission("configurable_admin", actor?.permissions, "quotations:read_all")) {
+        filterQuery = { createdBy: String(userId) };
+      }
     }
 
     // Lightweight pass over EVERY matching quotation (not just the current

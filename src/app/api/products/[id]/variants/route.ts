@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Product, ProductVariant } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -13,6 +13,7 @@ import {
 import { bulkVariantUpdateSchema, addVariantSchema } from "@/lib/validation/product";
 import { findDuplicateVariantCode, serializeVariant } from "@/lib/productVariantService";
 import { addVariantToProduct } from "@/lib/variantMatrix";
+import { redactVariantForRole } from "@/lib/variantRedaction";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -23,9 +24,8 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
-    // Variant management (including raw cost/price rows) is Super Admin / Admin
-    // only. No dealer-facing screen calls this endpoint.
-    await requireRole("super_admin", "admin");
+    const session = await requirePermission("catalog:read");
+    const role = (session.user as { role?: string }).role;
 
     await connectMongoDB();
     const productId = parseNumericId(id, "id");
@@ -36,7 +36,11 @@ export async function GET(_req: Request, context: RouteContext) {
     }
 
     const variants = await ProductVariant.find({ productId }).sort({ sortOrder: 1, _id: 1 });
-    return NextResponse.json(variants.map((v) => serializeVariant(v.toObject())));
+    return NextResponse.json(
+      variants.map((v) =>
+        redactVariantForRole(serializeVariant(v.toObject()), role, session.permissions)
+      )
+    );
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products/[id]/variants" });
   }
@@ -57,7 +61,7 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    await requirePermission("catalog:edit");
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
@@ -114,7 +118,7 @@ export async function POST(req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    await requirePermission("catalog:edit");
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");

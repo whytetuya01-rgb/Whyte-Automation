@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { ApiError, handleApiError } from "@/lib/api-response";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { parseSearchQueryParam, parseStringQueryParam, parseIntQueryParam } from "@/lib/validation/common";
@@ -11,12 +11,11 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/admin/dealers
  * Lists dealers with quotation statistics and accumulated earnings.
- * Super Admin & Admin: see all dealers.
- * Dealer: 403 Forbidden.
+ * Super Admin, Admin, and Configurable Admins with dealers:read permission.
  */
 export async function GET(req: Request) {
   try {
-    await requireRole("super_admin", "admin");
+    await requirePermission("dealers:read");
 
     await connectMongoDB();
 

@@ -25,4 +25,5 @@ export {
 export { QuotationRoom, type IQuotationRoom, type IQuotationRoomDocument } from "./QuotationRoom";
 export { QuotationItem, type IQuotationItem, type IQuotationItemDocument } from "./QuotationItem";
 export { AdminUser, type IAdminUser, type IAdminUserDocument } from "./AdminUser";
+export { RoleDefinition, type IRoleDefinition, type IRoleDefinitionDocument } from "./RoleDefinition";
 export { createDecimalField } from "./helpers";

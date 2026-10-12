@@ -6,7 +6,8 @@ import { getNextSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
-import { requireSession } from "@/lib/api-auth";
+import { getAuthenticatedActor, requireSession } from "@/lib/api-auth";
+import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationSchema } from "@/lib/validation/quotation";
 import {
@@ -160,9 +161,7 @@ function withDerivedTotals(quotation: Record<string, unknown>): Record<string, u
 
 export async function GET(req: Request) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
 
     const { searchParams } = new URL(req.url);
     const isPaginated = searchParams.has("page") || searchParams.has("pageSize");
@@ -189,6 +188,19 @@ export async function GET(req: Request) {
       // Dealers see quotations assigned to them or created by them. Any creator /
       // dealer filters in the URL are ignored so they cannot widen this scope.
       filter.$or = dealerVisibilityFilter(userId).$or;
+    } else if (role === "configurable_admin") {
+      if (hasPermission("configurable_admin", permissions, "quotations:read_all")) {
+        const dealerIdParam = parseIntQueryParam(searchParams, "dealerId");
+        if (dealerIdParam !== undefined) filter.dealerId = dealerIdParam;
+
+        const createdByParam = parseIntQueryParam(searchParams, "createdBy", { min: 1 });
+        if (createdByParam !== undefined) filter.createdBy = String(createdByParam);
+
+        if (searchParams.get("mine") === "true") filter.createdBy = String(userId);
+      } else {
+        // Without quotations:read_all, configurable admin may only see quotations they created
+        filter.createdBy = String(userId);
+      }
     } else {
       // Super Admin & Admin can view all, optionally narrowed by assigned dealer or creator.
       const dealerIdParam = parseIntQueryParam(searchParams, "dealerId");
@@ -275,9 +287,12 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
+    if (role === "configurable_admin") {
+      if (!hasPermission("configurable_admin", permissions, "quotations:create")) {
+        throw new ApiError("FORBIDDEN", "You do not have permission to create quotations.");
+      }
+    }
 
     await connectMongoDB();
     const input = createQuotationSchema.parse(await readJsonBody(req));

@@ -2,22 +2,32 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem } from "@/models";
 import { getNextSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
-import { requireSession } from "@/lib/api-auth";
+import { getAuthenticatedActor } from "@/lib/api-auth";
+import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
 import { canViewQuotation } from "@/lib/quotationAccess";
 import { resolveNewQuotationOwnership } from "@/lib/quotationOwnership";
 import { dealerSnapshot, recordQuotationEvents } from "@/lib/quotationAudit";
 import { duplicateQuotationSchema, parseQuotationId } from "@/lib/validation/quotation";
 import type { DuplicateQuotationInput } from "@/lib/validation/quotation";
+import {
+  isItemUnavailable,
+  isRoomUnavailable,
+  type UnavailabilityCheckItem,
+  type UnavailabilityCheckRoom,
+} from "@/lib/quotationAvailability";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 /** Session required: duplicating a quotation is a business operation. */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
+    if (role === "configurable_admin") {
+      if (!hasPermission("configurable_admin", permissions, "quotations:create")) {
+        throw new ApiError("FORBIDDEN", "You do not have permission to create quotations.");
+      }
+    }
 
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
@@ -38,16 +48,30 @@ export async function POST(req: Request, context: RouteContext) {
       overrides = duplicateQuotationSchema.parse(parsedJson);
     }
 
+    // `isDeleted` (plus `name`, just for the skipped-items warning labels
+    // below) is the only addition to this populate — enough to apply the
+    // same shared availability rule (`@/lib/quotationAvailability`) a clone
+    // must never copy an unavailable item from, without duplicating that
+    // logic or querying anything this route didn't already need.
     const original = await Quotation.findById(quotationId).populate({
       path: "rooms",
-      populate: { path: "items" },
+      populate: [
+        { path: "roomType", select: "name isDeleted" },
+        {
+          path: "items",
+          populate: [
+            { path: "product", select: "name isDeleted" },
+            { path: "productVariant", select: "isDeleted" },
+          ],
+        },
+      ],
     });
 
     if (!original) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
 
-    if (!canViewQuotation(role, userId, original)) {
+    if (!canViewQuotation(role, userId, original, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to duplicate this quotation.");
     }
 
@@ -154,16 +178,44 @@ export async function POST(req: Request, context: RouteContext) {
 
       // Clone rooms and items. set includeRooms=false to copy the header only.
       if (overrides.includeRooms === false) {
-        return newQuotation;
+        return { newQuotation, skippedItems: [] as Array<{ label: string; reason: "product" | "variant" | "roomType" }> };
       }
 
       const rooms = Array.isArray(origDoc.rooms) ? origDoc.rooms : [];
-      const totalItems = rooms.reduce(
-        (sum: number, room: { items?: unknown[] }) => sum + (Array.isArray(room.items) ? room.items.length : 0),
-        0
-      );
+
+      // A clone is always a brand-new draft, so the "exclude an unavailable
+      // item" rule always applies here — regardless of the SOURCE
+      // quotation's own status (an Approved/Delivered source keeps its own
+      // historical items exactly as they are; this only decides what gets
+      // copied INTO the new draft). A room whose own room type is deleted
+      // is still cloned (so the floor/space layout is preserved) — only its
+      // items, now all unavailable by that same rule, are skipped.
+      type CloneRoom = UnavailabilityCheckRoom & { items?: unknown[] };
+      type CloneItem = UnavailabilityCheckItem &
+        Record<string, unknown> & { product?: { name?: string; isDeleted?: boolean } | null; variantLabel?: string | null };
+
+      const eligibleItemsByRoom = (rooms as CloneRoom[]).map((room) => {
+        const roomDown = isRoomUnavailable(room);
+        const items = (Array.isArray(room.items) ? room.items : []) as CloneItem[];
+        return items.filter((item) => !roomDown && !isItemUnavailable(item, room));
+      });
+      const skippedItems: Array<{ label: string; reason: "product" | "variant" | "roomType" }> = [];
+      (rooms as CloneRoom[]).forEach((room, roomIdx) => {
+        const roomDown = isRoomUnavailable(room);
+        const items = (Array.isArray(room.items) ? room.items : []) as CloneItem[];
+        const eligible = eligibleItemsByRoom[roomIdx];
+        for (const item of items) {
+          if (eligible.includes(item)) continue;
+          skippedItems.push({
+            label: item.product?.name ?? item.variantLabel ?? "Unknown product",
+            reason: roomDown ? "roomType" : item.product?.isDeleted ? "product" : "variant",
+          });
+        }
+      });
+
+      const totalEligibleItems = eligibleItemsByRoom.reduce((sum, items) => sum + items.length, 0);
       const roomIds = await reserveSequenceBlock("quotationRoom", rooms.length, QuotationRoom, dbSession);
-      const itemIds = await reserveSequenceBlock("quotationItem", totalItems, QuotationItem, dbSession);
+      const itemIds = await reserveSequenceBlock("quotationItem", totalEligibleItems, QuotationItem, dbSession);
       let itemIdCursor = 0;
 
       for (let roomIdx = 0; roomIdx < rooms.length; roomIdx++) {
@@ -185,7 +237,7 @@ export async function POST(req: Request, context: RouteContext) {
           await newRoom.save();
         }
 
-        const items = Array.isArray(room.items) ? room.items : [];
+        const items = eligibleItemsByRoom[roomIdx];
         const itemsToCreate = [];
         for (const item of items) {
           const nextItemId = itemIds[itemIdCursor++];
@@ -216,10 +268,16 @@ export async function POST(req: Request, context: RouteContext) {
         }
       }
 
-      return newQuotation;
+      return { newQuotation, skippedItems };
     });
 
-    return apiSuccess(duplicatedQuotation, { status: 201 });
+    const { newQuotation, skippedItems } = duplicatedQuotation;
+    const quotationJson = typeof newQuotation.toJSON === "function" ? newQuotation.toJSON() : newQuotation;
+    // `skippedItems` rides along on the same response the client already
+    // reads `id`/`_id` from — no separate endpoint, no fake quotation item
+    // created just to carry this message. See `QuotationsListing.tsx`'s
+    // duplicate handler and `ProposalBuilder.tsx` for where it is surfaced.
+    return apiSuccess({ ...quotationJson, skippedItems }, { status: 201 });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/duplicate" });
   }

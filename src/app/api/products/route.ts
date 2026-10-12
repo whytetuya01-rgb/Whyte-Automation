@@ -6,7 +6,9 @@ import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { getCategoryVariantMatrix } from "@/lib/categoryConfig";
-import { requireRole, requireSession } from "@/lib/api-auth";
+import { requirePermission, requireSession } from "@/lib/api-auth";
+import { getSessionActor } from "@/lib/sessionGuard";
+import { hasPermission } from "@/lib/permissions";
 import {
   ApiError,
   apiSuccess,
@@ -28,14 +30,14 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/products
  * Query params:
- *   ?page=1&pageSize=10  â†’ enables server-side database pagination
- *   ?search=...          â†’ database search across name, code, description
- *   ?type=...            â†’ filter by product type
- *   ?status=active|inactive|all â†’ filter by active status
- *   ?category=...        â†’ filter by category ID
- *   ?sort=...            â†’ database ordering
- *   ?all=true            â†’ returns all products (admin only)
- *   Default              â†’ returns only active products (estimator)
+ *   ?page=1&pageSize=10  → enables server-side database pagination
+ *   ?search=...          → database search across name, code, description
+ *   ?type=...            → filter by product type
+ *   ?status=active|inactive|all → filter by active status
+ *   ?category=...        → filter by category ID
+ *   ?sort=...            → database ordering
+ *   ?all=true            → returns all products (admin only)
+ *   Default              → returns only active products (estimator)
  * Includes variants[] for each product.
  */
 function escapeRegex(str: string): string {
@@ -54,18 +56,29 @@ async function getCategoryAndDescendantIds(catId: number): Promise<number[]> {
 
 export async function GET(req: Request) {
   // Every product read is business data, so the whole endpoint requires a
-  // session. `?all=true` no longer needs its own check because the default
-  // (active products) is authenticated too.
+  // session. `?all=true` requires catalog:read capability for configurable admins.
   let callerRole: string | undefined;
+  let callerPermissions: string[] | undefined;
   try {
     const session = await requireSession();
     callerRole = (session.user as { role?: string }).role;
+    const userId = Number((session.user as { id?: string }).id);
+    const actor = await getSessionActor(userId, callerRole!);
+    callerPermissions = actor?.permissions;
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products" });
   }
 
   const { searchParams } = new URL(req.url);
   const showAll = searchParams.get("all") === "true";
+  if (showAll && callerRole === "configurable_admin") {
+    if (!hasPermission("configurable_admin", callerPermissions, "catalog:read")) {
+      return handleApiError(
+        new ApiError("FORBIDDEN", "You do not have permission to view the full product catalog."),
+        { logPrefix: "GET /api/products" }
+      );
+    }
+  }
   const isPaginated = searchParams.has("page") || searchParams.has("pageSize");
 
   const searchParam = searchParams.get("search")?.trim();
@@ -266,7 +279,7 @@ export async function GET(req: Request) {
         Category.countDocuments({ isActive: true }),
       ]);
 
-      const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole);
+      const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole, callerPermissions);
 
       const paginatedRes = createPaginatedResponse(products, total, paginationParams);
       return NextResponse.json({
@@ -285,7 +298,7 @@ export async function GET(req: Request) {
       .populate(populateOptions)
       .lean({ virtuals: true, getters: true });
 
-    const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole);
+    const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole, callerPermissions);
 
     return NextResponse.json(products);
   } catch (error) {
@@ -309,9 +322,8 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    // Catalog writes are restricted to Super Admin / Admin. A dealer session
-    // must never be able to create products, even by calling this API directly.
-    await requireRole("super_admin", "admin");
+    // Catalog writes are restricted via catalog:create capability.
+    await requirePermission("catalog:create");
 
     await connectMongoDB();
 

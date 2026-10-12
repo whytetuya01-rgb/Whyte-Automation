@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
+import { invalidateSessionActor } from "@/lib/sessionGuard";
 import { z } from "zod";
 import { mobileSchema, optionalEmailSchema, optionalGstinSchema } from "@/lib/validation/fields";
 
@@ -27,7 +28,7 @@ const patchDealerSchema = z.object({
 
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    await requirePermission("dealers:read");
 
     const { id: rawId } = await context.params;
     const dealerId = parseNumericId(rawId);
@@ -89,7 +90,7 @@ export async function GET(_req: Request, context: RouteContext) {
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    const session = await requireRole("super_admin", "admin");
+    const session = await requirePermission("dealers:manage");
     const role = (session.user as { role?: string }).role;
     const userId = Number((session.user as any).id);
     const callerName = session.user?.name ?? session.user?.email ?? "User";
@@ -143,6 +144,8 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (body.address !== undefined) dealer.address = body.address;
 
     await dealer.save();
+
+    invalidateSessionActor(dealerId);
 
     const userObj = typeof dealer.toJSON === "function" ? dealer.toJSON() : dealer;
     delete (userObj as any).passwordHash;

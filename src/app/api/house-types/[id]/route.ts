@@ -3,7 +3,7 @@ import { HouseType, HouseTypeRoomTemplate, RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission, requireRole } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { updateHouseTypeSchema } from "@/lib/validation/catalog";
 import { actorFromSession } from "@/lib/softDelete/actor";
@@ -13,7 +13,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    await requirePermission("spaces:manage");
     const { id } = await context.params;
     const houseTypeId = parseNumericId(id, "id");
 
@@ -93,7 +93,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    const session = await requireRole("super_admin");
+    const session = await requirePermission("spaces:hard_delete");
     const actor = actorFromSession(session);
     const { id } = await context.params;
     const houseTypeId = parseNumericId(id, "id");

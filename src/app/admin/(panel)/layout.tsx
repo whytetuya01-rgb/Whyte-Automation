@@ -6,14 +6,12 @@ import SiteFooter from "@/components/shared/SiteFooter";
 import { getFooterCompany } from "@/lib/footerCompany";
 import { isSessionActorStillValid } from "@/lib/sessionGuard";
 
-const ADMIN_ROLES = new Set(["super_admin", "admin"]);
-
 export default async function AdminPanelLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/admin/login");
   const role = (session.user as { role?: string }).role;
   if (role === "dealer" || role === "sales") redirect("/");
-  if (!role || !ADMIN_ROLES.has(role)) redirect("/admin/login");
+  if (!role) redirect("/admin/login");
 
   // Revalidate (short TTL cache) that this account is still real, active and
   // the same role, so a deactivated admin's existing session stops working

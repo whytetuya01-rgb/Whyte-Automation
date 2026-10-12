@@ -1,7 +1,8 @@
 import { connectMongoDB } from "@/lib/mongodb";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { loadProductVariantMatrix } from "@/lib/variantMatrix";
+import { isPrivilegedRole } from "@/lib/variantRedaction";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -20,14 +21,23 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    // Admin-only screen (Edit Variants). Also returns cost/purchaseTaxPercent
-    // via the matrix snapshot, which must never reach a dealer session.
-    await requireRole("super_admin", "admin");
+    const session = await requirePermission("catalog:read");
+    const role = (session.user as { role?: string }).role;
+    const canViewCost = isPrivilegedRole(role, session.permissions);
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
 
     const matrix = await loadProductVariantMatrix(productId);
+
+    const rows = canViewCost
+      ? matrix.snapshot.rows
+      : matrix.snapshot.rows.map((r: any) => {
+          const sanitized = { ...r };
+          delete sanitized.cost;
+          delete sanitized.purchaseTaxPercent;
+          return sanitized;
+        });
 
     return apiSuccess({
       productId: matrix.productId,
@@ -37,7 +47,7 @@ export async function GET(_req: Request, context: RouteContext) {
       categoryName: matrix.categoryName,
       hasMatrix: matrix.hasMatrix,
       summary: matrix.snapshot.summary,
-      rows: matrix.snapshot.rows,
+      rows,
       unsupportedVariants: matrix.snapshot.unsupportedVariants,
     });
   } catch (error) {

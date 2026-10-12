@@ -5,7 +5,7 @@ import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { ensureRoomTypesAndTemplatesSeeded } from "@/lib/seedRoomData";
-import { requireRole, requireSession } from "@/lib/api-auth";
+import { requirePermission, requireRole, requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createHouseTypeSchema } from "@/lib/validation/catalog";
 import type { CreateHouseTypeInput } from "@/lib/validation/catalog";
@@ -70,8 +70,8 @@ async function resolveRoomTemplateIds(
 
 export async function POST(req: Request) {
   try {
-    // Catalog master data writes are restricted to Super Admin / Admin.
-    await requireRole("super_admin", "admin");
+    // Creating house types requires spaces:manage permission.
+    await requirePermission("spaces:manage");
     await connectMongoDB();
 
     const input: CreateHouseTypeInput = createHouseTypeSchema.parse(await readJsonBody(req));

@@ -3,7 +3,8 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Product, ProductVariant, ProductVariantHistory, Category } from "@/models";
 import { withTransaction } from "@/lib/transaction";
 import { getNextSequence } from "@/lib/counter";
-import { requireRole, requireSession } from "@/lib/api-auth";
+import { requirePermission, requireSession } from "@/lib/api-auth";
+import { getSessionActor } from "@/lib/sessionGuard";
 import {
   ApiError,
   apiSuccess,
@@ -24,6 +25,8 @@ export async function GET(_req: Request, context: RouteContext) {
   try {
     const session = await requireSession();
     const role = (session.user as { role?: string }).role;
+    const userId = Number((session.user as { id?: string }).id);
+    const actor = await getSessionActor(userId, role!);
 
     await connectMongoDB();
     const productId = parseNumericId(id, "product id");
@@ -45,7 +48,7 @@ export async function GET(_req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Product not found.");
     }
     const normalized = normalizeProduct(product.toObject ? product.toObject() : product);
-    return NextResponse.json(redactProductForRole(normalized, role));
+    return NextResponse.json(redactProductForRole(normalized, role, actor?.permissions));
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products/[id]" });
   }
@@ -54,14 +57,14 @@ export async function GET(_req: Request, context: RouteContext) {
 /**
  * PATCH /api/products/[id]
  *
- * Strictly whitelisted partial update. `variants` is NOT accepted here Ã¢â‚¬â€ the
+ * Strictly whitelisted partial update. `variants` is NOT accepted here — the
  * variant matrix is owned by the dedicated variant endpoints, so a product
  * update can never silently wipe or re-create variants.
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    // Catalog writes are restricted to Super Admin / Admin.
-    await requireRole("super_admin", "admin");
+    // Catalog writes are restricted via catalog:edit capability.
+    await requirePermission("catalog:edit");
 
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
@@ -188,9 +191,8 @@ export async function PATCH(req: Request, context: RouteContext) {
  */
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    // Catalog writes are restricted to Super Admin / Admin. The session is
-    // also kept so the soft-delete audit field records the actor.
-    const authSession = await requireRole("super_admin", "admin");
+    // Soft-deleting products is guarded by catalog:delete capability.
+    const authSession = await requirePermission("catalog:delete");
     const actor = actorFromSession(authSession);
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");

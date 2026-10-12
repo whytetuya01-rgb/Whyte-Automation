@@ -1,5 +1,7 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser } from "@/models";
+import { getRolePermissions } from "@/lib/roleService";
+import { SUPER_ADMIN_PERMISSIONS } from "@/lib/permissions";
 
 /**
  * Revalidates that the JWT's claimed identity is still a real, active,
@@ -40,16 +42,19 @@ function resolveCacheTtlMs(): number {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 30_000;
 }
 
-interface CacheEntry {
+export interface SessionActorData {
   valid: boolean;
+  role?: string;
+  isActive?: boolean;
+  permissions: string[];
   expiresAt: number;
 }
 
 declare global {
-  var sessionActorCache: Map<string, CacheEntry> | undefined;
+  var sessionActorCache: Map<string, SessionActorData> | undefined;
 }
 
-function getCache(): Map<string, CacheEntry> {
+function getCache(): Map<string, SessionActorData> {
   if (!global.sessionActorCache) {
     global.sessionActorCache = new Map();
   }
@@ -61,38 +66,91 @@ function cacheKey(userId: number, role: string): string {
 }
 
 /**
- * Returns true when `userId` is a real AdminUser document, `isActive` is not
- * `false`, and its stored `role` equals `tokenRole`. Cached for `CACHE_TTL_MS`
- * per (userId, tokenRole) pair so a deactivation or role change is honoured
- * within that window, without adding a DB round trip to every request.
+ * Retrieves verified, cached session actor details including fresh permissions.
+ *
+ * Ensures revoked permissions or deactivations are enforced within the TTL window
+ * without trusting stale client-supplied values.
  */
-export async function isSessionActorStillValid(userId: number, tokenRole: string): Promise<boolean> {
-  if (!Number.isInteger(userId) || userId <= 0 || !tokenRole) return false;
+export async function getSessionActor(userId: number, tokenRole: string): Promise<SessionActorData | null> {
+  if (!Number.isInteger(userId) || userId <= 0 || !tokenRole) return null;
 
   const cache = getCache();
   const key = cacheKey(userId, tokenRole);
   const cached = cache.get(key);
   const now = Date.now();
   if (cached && cached.expiresAt > now) {
-    return cached.valid;
+    return cached;
   }
 
-  let valid: boolean;
+  let data: SessionActorData;
   try {
     await connectMongoDB();
-    const user = await AdminUser.findById(userId).select("isActive role").lean();
-    valid = Boolean(user) && user!.isActive !== false && user!.role === tokenRole;
+    const user = await AdminUser.findById(userId).select("isActive role permissions").lean();
+    const userRole = user?.role ? user.role.trim().toLowerCase() : "";
+    const normTokenRole = tokenRole ? tokenRole.trim().toLowerCase() : "";
+    const valid = Boolean(user) && user!.isActive !== false && userRole === normTokenRole;
+
+    let permissions: string[] = [];
+    if (valid && userRole) {
+      if (userRole === "super_admin") {
+        permissions = Array.from(SUPER_ADMIN_PERMISSIONS);
+      } else if (userRole === "configurable_admin") {
+        permissions = Array.isArray(user?.permissions) ? (user.permissions as string[]) : [];
+      } else {
+        permissions = await getRolePermissions(userRole);
+      }
+    }
+
+    data = {
+      valid,
+      role: user?.role,
+      isActive: user?.isActive,
+      permissions,
+      expiresAt: now + resolveCacheTtlMs(),
+    };
   } catch (error) {
-    // Fail-open: a DB hiccup must not look identical to "deactivated".
-    console.error("[sessionGuard] isSessionActorStillValid DB check failed; failing open:", error);
-    valid = true;
+    // Fail-open: a DB hiccup must not lock out active users.
+    console.error("[sessionGuard] getSessionActor DB check failed; failing open:", error);
+    data = {
+      valid: true,
+      role: tokenRole,
+      isActive: true,
+      permissions: [],
+      expiresAt: now + resolveCacheTtlMs(),
+    };
   }
 
-  cache.set(key, { valid, expiresAt: now + resolveCacheTtlMs() });
-  return valid;
+  cache.set(key, data);
+  return data;
+}
+
+/**
+ * Returns true when `userId` is a real AdminUser document, `isActive` is not
+ * `false`, and its stored `role` equals `tokenRole`. Cached for `CACHE_TTL_MS`.
+ */
+export async function isSessionActorStillValid(userId: number, tokenRole: string): Promise<boolean> {
+  const actor = await getSessionActor(userId, tokenRole);
+  return actor ? actor.valid : false;
+}
+
+/** Invalidates in-memory cache for a user whose permissions or role just changed. */
+export function invalidateSessionActor(userId: number): void {
+  const cache = getCache();
+  const prefix = `${userId}:`;
+  for (const key of Array.from(cache.keys())) {
+    if (key.startsWith(prefix)) {
+      cache.delete(key);
+    }
+  }
+}
+
+/** Invalidates the entire in-memory session actor cache for all users (e.g. after role permissions change). */
+export function invalidateAllSessionActors(): void {
+  getCache().clear();
 }
 
 /** Test-only escape hatch: clears the in-process cache between test cases. */
 export function clearSessionActorCacheForTests(): void {
   getCache().clear();
 }
+

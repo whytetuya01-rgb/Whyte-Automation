@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { ProductVariant } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -15,15 +15,16 @@ import { findDuplicateVariantCode, serializeVariant } from "@/lib/productVariant
 import { resolveVariantPricing } from "@/lib/pricing";
 import { softDeleteVariant, syncProductPriceFromVariants } from "@/lib/variantDeletion";
 import { actorFromSession } from "@/lib/softDelete/actor";
+import { redactVariantForRole } from "@/lib/variantRedaction";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-/** GET /api/product-variants/[id] Ã¢â‚¬â€ success shape intentionally unchanged. */
+/** GET /api/product-variants/[id] — success shape intentionally unchanged. */
 export async function GET(_req: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
-    // Admin-only; no dealer-facing screen calls this and it returns cost fields.
-    await requireRole("super_admin", "admin");
+    const session = await requirePermission("catalog:read");
+    const role = (session.user as { role?: string }).role;
 
     await connectMongoDB();
     const variantId = parseNumericId(id, "id");
@@ -33,7 +34,9 @@ export async function GET(_req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Variant not found.");
     }
 
-    return NextResponse.json(serializeVariant(variant.toObject()));
+    return NextResponse.json(
+      redactVariantForRole(serializeVariant(variant.toObject()), role, session.permissions)
+    );
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/product-variants/[id]" });
   }
@@ -48,7 +51,7 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    await requirePermission("catalog:edit");
 
     await connectMongoDB();
     const variantId = parseNumericId((await context.params).id, "variant id");
@@ -164,9 +167,7 @@ export async function PATCH(req: Request, context: RouteContext) {
  */
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    // Variant deletion is Super Admin / Admin only. The session is also kept
-    // so the delete audit field records the actor.
-    const authSession = await requireRole("super_admin", "admin");
+    const authSession = await requirePermission("catalog:delete");
     const actor = actorFromSession(authSession);
     await connectMongoDB();
     const variantId = parseNumericId((await context.params).id, "variant id");

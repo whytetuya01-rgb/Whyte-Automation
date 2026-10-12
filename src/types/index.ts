@@ -7,7 +7,7 @@ export interface VariantOption {
 }
 export type QuotationStatus = "draft" | "sent" | "approved" | "rejected" | "delivered";
 export type DiscountType = "percentage" | "fixed" | "none";
-export type AdminRole = "super_admin" | "admin" | "dealer";
+export type AdminRole = "super_admin" | "admin" | "dealer" | "configurable_admin" | (string & {});
 
 export interface Category {
   id: number;

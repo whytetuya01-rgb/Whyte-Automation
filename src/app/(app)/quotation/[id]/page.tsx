@@ -16,6 +16,7 @@ import { attachQuotationActors } from "@/lib/quotationActors";
 import { canViewQuotation } from "@/lib/quotationAccess";
 import { getEditorCatalog } from "@/lib/editorCatalog";
 import { redactQuotationForRole } from "@/lib/variantRedaction";
+import { getSessionActor } from "@/lib/sessionGuard";
 
 export const dynamic = "force-dynamic";
 
@@ -98,9 +99,11 @@ export default async function QuotationPage(props: PageProps) {
 
   const userRole = (session.user as any)?.role;
   const userId = Number((session.user as any)?.id);
+  const actor = await getSessionActor(userId, userRole);
+  const permissions = actor?.permissions ?? [];
 
-  // IDOR Protection: Dealer can only view and edit their own quotations
-  if (!canViewQuotation(userRole, userId, qDoc)) {
+  // IDOR Protection: Dealer can only view their own quotations; Configurable admin requires quotations:read_all or ownership
+  if (!canViewQuotation(userRole, userId, qDoc, permissions)) {
     notFound();
   }
 
@@ -108,7 +111,8 @@ export default async function QuotationPage(props: PageProps) {
   const [qDocWithActors] = await attachQuotationActors([qDoc]);
   const quotation = redactQuotationForRole(
     serializeQuotationForClient(normalizeQuotation(JSON.parse(JSON.stringify(qDocWithActors)))),
-    userRole
+    userRole,
+    permissions
   );
   const houseTypes = normalizeHouseTypes(JSON.parse(JSON.stringify(htDocs)));
   // `products` never carries internal margin fields (cost / purchaseTaxPercent):

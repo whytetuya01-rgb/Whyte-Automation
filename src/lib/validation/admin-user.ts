@@ -1,13 +1,12 @@
 import { z } from "zod";
 import {
   booleanField,
-  intField,
   nameField,
-  numericIdSchema,
   optionalText,
   requiredText,
   strictObject,
 } from "@/lib/validation/common";
+
 import {
   emailSchema,
   gstinSchema,
@@ -17,7 +16,25 @@ import {
   optionalMobileSchema,
 } from "@/lib/validation/fields";
 
-export const adminRoleEnum = z.enum(["super_admin", "admin", "dealer"]);
+import { ALL_PERMISSIONS, SUPER_ADMIN_EXCLUSIVE_PERMISSIONS } from "@/lib/permissions";
+
+export const adminRoleEnum = z
+  .string()
+  .trim()
+  .min(2, "Role key must be at least 2 characters.")
+  .max(50, "Role key cannot exceed 50 characters.")
+  .regex(/^[a-z0-9_-]+$/i, "Role key must contain only letters, numbers, hyphens, and underscores.")
+  .refine((role) => role.toLowerCase() !== "sales", "The 'sales' role is deprecated and cannot be assigned.");
+
+export const permissionEnum = z.enum(ALL_PERMISSIONS);
+
+export const configurablePermissionSchema = z
+  .array(permissionEnum)
+  .default([])
+  .refine(
+    (perms) => !perms.some((p) => SUPER_ADMIN_EXCLUSIVE_PERMISSIONS.has(p)),
+    "Configurable admins cannot be granted Super Admin-exclusive permissions."
+  );
 
 export const createUserSchema = strictObject({
   firstName: nameField(60, "First name is required."),
@@ -37,13 +54,14 @@ export const createUserSchema = strictObject({
     .max(100, "Discount cannot exceed 100%.")
     .optional()
     .default(0),
+  permissions: configurablePermissionSchema.optional(),
 });
 
 export const updateUserSchema = strictObject({
   firstName: nameField(60, "First name is required.").optional(),
   lastName: nameField(60, "Last name is required.").optional(),
   role: adminRoleEnum.optional(),
-  isActive: booleanField,
+  isActive: booleanField.optional(),
   gstNumber: optionalGstinSchema,
   contactNumber: optionalMobileSchema,
   address: optionalText(500).optional(),
@@ -57,7 +75,9 @@ export const updateUserSchema = strictObject({
     .min(0, "Discount cannot be less than 0%.")
     .max(100, "Discount cannot exceed 100%.")
     .optional(),
+  permissions: configurablePermissionSchema.optional(),
 });
+
 
 export const updateDealerDiscountSchema = strictObject({
   discountAllocationPercent: z

@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Product } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { getProductDeletionImpact } from "@/lib/deletionImpact";
 
@@ -16,7 +16,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    await requirePermission("catalog:delete");
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
 

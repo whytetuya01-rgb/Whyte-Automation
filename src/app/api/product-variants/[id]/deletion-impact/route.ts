@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { ProductVariant } from "@/models";
-import { requireRole } from "@/lib/api-auth";
+import { requirePermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { getVariantDeletionImpact } from "@/lib/deletionImpact";
 
@@ -9,7 +9,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 /** GET /api/product-variants/[id]/deletion-impact — read-only preview, see products/[id]/deletion-impact. */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    await requirePermission("catalog:delete");
     await connectMongoDB();
     const variantId = parseNumericId((await context.params).id, "variant id");
 

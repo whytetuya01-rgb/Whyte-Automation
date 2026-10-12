@@ -2,7 +2,7 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
 import { isBathroomLikeRoomName } from "@/lib/utils";
-import { requireSession } from "@/lib/api-auth";
+import { getAuthenticatedActor } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationRoomSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
@@ -13,15 +13,13 @@ type RouteContext = { params: Promise<{ id: string }> };
 /** Session required: adding rooms to a quotation is a business operation. */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
 
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
 
     await connectMongoDB();
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status dealerId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
@@ -33,7 +31,7 @@ export async function POST(req: Request, context: RouteContext) {
       );
     }
 
-    if (!canModifyQuotation(role, userId, quotation)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 

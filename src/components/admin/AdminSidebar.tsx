@@ -12,6 +12,7 @@ import {
   LogOut,
   Store,
   Activity,
+  ShieldCheck,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -30,7 +31,7 @@ interface NavGroup {
     label: string;
     icon: React.ElementType;
     /** Omit to show to every admin-panel role; set to restrict to specific roles. */
-    roles?: Array<"super_admin" | "admin">;
+    roles?: Array<"super_admin" | "admin" | "configurable_admin">;
   }[];
 }
 
@@ -61,6 +62,7 @@ const navGroups: NavGroup[] = [
     title: "OVERSIGHT",
     items: [
       { href: "/admin/activity", label: "Activity Log", icon: Activity, roles: ["super_admin"] },
+      { href: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheck, roles: ["super_admin"] },
     ],
   },
   {
@@ -112,8 +114,9 @@ export default function AdminSidebar({
 
   const userName = session?.user?.name || "Administrator";
   const userEmail = session?.user?.email || "";
-  const currentRole = (session?.user as { role?: string })?.role === "super_admin" ? "super_admin" : "admin";
-  const userRole = currentRole === "super_admin" ? "Super Admin" : "Admin";
+  const rawRole = (session?.user as { role?: string })?.role;
+  const currentRole = rawRole === "super_admin" ? "super_admin" : rawRole === "configurable_admin" ? "configurable_admin" : "admin";
+  const userRole = currentRole === "super_admin" ? "Super Admin" : currentRole === "configurable_admin" ? "Configurable Admin" : "Admin";
 
   // Entrance plays once per mount — the sidebar lives in the persistent panel
   // layout, so route changes never replay it. A group title shares its first

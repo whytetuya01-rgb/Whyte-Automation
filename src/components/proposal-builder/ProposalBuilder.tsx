@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { ArrowLeft, Check, Clock, Home, Save } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Clock, Home, Save, X } from "lucide-react";
 import {
   Quotation,
   EditorCatalogProduct,
@@ -74,6 +74,17 @@ export default function ProposalBuilder({
     parsedStep >= 1 && parsedStep <= 5 ? parsedStep : 1
   );
 
+  // Products skipped while cloning this quotation (unavailable — soft-deleted
+  // product/variant/room type) — carried here via a query param on the
+  // redirect after duplicating (see `QuotationsListing.tsx`), never written
+  // to the database just to display this banner. Dismissible, shown once.
+  const skippedParam = searchParams.get("skipped");
+  const skippedLabels = useMemo(
+    () => (skippedParam ? skippedParam.split(",").filter(Boolean) : []),
+    [skippedParam]
+  );
+  const [skippedBannerDismissed, setSkippedBannerDismissed] = useState(false);
+
   // Core Data States
   const [quotation, setQuotation] = useState<Quotation | null>(
     initialQuotation ? normalizeQuotation(initialQuotation) : null
@@ -104,6 +115,31 @@ export default function ProposalBuilder({
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
 
   const quotationId = quotation?.id;
+  const isQuotationLocked = quotation?.status === "approved" || quotation?.status === "delivered";
+
+  // Catalog-driven unavailability (a referenced product/variant/room type
+  // has since been soft-deleted) — computed server-side on every GET
+  // (`normalizeQuotation`/`normalizeQuotationItem`/`normalizeQuotationRoom`
+  // in `@/lib/quotationNormalization`, using the same `quotationAvailability.ts`
+  // predicates everywhere else). This banner is purely informational: it
+  // never triggers a write, and for an Approved/Delivered quotation the
+  // wording makes clear the saved totals are untouched (see the `isLocked`
+  // suppression already in place on the per-item/per-room indicators below,
+  // which still apply only to the non-locked wording).
+  const [unavailableBannerDismissed, setUnavailableBannerDismissed] = useState(false);
+  const unavailableItemLabels = useMemo(() => {
+    const labels = new Set<string>();
+    for (const room of quotation?.rooms ?? []) {
+      if (room.isUnavailable) {
+        labels.add(room.customName || room.roomType?.name || "A space in this quotation");
+        continue;
+      }
+      for (const item of room.items ?? []) {
+        if (item.isUnavailable) labels.add(item.product?.name || item.variantLabel || "A product in this quotation");
+      }
+    }
+    return [...labels];
+  }, [quotation?.rooms]);
 
   // Browser Back/Forward navigation synchronization
   useEffect(() => {
@@ -763,6 +799,58 @@ export default function ProposalBuilder({
 
   return (
     <div className="space-y-6 pb-20">
+      {/* Skipped-on-clone warning — shown once, right at the top of the new quotation */}
+      {skippedLabels.length > 0 && !skippedBannerDismissed && (
+        <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" aria-hidden="true" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">
+              Some products were skipped because they are no longer available.
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5 break-words">{skippedLabels.join(", ")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSkippedBannerDismissed(true)}
+            className="shrink-0 p-1 rounded-lg hover:bg-amber-100 text-amber-600"
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
+      {/* Unavailable-catalog-reference warning — reappears on every load
+          for as long as the underlying product/variant/room type stays
+          soft-deleted (it is derived, never stored, so there is nothing to
+          "persist" about the warning itself — only dismissible per-visit). */}
+      {unavailableItemLabels.length > 0 && !unavailableBannerDismissed && (
+        <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" aria-hidden="true" />
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold">
+              {isQuotationLocked
+                ? "One or more products in this quotation are no longer available in the catalog."
+                : "One or more products in this quotation are no longer available."}
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5 break-words">
+              {isQuotationLocked
+                ? `This is informational only — the saved amounts on this ${quotation?.status} quotation are unaffected. `
+                : "They have been excluded from the totals below. "}
+              {unavailableItemLabels.join(", ")}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setUnavailableBannerDismissed(true)}
+            className="shrink-0 p-1 rounded-lg hover:bg-amber-100 text-amber-600"
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {/* Top Header / Status Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
         <div className="flex items-center gap-3 min-w-0">

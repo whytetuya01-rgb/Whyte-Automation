@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem, HouseType } from "@/models";
 import { isBathroomLikeRoomName } from "@/lib/utils";
-import { requireSession } from "@/lib/api-auth";
+import { getAuthenticatedActor, requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationSchema } from "@/lib/validation/quotation";
 
@@ -13,7 +13,7 @@ import { calculateDealerEarning, customerDiscountError, toPlainNumber } from "@/
 import { eligibleSubtotalFromRooms } from "@/lib/quotationTotals";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
-import { canModifyQuotation, canViewQuotation } from "@/lib/quotationAccess";
+import { canDeleteQuotation, canModifyQuotation, canViewQuotation } from "@/lib/quotationAccess";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
 
@@ -64,9 +64,7 @@ async function fetchPopulatedQuotation(quotationId: string) {
 
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
 
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
@@ -79,7 +77,7 @@ export async function GET(_req: Request, context: RouteContext) {
     }
 
     // Role-based access control: Dealers can only access their own quotations
-    if (!canViewQuotation(role, userId, quotation)) {
+    if (!canViewQuotation(role, userId, quotation, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
     }
 
@@ -97,8 +95,8 @@ export async function GET(_req: Request, context: RouteContext) {
 
     // GET responses stay unwrapped for existing consumers. Internal margin
     // fields (cost / purchaseTaxPercent) on each item's product/variant are
-    // never sent to a non-admin role.
-    return NextResponse.json(redactQuotationForRole(normalized, role));
+    // never sent to an unprivileged role.
+    return NextResponse.json(redactQuotationForRole(normalized, role, permissions));
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/quotations/[id]" });
   }
@@ -106,9 +104,7 @@ export async function GET(_req: Request, context: RouteContext) {
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
 
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
@@ -138,7 +134,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     // Role-based access control: Dealers can only modify their own quotations
-    if (!canModifyQuotation(role, userId, existing)) {
+    if (!canModifyQuotation(role, userId, existing, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 
@@ -276,9 +272,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
   const { id } = await context.params;
 
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { session, role, userId, permissions } = await getAuthenticatedActor();
     const actor = actorFromSession(session);
 
     const quotationId = parseQuotationId(id);
@@ -296,7 +290,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
       );
     }
 
-    if (!canModifyQuotation(role, userId, target)) {
+    if (!canDeleteQuotation(role, userId, target, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to delete this quotation.");
     }
 

@@ -223,18 +223,31 @@ export default function QuotationsListing({
   const handleDuplicate = async (quotationId: string) => {
     setDuplicatingId(quotationId);
     try {
-      const newQuote = await apiJson.post<{ id?: string; _id?: string }>(
-        `/api/quotations/${quotationId}/duplicate`,
-        undefined,
-        { fallbackMessage: "Failed to duplicate quotation" }
-      );
+      const newQuote = await apiJson.post<{
+        id?: string;
+        _id?: string;
+        skippedItems?: Array<{ label: string; reason: "product" | "variant" | "roomType" }>;
+      }>(`/api/quotations/${quotationId}/duplicate`, undefined, { fallbackMessage: "Failed to duplicate quotation" });
       const newId = newQuote?.id ?? newQuote?._id;
       if (!newId) {
         throw new Error("Quotation was duplicated but its id could not be read. Please refresh the list.");
       }
-      toast.success("Quotation duplicated successfully!");
 
-      router.push(`/quotation/${newId}`);
+      const skipped = newQuote.skippedItems ?? [];
+      if (skipped.length > 0) {
+        toast.success(
+          `Quotation duplicated — ${skipped.length} unavailable product${skipped.length === 1 ? "" : "s"} were skipped.`
+        );
+      } else {
+        toast.success("Quotation duplicated successfully!");
+      }
+
+      // Carries the skipped-item labels to the new quotation's first load so
+      // it can show a persistent banner there — never written to the
+      // database just to display this (see ProposalBuilder.tsx).
+      const skippedParam =
+        skipped.length > 0 ? `?skipped=${encodeURIComponent(skipped.map((s) => s.label).join(","))}` : "";
+      router.push(`/quotation/${newId}${skippedParam}`);
     } catch (err: unknown) {
       toast.error(toErrorMessage(err, "Failed to duplicate quotation"));
     } finally {

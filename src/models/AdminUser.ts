@@ -1,8 +1,8 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import type { AdminRole } from "@/types";
 
-export const ACTIVE_ADMIN_ROLES = ["super_admin", "admin", "dealer"] as const satisfies readonly AdminRole[];
-export const ALL_ADMIN_USER_ROLES = ["super_admin", "admin", "dealer", "sales"] as const;
+export const ACTIVE_ADMIN_ROLES = ["super_admin", "admin", "dealer", "configurable_admin"] as const satisfies readonly AdminRole[];
+export const ALL_ADMIN_USER_ROLES = ["super_admin", "admin", "dealer", "sales", "configurable_admin"] as const;
 
 export interface IDiscountAllocationHistory {
   allocatedPercent: number;
@@ -33,6 +33,8 @@ export interface IAdminUser {
   assignedSalesId: number | null;
   discountAllocationPercent: number;
   discountAllocationHistory: IDiscountAllocationHistory[];
+  /** Granular capabilities assigned to configurable_admin accounts. */
+  permissions?: string[];
   createdAt: Date;
 }
 
@@ -73,7 +75,7 @@ const AdminUserSchema = new Schema<IAdminUserDocument>(
     address: { type: String, default: null, trim: true },
     role: {
       type: String,
-      enum: ALL_ADMIN_USER_ROLES,
+      required: true,
       default: "admin",
       index: true,
     },
@@ -81,6 +83,7 @@ const AdminUserSchema = new Schema<IAdminUserDocument>(
     assignedSalesId: { type: Number, ref: "AdminUser", default: null },
     discountAllocationPercent: { type: Number, default: 0, min: 0, max: 100 },
     discountAllocationHistory: { type: [DiscountAllocationHistorySchema], default: () => [] },
+    permissions: { type: [String], default: () => [] },
     createdAt: { type: Date, default: Date.now },
   },
   {
@@ -165,6 +168,12 @@ if (existingAdminUserModel) {
   if (!existingAdminUserModel.schema.path("discountAllocationHistory")) {
     existingAdminUserModel.schema.add({
       discountAllocationHistory: { type: [DiscountAllocationHistorySchema], default: () => [] },
+    });
+  }
+
+  if (!existingAdminUserModel.schema.path("permissions")) {
+    existingAdminUserModel.schema.add({
+      permissions: { type: [String], default: () => [] },
     });
   }
 

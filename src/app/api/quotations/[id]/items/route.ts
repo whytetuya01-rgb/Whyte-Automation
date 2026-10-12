@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem, Product } from "@/models";
 import { getNextSequence } from "@/lib/counter";
-import { requireSession } from "@/lib/api-auth";
+import { getAuthenticatedActor } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationItemSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationItem } from "@/lib/quotationNormalization";
@@ -96,16 +96,14 @@ function toDecimal128(price: unknown): mongoose.Types.Decimal128 {
 
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    const { role, userId, permissions } = await getAuthenticatedActor();
 
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status dealerId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
@@ -115,7 +113,7 @@ export async function POST(req: Request, context: RouteContext) {
         `Quotation is ${quotation.status} and locked. Please clone it to make revisions.`
       );
     }
-    if (!canModifyQuotation(role, userId, quotation)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 
@@ -276,7 +274,7 @@ export async function POST(req: Request, context: RouteContext) {
     // in this codebase) must run first so only plain, already-redactable data
     // reaches the normalizer.
     const plainItem = populatedItem?.toObject ? populatedItem.toObject() : populatedItem;
-    return apiSuccess(redactQuotationItemForRole(normalizeQuotationItem(plainItem), role), { status: 201 });
+    return apiSuccess(redactQuotationItemForRole(normalizeQuotationItem(plainItem), role, permissions), { status: 201 });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/items" });
   }
