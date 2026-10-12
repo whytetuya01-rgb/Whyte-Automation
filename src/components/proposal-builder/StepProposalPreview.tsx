@@ -473,18 +473,31 @@ export default function StepProposalPreview({
   // NEVER be allowed to reflow at a narrower CSS width: letting it shrink to
   // the viewport (the old `w-full` behavior) squeezed that fixed-coordinate
   // layout into less space than it was built for, which is what produced the
-  // overlapping header/stats/price text on a phone screen. `zoom` (not
-  // `transform: scale`) shrinks it uniformly for on-screen display instead —
-  // every internal px value still relates to every other exactly as designed
-  // (nothing reflows or overlaps), and unlike a transform, the parent's layout
-  // box shrinks to match automatically, so no extra height bookkeeping is
-  // needed. PDF/print capture always resets this back to 1 first (see
+  // overlapping header/stats/price text on a phone screen. `transform: scale`
+  // shrinks it uniformly for on-screen display instead — every internal px
+  // value still relates to every other exactly as designed (nothing reflows
+  // or overlaps).
+  //
+  // This was originally done with CSS `zoom` instead of `transform`, since
+  // `zoom` also shrinks the element's own layout box (so the wrapper auto-
+  // collapses, no manual height math needed). That broke on iOS Safari: it's
+  // a known WebKit bug where raster content (`<img>`, including the hero
+  // illustration and every product thumbnail) inside a `zoom`-ed subtree
+  // fails to paint at all, even though the layout itself is otherwise
+  // correct — exactly the "alignment is fine, images are just gone" report.
+  // `transform` does not have that bug and has been reliably supported on
+  // iOS since iOS 3, at the cost of the wrapper needing an explicit collapsed
+  // height (transform is paint-only — it never changes element's own layout
+  // box size), handled via `PAGE_HEIGHT_PX` below.
+  //
+  // PDF/print capture always resets this back to `none` first (see
   // `handleDownloadPDF` and the `@media print` rule in globals.css), so the
   // exported document is never downscaled just because it was generated from
   // a small screen.
   const pagesWrapperRef = useRef<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(1);
   const PAGE_WIDTH_PX = 794;
+  const PAGE_HEIGHT_PX = 1123;
 
   useEffect(() => {
     const el = pagesWrapperRef.current;
@@ -648,16 +661,16 @@ export default function StepProposalPreview({
 
     setDownloading(true);
 
-    // The page is zoomed down for on-screen mobile display (see
+    // The page is scaled down for on-screen mobile display (see
     // `previewScale` above). The export must always be captured at full,
-    // un-zoomed resolution — a PDF generated from a phone should look
+    // unscaled resolution — a PDF generated from a phone should look
     // identical to one generated from a desktop, not a shrunk-down capture of
-    // whatever the current screen happened to fit. Reset every page's zoom to
-    // 1 before capturing, and restore it in `finally` no matter how capture
-    // goes, so a failed/cancelled download never leaves the on-screen preview
-    // stuck at full size.
+    // whatever the current screen happened to fit. Reset every page's
+    // transform before capturing, and restore it in `finally` no matter how
+    // capture goes, so a failed/cancelled download never leaves the
+    // on-screen preview stuck at full size.
     const pagesToRestore = pageRefs.current.filter((el): el is HTMLDivElement => el !== null);
-    for (const el of pagesToRestore) el.style.zoom = "1";
+    for (const el of pagesToRestore) el.style.transform = "none";
 
     try {
       if (document.fonts?.ready) {
@@ -680,11 +693,31 @@ export default function StepProposalPreview({
         const pageEl = pageRefs.current[i];
         if (!pageEl) continue;
 
-        // Ensure all images inside pageEl are completely loaded before capturing canvas
+        // Ensure all images inside pageEl are fully DECODED, not just
+        // "loaded", before capturing. `img.complete` can already be `true`
+        // while the browser hasn't finished decoding the bitmap yet — the
+        // network fetch resolved, but there's nothing to paint into the
+        // canvas html-to-image builds, so the image region comes out blank.
+        // This is the actual cause of every image (local static assets and
+        // Cloudinary product photos alike) silently failing to appear in the
+        // exported PDF while rendering fine on screen: `img.decode()`
+        // guarantees the bitmap is actually ready to paint, which the old
+        // `complete` check never did. Falls back to the load/error listener
+        // for browsers without `decode()`, or if decoding itself rejects
+        // (e.g. a genuinely broken image) — either way we still proceed
+        // rather than hang the whole export on one bad image.
         const images = Array.from(pageEl.querySelectorAll("img"));
         await Promise.all(
-          images.map((img) => {
-            if (img.complete) return Promise.resolve();
+          images.map(async (img) => {
+            if (typeof img.decode === "function") {
+              try {
+                await img.decode();
+                return;
+              } catch {
+                // fall through to the load/error fallback below
+              }
+            }
+            if (img.complete && img.naturalWidth > 0) return;
             return new Promise((resolve) => {
               img.onload = resolve;
               img.onerror = resolve;
@@ -736,7 +769,7 @@ export default function StepProposalPreview({
         "Failed to generate PDF. You can also use the Print button to Save as PDF."
       );
     } finally {
-      for (const el of pagesToRestore) el.style.zoom = String(previewScale);
+      for (const el of pagesToRestore) el.style.transform = `scale(${previewScale})`;
       setDownloading(false);
     }
   };
@@ -902,12 +935,19 @@ export default function StepProposalPreview({
           {proposalPages.map((page, pageIdx) => (
             <div
               key={page.pageNumber}
-              ref={(el) => {
-                pageRefs.current[pageIdx] = el;
+              className="proposal-page-slot mb-8 print:mb-0"
+              style={{
+                width: PAGE_WIDTH_PX * previewScale,
+                height: PAGE_HEIGHT_PX * previewScale,
               }}
-              className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-12 mb-8 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
-              style={{ boxSizing: "border-box", zoom: previewScale }}
             >
+              <div
+                ref={(el) => {
+                  pageRefs.current[pageIdx] = el;
+                }}
+                className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-12 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
+                style={{ boxSizing: "border-box", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
+              >
               {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
                   behind all content. Never a status/DRAFT/DUPLICATE stamp: the document's
                   actual Draft/Sent/Approved/etc. status is shown elsewhere in the app UI,
@@ -2048,6 +2088,7 @@ export default function StepProposalPreview({
               {/* Document Footer on Every Page */}
               <div className="pt-4 text-center text-[11px] font-medium text-gray-400">
                 www.whyte.co.in
+              </div>
               </div>
             </div>
           ))}

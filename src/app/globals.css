@@ -394,6 +394,16 @@ table {
     display: none !important;
   }
 
+  /* The on-screen slot that holds a scaled-down proposal-page on small
+     screens (see StepProposalPreview.tsx's `previewScale`) is sized in px
+     to match whatever scale was last applied on screen. Printing always
+     renders the page at its real, unscaled size, so the slot must not keep
+     constraining it to that smaller box here. */
+  .proposal-page-slot {
+    width: auto !important;
+    height: auto !important;
+  }
+
   .proposal-page {
     box-shadow: none !important;
     border: none !important;
@@ -402,7 +412,7 @@ table {
     margin: 0 !important;
     max-width: 100% !important;
     min-height: auto !important;
-    zoom: 1 !important;
+    transform: none !important;
     page-break-after: always;
     break-after: page;
   }
