@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Product, ProductVariant, Category } from "@/types";
 import notify from "@/lib/notify";
 import { ApiClientError, apiJson, notifyApiError } from "@/lib/apiClient";
+import { confirmDeletionWithImpact } from "@/lib/deletionImpactClient";
 import { getCategoryVariantMatrix, formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { suggestVariantCode, validateVariantCode } from "@/lib/productVariantService";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
@@ -295,18 +296,22 @@ export default function ProductForm({
     }
   };
 
-  /** Delete a single variant — uses the global confirm dialog's loading mode */
+  /**
+   * Delete a single variant. Real impact (quotation references, and whether
+   * it's the product's last remaining variant) is checked server-side first,
+   * so the dialog never offers a delete that's already known to fail.
+   */
   const handleDeleteVariant = async (variantId: number, displayName: string) => {
     if (!product) return;
     const productId = product.id;
 
-    await confirm({
-      title: "Delete Variant?",
-      message: `Are you sure you want to delete "${displayName}"?`,
-      detail: "This will permanently remove this variant from the product.",
+    await confirmDeletionWithImpact({
+      confirm,
+      impactUrl: `/api/product-variants/${variantId}/deletion-impact`,
+      recordLabel: displayName,
+      entityName: "variant",
       confirmText: "Delete Variant",
-      variant: "danger",
-      onConfirm: async () => {
+      onConfirmedDelete: async () => {
         setDeletingVariantId(variantId);
         try {
           await apiJson.delete(`/api/products/${productId}/variants/${variantId}`);

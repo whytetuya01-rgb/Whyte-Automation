@@ -2,26 +2,33 @@ import { Product, ProductVariant, ProductVariantHistory } from "@/models";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
-import { getVariantDependencies } from "@/lib/dependencies";
 import { ApiError } from "@/lib/api-response";
 import { MINIMUM_VARIANT_MESSAGE } from "@/lib/productVariantService";
+import type { DeletionActor } from "@/lib/softDelete/actor";
+import { softDeleteOne } from "@/lib/softDelete/service";
 
 /**
- * Canonical ProductVariant hard-deletion flow.
+ * Canonical ProductVariant soft-deletion flow.
  *
  * Both DELETE endpoints delegate here so the guarantees can never diverge:
  *   1. authenticate
  *   2. validate the numeric IDs
  *   3. the ProductVariant must exist (404 if it does not)
- *   4. no QuotationItem may reference it (409 DEPENDENCY_EXISTS)
- *   5. the parent Product must keep at least one variant (409 MINIMUM_VARIANT)
- *   6. hard delete + record the ProductVariantHistory snapshot in ONE transaction
+ *   4. record the ProductVariantHistory snapshot (unchanged — the Edit
+ *      Variants screen's own, separate restore-from-history flow depends on
+ *      this row regardless of whether the variant is hard- or soft-deleted)
+ *   5. soft-delete; the parent Product must keep at least one LIVE variant,
+ *      enforced via the announce/verify/compensate protocol in
+ *      `softDeleteOne` — safe under concurrency even without a replica set
+ *      (see `tests/soft-delete-core.test.ts`), unlike the previous
+ *      check-then-act-in-a-transaction approach
  *
- * ProductVariant is always hard deleted. There is no soft-delete flag.
- * The Product and the Edit Variants modal are never touched.
+ * A quotation item referencing the variant no longer blocks the delete: the
+ * variant row is never destroyed, so the item keeps resolving it exactly as
+ * before. It only stops being offered for a NEW quotation item.
  */
 
-export interface HardDeleteVariantResult {
+export interface SoftDeleteVariantResult {
   variantId: number;
   productId: number;
   productName: string | null;
@@ -44,16 +51,17 @@ function buildVariantLabel(variant: {
   return variant.variantCode || "Variant";
 }
 
-export async function hardDeleteVariant(params: {
+export async function softDeleteVariant(params: {
   variantId: number;
   /** When provided, the variant must belong to this product. */
   productId?: number;
-  /** Admin email from the session, recorded on the history row when available. */
+  actor: DeletionActor;
+  /** Admin email from the session, recorded on the ProductVariantHistory row (a string field, unrelated to the numeric DeletionActor). */
   deletedBy?: string | null;
-}): Promise<HardDeleteVariantResult> {
-  const { variantId, productId, deletedBy = null } = params;
+}): Promise<SoftDeleteVariantResult> {
+  const { variantId, productId, actor, deletedBy = null } = params;
 
-  // 1. Existence first — a missing variant is 404, never 400.
+  // 1. Existence first — a missing (or already soft-deleted) variant is 404, never 400.
   const variant = await ProductVariant.findById(variantId);
   if (!variant) {
     throw new ApiError("NOT_FOUND", "Variant not found.", { field: "variantId" });
@@ -68,121 +76,69 @@ export async function hardDeleteVariant(params: {
     surfaceFinish: variant.surfaceFinish,
     variantCode: variant.variantCode,
   });
-
-  // 2. Dependency check before anything is removed
-  const dependencies = await getVariantDependencies(variantId);
-  if (dependencies.quotationItems > 0) {
-    throw new ApiError(
-      "DEPENDENCY_EXISTS",
-      `This variant cannot be deleted because it is used in ${dependencies.quotationItems} quotation ${
-        dependencies.quotationItems === 1 ? "item" : "items"
-      }.`,
-      { details: { quotationItemIds: dependencies.quotationItemIds } }
-    );
-  }
-
-  // 3. A product must always retain at least one variant
-  const totalVariants = await ProductVariant.countDocuments({ productId: ownerProductId });
-  if (totalVariants <= 1) {
-    throw new ApiError("MINIMUM_VARIANT", MINIMUM_VARIANT_MESSAGE, { field: "variantId" });
-  }
-
   const product = await Product.findById(ownerProductId).select("name code");
 
-  // 4. Hard delete + history snapshot in a single transaction. The dependency
-  //    and minimum-variant guards are re-evaluated INSIDE the transaction so two
-  //    concurrent deletes of the last two variants cannot both succeed.
-  const result = await withTransaction(async (dbSession) => {
-    const live = await ProductVariant.findById(variantId).session(dbSession ?? null);
-    if (!live) {
-      throw new ApiError("NOT_FOUND", "Variant not found.", { field: "variantId" });
-    }
-    if (productId !== undefined && live.productId !== productId) {
-      throw new ApiError("NOT_FOUND", "Variant not found.", { field: "variantId" });
-    }
-
-    const liveDependencies = await getVariantDependencies(variantId, dbSession);
-    if (liveDependencies.quotationItems > 0) {
-      throw new ApiError(
-        "DEPENDENCY_EXISTS",
-        `This variant cannot be deleted because it is used in ${liveDependencies.quotationItems} quotation ${
-          liveDependencies.quotationItems === 1 ? "item" : "items"
-        }.`,
-        { details: { quotationItemIds: liveDependencies.quotationItemIds } }
-      );
-    }
-
-    const liveVariantCount = await ProductVariant.countDocuments({ productId: ownerProductId })
-      .session(dbSession ?? null)
-      .exec();
-    if (liveVariantCount <= 1) {
-      throw new ApiError("MINIMUM_VARIANT", MINIMUM_VARIANT_MESSAGE, { field: "variantId" });
-    }
-
-    let historyRecorded = false;
+  // 2. History snapshot BEFORE the soft delete — unchanged behaviour for the
+  //    Edit Variants restore-from-history flow. Best-effort on a standalone
+  //    deployment (no session), exactly as it was for the hard-delete path.
+  let historyRecorded = false;
+  await withTransaction(async (dbSession) => {
     try {
-      const historyId = await getNextSequence(
-        "productVariantHistory",
-        ProductVariantHistory,
-        dbSession
-      );
-
+      const historyId = await getNextSequence("productVariantHistory", ProductVariantHistory, dbSession);
       const historyDoc = new ProductVariantHistory({
         _id: historyId,
-        variantId: live._id,
+        variantId: variant._id,
         productId: ownerProductId,
         productCode: product?.code ?? null,
-        variantCode: live.variantCode ?? null,
-        name: live.name ?? null,
-        code: live.code ?? null,
-        automationTier: live.automationTier ?? null,
-        surfaceFinish: live.surfaceFinish ?? null,
-        config: live.config ?? {},
-        price: live.price ?? null,
-        priceWithoutTax: live.priceWithoutTax ?? null,
-        taxPercent: live.taxPercent ?? null,
-        cost: live.cost ?? null,
-        purchaseTaxPercent: live.purchaseTaxPercent ?? null,
-        isActive: live.isActive ?? true,
-        sortOrder: live.sortOrder ?? 0,
+        variantCode: variant.variantCode ?? null,
+        name: variant.name ?? null,
+        code: variant.code ?? null,
+        automationTier: variant.automationTier ?? null,
+        surfaceFinish: variant.surfaceFinish ?? null,
+        config: variant.config ?? {},
+        price: variant.price ?? null,
+        priceWithoutTax: variant.priceWithoutTax ?? null,
+        taxPercent: variant.taxPercent ?? null,
+        cost: variant.cost ?? null,
+        purchaseTaxPercent: variant.purchaseTaxPercent ?? null,
+        isActive: variant.isActive ?? true,
+        sortOrder: variant.sortOrder ?? 0,
         reason: "hard_delete",
         deletedBy,
         deletedAt: new Date(),
       });
-
-      if (dbSession) {
-        await historyDoc.save({ session: dbSession });
-      } else {
-        await historyDoc.save();
-      }
+      if (dbSession) await historyDoc.save({ session: dbSession });
+      else await historyDoc.save();
       historyRecorded = true;
     } catch (historyError) {
-      // Inside a transaction a failed write has already aborted the transaction,
-      // so the delete below cannot commit anyway — rethrow the original failure
-      // instead of masking it. On a standalone MongoDB (no session) history is
-      // best-effort bookkeeping and must never block a valid hard delete.
       if (dbSession) throw historyError;
       console.error("Failed to record ProductVariantHistory row:", historyError);
     }
-
-    const deleteQuery = ProductVariant.deleteOne({ _id: variantId, productId: ownerProductId });
-    if (dbSession) deleteQuery.session(dbSession);
-    const deleted = await deleteQuery;
-
-    if ((deleted?.deletedCount ?? 0) === 0) {
-      throw new ApiError("NOT_FOUND", "Variant not found.", { field: "variantId" });
-    }
-
-    return { historyRecorded, remainingVariants: liveVariantCount - 1 };
   });
+
+  // 3. Soft delete, with the "at least one live variant" business rule
+  //    re-checked against fresh state right after the atomic announce step.
+  await softDeleteOne({
+    model: ProductVariant,
+    entityType: "productVariant",
+    id: variantId,
+    actor,
+    label: variantLabel,
+    invariant: async () => {
+      const liveSiblings = await ProductVariant.countDocuments({ productId: ownerProductId });
+      return liveSiblings < 1 ? { code: "MINIMUM_VARIANT", message: MINIMUM_VARIANT_MESSAGE } : null;
+    },
+  });
+
+  const remainingVariants = await ProductVariant.countDocuments({ productId: ownerProductId });
 
   return {
     variantId,
     productId: ownerProductId,
     productName: product?.name ?? null,
     variantLabel,
-    remainingVariants: result.remainingVariants,
-    historyRecorded: result.historyRecorded,
+    remainingVariants,
+    historyRecorded,
   };
 }
 
@@ -193,4 +149,3 @@ export async function hardDeleteVariant(params: {
 export async function syncProductPriceFromVariants(_productId: number): Promise<void> {
   // No-op: ProductVariant is the sole source of truth for pricing.
 }
-

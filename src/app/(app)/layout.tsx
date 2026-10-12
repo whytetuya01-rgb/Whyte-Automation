@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import SignOutButton from "@/components/shared/SignOutButton";
+import SiteFooter from "@/components/shared/SiteFooter";
+import { getFooterCompany } from "@/lib/footerCompany";
 import { Plus, FileText, LayoutDashboard, User, Wallet } from "lucide-react";
 import { isSessionActorStillValid } from "@/lib/sessionGuard";
 
@@ -24,6 +26,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   if (!(await isSessionActorStillValid(userId, role))) {
     redirect("/login");
   }
+
+  const footerCompany = await getFooterCompany();
 
   const initials = userName
     .split(" ")
@@ -177,6 +181,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       <main className="max-w-[95%] 2xl:max-w-[1760px] mx-auto px-2 sm:px-4 py-5 md:py-7 lg:py-9 flex-1 w-full">
         {children}
       </main>
+
+      <SiteFooter company={footerCompany} variant="public" />
     </div>
   );
 }

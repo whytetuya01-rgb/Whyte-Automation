@@ -1,6 +1,8 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import { softDeletePlugin } from "@/lib/softDelete/plugin";
+import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 
-export interface ICategory {
+export interface ICategory extends SoftDeleteFields {
   _id: number;
   id?: number;
   name: string;
@@ -82,6 +84,12 @@ CategorySchema.virtual("products", {
 // Compound index for active category querying and sorting
 CategorySchema.index({ isActive: 1, sortOrder: 1 });
 CategorySchema.index({ parentId: 1, sortOrder: 1 });
+
+// Soft delete: adds isDeleted/deletedAt/deletedBy/deletionReason/deletionGroupId
+// fields, scopes every read to live records by default, and blocks any hard
+// delete attempted outside src/lib/softDelete/service.ts. Registered once,
+// on this fresh Schema instance, before the model below compiles it.
+softDeletePlugin(CategorySchema, { blockHardDelete: true });
 
 export const Category: Model<ICategoryDocument> =
   mongoose.models.Category || mongoose.model<ICategoryDocument>("Category", CategorySchema);

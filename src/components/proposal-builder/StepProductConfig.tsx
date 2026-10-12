@@ -33,6 +33,8 @@ import {
   EditorCatalogVariant,
 } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
+import { eligibleItemsOfRoom, isProtectedQuotationStatus } from "@/lib/quotationAvailability";
+import UnavailabilityWarning from "./UnavailabilityWarning";
 import {
   getRoomDisplayName,
   getRoomFullTitle,
@@ -433,37 +435,45 @@ export default function StepProductConfig({
     }
   };
 
-  // Totals Calculation for Live Summary
+  // Approved/Delivered quotations never reach this editor step in practice
+  // (the lock rejects the edit before the page gets this far), but the
+  // check is explicit rather than assumed — see `isProtectedQuotationStatus`.
+  const isLocked = isProtectedQuotationStatus(quotation.status);
+
+  // Totals Calculation for Live Summary. Excludes a room/item whose catalog
+  // reference has been soft-deleted — the same rule the server applies in
+  // `normalizeQuotation` and `aggregateQuotationRoomTotals` — so this live
+  // total never disagrees with a fresh GET of the same quotation.
   const grandTotal = useMemo(() => {
     return rooms.reduce((sum, r) => {
       return (
         sum +
-        (r.items || []).reduce(
+        eligibleItemsOfRoom(r, r.items, isLocked).reduce(
           (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
           0
         )
       );
     }, 0);
-  }, [rooms]);
+  }, [rooms, isLocked]);
 
   const totalProductsCount = useMemo(() => {
     return rooms.reduce((sum, r) => {
-      return sum + (r.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
+      return sum + eligibleItemsOfRoom(r, r.items, isLocked).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
     }, 0);
-  }, [rooms]);
+  }, [rooms, isLocked]);
 
   const currentRoomSubtotal = useMemo(() => {
-    if (!currentRoom || !currentRoom.items) return 0;
-    return currentRoom.items.reduce(
+    if (!currentRoom) return 0;
+    return eligibleItemsOfRoom(currentRoom, currentRoom.items, isLocked).reduce(
       (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
       0
     );
-  }, [currentRoom]);
+  }, [currentRoom, isLocked]);
 
   const currentRoomProductsCount = useMemo(() => {
-    if (!currentRoom || !currentRoom.items) return 0;
-    return currentRoom.items.reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
-  }, [currentRoom]);
+    if (!currentRoom) return 0;
+    return eligibleItemsOfRoom(currentRoom, currentRoom.items, isLocked).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
+  }, [currentRoom, isLocked]);
 
   return (
     <div className="w-full space-y-6">
@@ -549,11 +559,11 @@ export default function StepProductConfig({
                 const IconComp = getRoomIcon(room.customName ?? room.roomType?.name ?? "Room");
                 const roomDisplayName = getRoomDisplayName(room, rooms);
                 const roomFloor = getEffectiveFloorForRoom(room, rooms, isMultiFloor);
-                const roomSub = (room.items || []).reduce(
+                const roomSub = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
                   (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
                   0
                 );
-                const roomProdCount = (room.items || []).reduce(
+                const roomProdCount = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
                   (acc, i) => acc + (Number(i.quantity) || 1),
                   0
                 );
@@ -1283,12 +1293,12 @@ export default function StepProductConfig({
                     {group.rooms.map((room) => {
                       const currentId = Number(currentRoom?.id ?? (currentRoom as any)?._id);
                       const roomId = Number(room.id ?? (room as any)._id);
-                      const sub = (room.items || []).reduce(
+                      const sub = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
                         (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
                         0
                       );
                       const isCurrent = Boolean(currentId && roomId === currentId);
-                      const prodCount = (room.items || []).reduce(
+                      const prodCount = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
                         (acc, i) => acc + (Number(i.quantity) || 1),
                         0
                       );
@@ -1384,6 +1394,13 @@ export default function StepProductConfig({
                 </span>
               </div>
 
+              {!isLocked && currentRoom.isUnavailable && (
+                <UnavailabilityWarning
+                  reason={currentRoom.unavailableReason}
+                  label={getRoomDisplayName(currentRoom, rooms)}
+                />
+              )}
+
               {(!currentRoom.items || currentRoom.items.length === 0) ? (
                 <div className="py-6 text-center text-gray-400">
                   <ShoppingBag size={22} className="mx-auto mb-1.5 opacity-40 text-gray-400" />
@@ -1427,6 +1444,10 @@ export default function StepProductConfig({
                                 </>
                               )}
                             </div>
+
+                            {!isLocked && !currentRoom.isUnavailable && item.isUnavailable && (
+                              <UnavailabilityWarning reason={item.unavailableReason} className="mt-1.5" />
+                            )}
 
                             <div className="flex items-center gap-2 mt-1.5">
                               <span className="text-xs font-extrabold font-mono text-gray-950">
@@ -1561,7 +1582,7 @@ export default function StepProductConfig({
 
             <div className="flex-1 overflow-y-auto space-y-3">
               {rooms.map((room) => {
-                const sub = (room.items || []).reduce(
+                const sub = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
                   (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
                   0
                 );

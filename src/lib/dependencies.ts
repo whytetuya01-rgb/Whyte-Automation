@@ -99,12 +99,13 @@ export interface CategoryDependencyReport {
 
 /** Category dependencies: child categories and products still assigned to it. */
 export async function getCategoryDependencies(
-  categoryId: number
+  categoryId: number,
+  session?: ClientSession
 ): Promise<CategoryDependencyReport> {
   const [childCategories, activeProducts, totalProducts] = await Promise.all([
-    Category.countDocuments({ parentId: categoryId }).exec(),
-    Product.countDocuments({ categoryId, isActive: true }).exec(),
-    Product.countDocuments({ categoryId }).exec(),
+    Category.countDocuments({ parentId: categoryId }).session(session ?? null).exec(),
+    Product.countDocuments({ categoryId, isActive: true }).session(session ?? null).exec(),
+    Product.countDocuments({ categoryId }).session(session ?? null).exec(),
   ]);
 
   return {

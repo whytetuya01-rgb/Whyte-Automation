@@ -9,7 +9,7 @@ import {
   resolveCustomerDiscountPercent,
   toPlainNumber,
 } from "@/lib/dealerEarnings";
-import { aggregateQuotationRoomTotals, totalsForQuotation } from "@/lib/quotationTotals";
+import { aggregateQuotationRoomTotals, isProtectedQuotationStatus, totalsForQuotation } from "@/lib/quotationTotals";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +72,13 @@ export async function GET(req: Request) {
       .lean();
 
     const quoteIds = allQuotes.map((q) => String(q._id));
-    const aggregatedTotals = await aggregateQuotationRoomTotals(quoteIds);
+    // Approved/Delivered quotations keep their historical totals regardless
+    // of any catalog deletion since; every other status excludes an
+    // unavailable room/item from the sum. See `isProtectedQuotationStatus`.
+    const protectedIds = (allQuotes as Array<{ _id: unknown; status?: string }>)
+      .filter((q) => isProtectedQuotationStatus(q.status))
+      .map((q) => String(q._id));
+    const aggregatedTotals = await aggregateQuotationRoomTotals(quoteIds, protectedIds);
 
     // Summary accumulator
     let totalQuotationValue = 0;

@@ -27,6 +27,8 @@ import { calculateQuotationGst } from "@/lib/pricing";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import { isValidGstin } from "@/lib/validation/fields";
 import { resolvePlaceOfSupply } from "@/lib/gstPlaceOfSupply";
+import { eligibleItemsOfRoom, isProtectedQuotationStatus } from "@/lib/quotationAvailability";
+import UnavailabilityWarning from "./UnavailabilityWarning";
 
 interface Props {
   quotation: Quotation;
@@ -469,23 +471,31 @@ export default function StepProposalPreview({
     [rawRooms]
   );
 
+  // Approved/Delivered quotations keep their historical total regardless of
+  // any catalog deletion since; every other status excludes a room/item
+  // whose catalog reference has been soft-deleted — the same rule the
+  // server applies in `normalizeQuotation`/`aggregateQuotationRoomTotals`,
+  // so this preview (and the PDF rendered from it) never disagrees with the
+  // editor or a fresh GET of the same quotation.
+  const isLocked = isProtectedQuotationStatus(quotation.status);
+
   const subtotal = useMemo(() => {
     return rawRooms.reduce((sum, r) => {
       return (
         sum +
-        (r.items || []).reduce(
+        eligibleItemsOfRoom(r, r.items, isLocked).reduce(
           (acc, i) => acc + Number(i.unitPrice || 0) * (i.quantity || 1),
           0
         )
       );
     }, 0);
-  }, [rawRooms]);
+  }, [rawRooms, isLocked]);
 
   const totalProducts = useMemo(() => {
     return renderableRooms.reduce((sum, r) => {
-      return sum + (r.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
+      return sum + eligibleItemsOfRoom(r, r.items, isLocked).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
     }, 0);
-  }, [renderableRooms]);
+  }, [renderableRooms, isLocked]);
 
   const hasDiscount = Boolean(
     quotation.discountType && Number(quotation.discountValue) > 0
@@ -1273,7 +1283,7 @@ export default function StepProposalPreview({
                                 const Icon = getRoomIcon(
                                   r.customName ?? r.roomType?.name ?? "Room"
                                 );
-                                const count = (r.items || []).reduce(
+                                const count = eligibleItemsOfRoom(r, r.items, isLocked).reduce(
                                   (acc: number, i: QuotationItem) => acc + (Number(i.quantity) || 1),
                                   0
                                 );
@@ -1437,7 +1447,7 @@ export default function StepProposalPreview({
                     const Icon = getRoomIcon(
                       room.customName ?? room.roomType?.name ?? "Room"
                     );
-                    const roomSubtotal = (room.items || []).reduce(
+                    const roomSubtotal = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
                       (acc, i) =>
                         acc + Number(i.unitPrice || 0) * (i.quantity || 1),
                       0
@@ -1475,8 +1485,8 @@ export default function StepProposalPreview({
                               </h3>
                             </div>
                             <span className="text-[11px] font-mono text-accent-foreground bg-accent-light px-2 py-0.5 rounded border border-accent-border/60">
-                              {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)}{" "}
-                              {(room.items || []).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0) === 1
+                              {eligibleItemsOfRoom(room, room.items, isLocked).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)}{" "}
+                              {eligibleItemsOfRoom(room, room.items, isLocked).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0) === 1
                                 ? "device"
                                 : "devices"}
                             </span>
@@ -1487,6 +1497,16 @@ export default function StepProposalPreview({
                         {isContinuation && (
                           <div className="bg-gray-50/80 px-4 py-1.5 rounded-t-xl border border-gray-200 text-sm font-semibold text-gray-700">
                             {getRoomFullTitle(room, renderableRooms)} (Continued)
+                          </div>
+                        )}
+
+                        {/* Unavailable room type (never shown once Approved/Delivered) */}
+                        {showRoomHeader && !isLocked && room.isUnavailable && (
+                          <div className="px-4 py-1.5 border-x border-b border-amber-100">
+                            <UnavailabilityWarning
+                              reason={room.unavailableReason}
+                              label={room.customName ?? room.roomType?.name ?? "This space"}
+                            />
                           </div>
                         )}
 
@@ -1569,6 +1589,9 @@ export default function StepProposalPreview({
                                                   {sbLabel}
                                                 </span>
                                               )}
+                                              {!isLocked && !room.isUnavailable && item.isUnavailable && (
+                                                <UnavailabilityWarning reason={item.unavailableReason} compact />
+                                              )}
                                             </div>
 
                                             <div className="flex flex-wrap items-center gap-1.5">
@@ -1608,8 +1631,16 @@ export default function StepProposalPreview({
                                         {item.quantity || 1}
                                       </td>
 
-                                      {/* Unit Price */}
-                                      <td className="py-2.5 px-4 text-right font-mono text-gray-700 text-sm sm:text-base align-middle">
+                                      {/* Unit Price — struck through when this item/room is excluded from
+                                          the totals below, so the exclusion is visible right at the price,
+                                          not just in the name column's badge. Never applied once locked. */}
+                                      <td
+                                        className={`py-2.5 px-4 text-right font-mono text-sm sm:text-base align-middle ${
+                                          !isLocked && (room.isUnavailable || item.isUnavailable)
+                                            ? "text-gray-400 line-through"
+                                            : "text-gray-700"
+                                        }`}
+                                      >
                                         {formatCurrency(unitPrice)}
                                       </td>
                                     </tr>

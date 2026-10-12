@@ -23,6 +23,8 @@ import {
 } from "lucide-react";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { confirmDeletionWithImpact } from "@/lib/deletionImpactClient";
+import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
@@ -252,14 +254,13 @@ export default function HouseTypesPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   const handleDelete = async (ht: HouseType) => {
-    await confirm({
-      title: "Delete House Type",
-      message: `Are you sure you want to delete "${ht.name}"?`,
-      detail: "House types with a configured room template or an existing quotation cannot be deleted. This action is irreversible.",
+    await confirmDeletionWithImpact({
+      confirm,
+      impactUrl: `/api/house-types/${ht.id}/deletion-impact`,
+      recordLabel: ht.name,
+      entityName: "house type",
       confirmText: "Delete House Type",
-      cancelText: "Cancel",
-      variant: "danger",
-      onConfirm: async () => {
+      onConfirmedDelete: async () => {
         try {
           await apiJson.delete(`/api/house-types/${ht.id}`);
           notify.success("House type deleted", `"${ht.name}" has been removed.`);
@@ -317,29 +318,27 @@ export default function HouseTypesPage() {
     <div className="w-full space-y-5 pb-16">
 
       {/* ─── 1. PAGE HEADER ───────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-neutral-900 tracking-tight">House Types</h1>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-neutral-100 text-neutral-700 border border-neutral-200/80 font-mono">
-              {houseTypes.length} {houseTypes.length === 1 ? "Template" : "Templates"}
-            </span>
-          </div>
-          <p className="text-[13px] text-neutral-500 mt-1">
-            Configure reusable layout templates, default room allocations, and spaces used during quotation building.
-          </p>
-        </div>
-
-        <button
-          onClick={() => {
-            setEditTarget(null);
-            setShowForm(true);
-          }}
-          className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-xs shrink-0 self-start sm:self-center"
-        >
-          <Plus size={14} /> Add House Type
-        </button>
-      </div>
+      <PageHeader
+        title="House Types"
+        icon={Home}
+        badge={
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-neutral-100 text-neutral-700 border border-neutral-200/80 font-mono">
+            {houseTypes.length} {houseTypes.length === 1 ? "Template" : "Templates"}
+          </span>
+        }
+        subtitle="Configure reusable layout templates, default room allocations, and spaces used during quotation building."
+        actions={
+          <button
+            onClick={() => {
+              setEditTarget(null);
+              setShowForm(true);
+            }}
+            className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-xs shrink-0"
+          >
+            <Plus size={14} /> Add House Type
+          </button>
+        }
+      />
 
       {/* ─── 2. COMPACT SUMMARY METRICS STRIP ──────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-neutral-200/80 divide-x divide-neutral-100 flex overflow-hidden shadow-xs">

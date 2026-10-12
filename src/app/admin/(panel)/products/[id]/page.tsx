@@ -25,8 +25,10 @@ import {
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError, toErrorMessage, ApiClientError } from "@/lib/apiClient";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
+import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
+import { confirmDeletionWithImpact } from "@/lib/deletionImpactClient";
 import ProductForm from "@/components/admin/ProductForm";
 import ProductVariantsEditModal from "@/components/admin/ProductVariantsEditModal";
 import { Button, Switch, Badge } from "@/components/ui";
@@ -123,16 +125,14 @@ export default function ProductDetailPage() {
   const handleDeleteProduct = async () => {
     if (!product) return;
     const current = product;
-    const count = variants.length;
 
-    await confirm({
-      title: "Delete Product",
-      message: `Are you sure you want to delete "${current.name}"?`,
-      detail: `This product has ${count} associated ${count === 1 ? "variant" : "variants"}. If used in active quotations, deletion will be prevented.`,
+    await confirmDeletionWithImpact({
+      confirm,
+      impactUrl: `/api/products/${current.id}/deletion-impact`,
+      recordLabel: current.name,
+      entityName: "product",
       confirmText: "Delete Product",
-      cancelText: "Cancel",
-      variant: "danger",
-      onConfirm: async () => {
+      onConfirmedDelete: async () => {
         try {
           await apiJson.delete(`/api/products/${current.id}`);
           notify.success("Product deleted", `Product "${current.name}" has been removed.`);
@@ -324,20 +324,23 @@ export default function ProductDetailPage() {
             </div>
 
             <div className="space-y-1.5">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl sm:text-2xl font-bold text-neutral-900 tracking-tight">
-                  {product.name}
-                </h1>
+              <PageHeader
+                title={product.name}
+                icon={Package}
+                subtitle="Product overview, variants, pricing, and specifications."
+                badge={
+                  <>
+                    <Badge variant={product.isActive ? "success" : "secondary"} size="md" className="gap-1">
+                      <span className={`h-1.5 w-1.5 rounded-full ${product.isActive ? "bg-emerald-500" : "bg-neutral-400"}`} />
+                      {product.isActive ? "Active" : "Inactive"}
+                    </Badge>
 
-                <Badge variant={product.isActive ? "success" : "secondary"} size="md" className="gap-1">
-                  <span className={`h-1.5 w-1.5 rounded-full ${product.isActive ? "bg-emerald-500" : "bg-neutral-400"}`} />
-                  {product.isActive ? "Active" : "Inactive"}
-                </Badge>
-
-                <Badge variant={typeConfig.badgeVariant} size="md">
-                  {typeConfig.label}
-                </Badge>
-              </div>
+                    <Badge variant={typeConfig.badgeVariant} size="md">
+                      {typeConfig.label}
+                    </Badge>
+                  </>
+                }
+              />
 
               {/* Clean Business Metadata */}
               <div className="flex flex-wrap items-center gap-3 text-xs text-neutral-500">

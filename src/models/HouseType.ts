@@ -1,6 +1,8 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import { softDeletePlugin } from "@/lib/softDelete/plugin";
+import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 
-export interface IHouseType {
+export interface IHouseType extends SoftDeleteFields {
   _id: number;
   id?: number;
   name: string;
@@ -62,6 +64,8 @@ HouseTypeSchema.virtual("quotations", {
 });
 
 HouseTypeSchema.index({ isActive: 1, sortOrder: 1 });
+
+softDeletePlugin(HouseTypeSchema, { blockHardDelete: true });
 
 export const HouseType: Model<IHouseTypeDocument> =
   mongoose.models.HouseType || mongoose.model<IHouseTypeDocument>("HouseType", HouseTypeSchema);

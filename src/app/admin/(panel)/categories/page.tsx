@@ -19,10 +19,13 @@ import {
   Palette,
   ChevronRight,
   MoreHorizontal,
+  Tag,
 } from "lucide-react";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { confirmDeletionWithImpact } from "@/lib/deletionImpactClient";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
+import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useCategories, useAdminProducts } from "@/lib/swr";
@@ -277,12 +280,13 @@ export default function CategoriesPage() {
 
   // ── Delete handler ─────────────────────────────────────────────────────────
   const handleDelete = async (category: Category) => {
-    await confirm({
-      title: "Delete Category",
-      message: `Are you sure you want to delete "${category.name}"?`,
-      detail: "Categories with active products cannot be deleted. This action is irreversible.",
-      confirmText: "Delete Category", cancelText: "Cancel", variant: "danger",
-      onConfirm: async () => {
+    await confirmDeletionWithImpact({
+      confirm,
+      impactUrl: `/api/categories/${category.id}/deletion-impact`,
+      recordLabel: category.name,
+      entityName: "category",
+      confirmText: "Delete Category",
+      onConfirmedDelete: async () => {
         try {
           await apiJson.delete(`/api/categories/${category.id}`);
           notify.success("Category deleted", "The category has been removed.");
@@ -335,20 +339,19 @@ export default function CategoriesPage() {
     <div className="w-full space-y-5 pb-16">
 
       {/* ── PAGE HEADER ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between gap-4 pt-1">
-        <div>
-          <h1 className="text-xl font-bold text-neutral-900 tracking-tight">Categories</h1>
-          <p className="text-[13px] text-neutral-500 mt-0.5">
-            Manage product categories, product lines, and variant configuration.
-          </p>
-        </div>
-        <button
-          onClick={openAdd}
-          className="inline-flex items-center gap-2 px-4 py-2.5 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-sm shrink-0"
-        >
-          <Plus size={14} /> Add Category
-        </button>
-      </div>
+      <PageHeader
+        title="Categories"
+        icon={Tag}
+        subtitle="Manage product categories, product lines, and variant configuration."
+        actions={
+          <button
+            onClick={openAdd}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-sm shrink-0"
+          >
+            <Plus size={14} /> Add Category
+          </button>
+        }
+      />
 
       {/* ── COMPACT METRIC STRIP ────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-neutral-200 divide-x divide-neutral-100 flex overflow-hidden shadow-xs">

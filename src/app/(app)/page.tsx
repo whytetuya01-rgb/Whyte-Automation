@@ -4,7 +4,7 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, HouseType } from "@/models";
 import { dealerVisibilityFilter } from "@/lib/quotationAccess";
 import { getConfirmedEarningsForDealer } from "@/lib/dealerEarningsService";
-import { aggregateQuotationRoomTotals, totalsForQuotation } from "@/lib/quotationTotals";
+import { aggregateQuotationRoomTotals, isProtectedQuotationStatus, totalsForQuotation } from "@/lib/quotationTotals";
 import QuotationsListing, {
   QuotationRowData,
   QuotationSummaryMetrics,
@@ -96,10 +96,16 @@ export default async function HomePage(props: PageProps) {
     ]);
 
     const allIds = allMatchingLight.map((d) => String((d as { _id: unknown })._id));
+    // Approved/Delivered quotations keep their historical totals regardless
+    // of any catalog deletion since — every other status excludes an
+    // unavailable room/item from the sum. See `isProtectedQuotationStatus`.
+    const protectedIds = (allMatchingLight as Array<{ _id: unknown; status?: string }>)
+      .filter((d) => isProtectedQuotationStatus(d.status))
+      .map((d) => String(d._id));
     // One aggregation covers both the full-set summary below AND the current
     // page's per-row totals further down — MongoDB does the rooms/items
     // fan-out and the sum once, instead of Node loading and reducing it.
-    const aggregatedTotals = await aggregateQuotationRoomTotals(allIds);
+    const aggregatedTotals = await aggregateQuotationRoomTotals(allIds, protectedIds);
 
     const total = allMatchingLight.length;
     let drafts = 0;

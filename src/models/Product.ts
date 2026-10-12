@@ -1,7 +1,9 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import type { ProductType } from "@/types";
+import { softDeletePlugin } from "@/lib/softDelete/plugin";
+import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 
-export interface IProduct {
+export interface IProduct extends SoftDeleteFields {
   _id: number;
   id?: number;
   name: string;
@@ -115,6 +117,8 @@ ProductSchema.index({ categoryId: 1, automationTier: 1, surfaceFinish: 1 });
 ProductSchema.index({ categoryId: 1, isActive: 1, sortOrder: 1 });
 ProductSchema.index({ code: 1 }, { sparse: true });
 ProductSchema.index({ type: 1, isActive: 1 });
+
+softDeletePlugin(ProductSchema, { blockHardDelete: true });
 
 export const Product: Model<IProductDocument> =
   mongoose.models.Product || mongoose.model<IProductDocument>("Product", ProductSchema);

@@ -10,6 +10,8 @@ export interface SwitchProps {
   className?: string;
   id?: string;
   size?: "sm" | "md";
+  /** Accessible name for a switch rendered without a visible `label`. */
+  ariaLabel?: string;
 }
 
 export const Switch: React.FC<SwitchProps> = ({
@@ -21,6 +23,7 @@ export const Switch: React.FC<SwitchProps> = ({
   className,
   id,
   size = "md",
+  ariaLabel,
 }) => {
   const generatedId = React.useId();
   const switchId = id || (label ? generatedId : undefined);
@@ -48,6 +51,7 @@ export const Switch: React.FC<SwitchProps> = ({
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={ariaLabel}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(

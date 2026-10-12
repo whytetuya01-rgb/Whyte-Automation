@@ -159,6 +159,9 @@ export interface QuotationItem {
   linePrice?: number;
   notes: string | null;
   sortOrder: number;
+  /** True when this item's own product, or its selected variant, has been soft-deleted from the catalog. */
+  isUnavailable?: boolean;
+  unavailableReason?: "product" | "variant" | null;
 }
 
 export interface QuotationRoom {
@@ -173,6 +176,9 @@ export interface QuotationRoom {
   items: QuotationItem[];
   subtotal?: number;
   productsCount?: number;
+  /** True when this room's own room type has been soft-deleted from the catalog. */
+  isUnavailable?: boolean;
+  unavailableReason?: "roomType" | null;
 }
 
 export interface Quotation {
@@ -203,6 +209,8 @@ export interface Quotation {
   totalProducts?: number;
   earningPercent?: number;
   estimatedEarning?: number;
+  /** True when at least one room/item's catalog reference has been soft-deleted (ignored for Approved/Delivered — their totals are historical regardless). */
+  hasUnavailableItems?: boolean;
   allocatedDiscountPercent?: number | null;
   customerDiscountPercent?: number | null;
   estimatedEarningPercent?: number | null;

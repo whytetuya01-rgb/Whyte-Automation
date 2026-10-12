@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { BadgeCheck, Clock, FileText, Plus, Wallet } from "lucide-react";
+import { BadgeCheck, Clock, FileText, LayoutDashboard, Plus, Wallet } from "lucide-react";
+import PageHeader from "@/components/admin/PageHeader";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Category as CategoryModel, Product } from "@/models";
 import { getAdminDashboardData } from "@/lib/adminDashboardData";
@@ -57,27 +58,28 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-5 max-w-full">
-      <header className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold text-[#111111] tracking-tight">Dashboard</h1>
-          <p className="text-sm text-[#8A8A93] mt-0.5">Overview of your quotation activity and business performance.</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href="/admin/products"
-            className="inline-flex items-center h-9 px-3.5 rounded-xl border border-[#E5E5E7] bg-white text-sm font-medium text-[#3F3F46] hover:border-[#F1B8C8] hover:text-[#B83E68] transition-colors"
-          >
-            Add Product
-          </Link>
-          <Link
-            href="/quotation/new"
-            className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-[#111111] text-white text-sm font-medium hover:bg-[#1E1E22] transition-colors"
-          >
-            <Plus size={15} aria-hidden="true" />
-            New Quotation
-          </Link>
-        </div>
-      </header>
+      <PageHeader
+        title="Dashboard"
+        icon={LayoutDashboard}
+        subtitle="Overview of your quotation activity and business performance."
+        actions={
+          <>
+            <Link
+              href="/admin/products"
+              className="inline-flex items-center h-9 px-3.5 rounded-xl border border-[#E5E5E7] bg-white text-sm font-medium text-[#3F3F46] hover:border-[#F1B8C8] hover:text-[#B83E68] transition-colors"
+            >
+              Add Product
+            </Link>
+            <Link
+              href="/quotation/new"
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-xl bg-[#111111] text-white text-sm font-medium hover:bg-[#1E1E22] transition-colors"
+            >
+              <Plus size={15} aria-hidden="true" />
+              New Quotation
+            </Link>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-12 gap-4 lg:gap-5">
         {/* KPIs: four across on desktop, two across on tablet, one on phones. */}

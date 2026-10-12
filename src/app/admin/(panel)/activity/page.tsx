@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
+import PageHeader from "@/components/admin/PageHeader";
 import Pagination from "@/components/shared/Pagination";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import StatusBadge from "@/components/shared/StatusBadge";
@@ -242,26 +243,22 @@ export default function ActivityLogPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-neutral-900 flex items-center gap-2">
-            <Activity size={22} className="text-accent" />
-            Activity Log
-          </h1>
-          <p className="text-sm text-neutral-500 mt-0.5">
-            Every dealer and admin action across every quotation — created, assigned, approved, rejected, delivered.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => fetchData(page, true)}
-          disabled={refreshing}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50 self-start sm:self-auto"
-        >
-          <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-          <span>Refresh</span>
-        </button>
-      </div>
+      <PageHeader
+        title="Activity Log"
+        icon={Activity}
+        subtitle="Every dealer and admin action across every quotation — created, assigned, approved, rejected, delivered."
+        actions={
+          <button
+            type="button"
+            onClick={() => fetchData(page, true)}
+            disabled={refreshing}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+            <span>Refresh</span>
+          </button>
+        }
+      />
 
       {/* Filter Toolbar */}
       <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-3">

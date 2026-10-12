@@ -2,6 +2,8 @@ import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import AdminLayoutWrapper from "@/components/admin/AdminLayoutWrapper";
+import SiteFooter from "@/components/shared/SiteFooter";
+import { getFooterCompany } from "@/lib/footerCompany";
 import { isSessionActorStillValid } from "@/lib/sessionGuard";
 
 const ADMIN_ROLES = new Set(["super_admin", "admin"]);
@@ -21,8 +23,10 @@ export default async function AdminPanelLayout({ children }: { children: React.R
     redirect("/admin/login");
   }
 
+  const footerCompany = await getFooterCompany();
+
   return (
-    <AdminLayoutWrapper>
+    <AdminLayoutWrapper footer={<SiteFooter company={footerCompany} variant="admin" />}>
       {children}
     </AdminLayoutWrapper>
   );

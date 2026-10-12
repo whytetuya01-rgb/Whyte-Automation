@@ -1,7 +1,9 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import { createDecimalField } from "./helpers";
+import { softDeletePlugin } from "@/lib/softDelete/plugin";
+import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 
-export interface IProductVariant {
+export interface IProductVariant extends SoftDeleteFields {
   _id: number;
   id?: number;
   productId: number;
@@ -125,6 +127,8 @@ ProductVariantSchema.virtual("quotationItems", {
 ProductVariantSchema.index({ productId: 1, isActive: 1, sortOrder: 1 });
 ProductVariantSchema.index({ code: 1 }, { sparse: true });
 ProductVariantSchema.index({ variantCode: 1 }, { sparse: true });
+
+softDeletePlugin(ProductVariantSchema, { blockHardDelete: true });
 
 const existingProductVariantModel = mongoose.models.ProductVariant as Model<IProductVariantDocument> | undefined;
 

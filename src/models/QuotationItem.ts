@@ -1,7 +1,10 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import { createDecimalField } from "./helpers";
+import { softDeletePlugin } from "@/lib/softDelete/plugin";
+import type { SoftDeleteFields } from "@/lib/softDelete/fields";
+import { historicalReferenceOptions } from "@/lib/softDelete/scope";
 
-export interface IQuotationItem {
+export interface IQuotationItem extends SoftDeleteFields {
   _id: number;
   id?: number;
   quotationRoomId: number;
@@ -77,11 +80,16 @@ QuotationItemSchema.virtual("room", {
 });
 
 // Product virtual relation
+// A quoted item always refers to whatever product/variant it was added
+// with — never "is this still a valid NEW selection" — so these populates
+// must keep resolving a soft-deleted Product/ProductVariant, or a historical
+// quotation (and its PDF) would render with the product/variant blanked out.
 QuotationItemSchema.virtual("product", {
   ref: "Product",
   localField: "productId",
   foreignField: "_id",
   justOne: true,
+  options: historicalReferenceOptions(),
 });
 
 // ProductVariant virtual relation
@@ -90,11 +98,14 @@ QuotationItemSchema.virtual("productVariant", {
   localField: "productVariantId",
   foreignField: "_id",
   justOne: true,
+  options: historicalReferenceOptions(),
 });
 
 // Compound index for querying items belonging to a room in display order
 QuotationItemSchema.index({ quotationRoomId: 1, sortOrder: 1 });
 QuotationItemSchema.index({ productId: 1, productVariantId: 1 });
+
+softDeletePlugin(QuotationItemSchema, { blockHardDelete: true });
 
 const existingQuotationItemModel = mongoose.models.QuotationItem as Model<IQuotationItemDocument> | undefined;
 

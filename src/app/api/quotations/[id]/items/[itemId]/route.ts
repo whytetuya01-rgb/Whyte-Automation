@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
-import { Quotation, QuotationItem, QuotationRoom } from "@/models";
+import { Quotation, QuotationItem, QuotationRoom, Product } from "@/models";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationItemSchema } from "@/lib/validation/quotation";
@@ -8,6 +8,8 @@ import { normalizeQuotationItem } from "@/lib/quotationNormalization";
 import { redactQuotationItemForRole } from "@/lib/variantRedaction";
 import { calculateFromTaxInclusivePrice } from "@/lib/pricing";
 import { canModifyQuotation } from "@/lib/quotationAccess";
+import { actorFromSession } from "@/lib/softDelete/actor";
+import { softDeleteOne } from "@/lib/softDelete/service";
 
 type RouteContext = { params: Promise<{ id: string; itemId: string }> };
 
@@ -80,6 +82,41 @@ export async function PATCH(req: Request, context: RouteContext) {
       data.productId = parsed.productId;
     }
 
+    // Reassigning an item to a different product/variant must go through the
+    // same live-reference check as creating one — a direct PATCH must not be
+    // able to attach a soft-deleted (or inactive) product/variant that the
+    // create endpoint would have rejected.
+    if (parsed.productId !== undefined || parsed.productVariantId !== undefined) {
+      const targetProductId =
+        parsed.productId ?? (existingItem as unknown as { productId?: number }).productId;
+      const product = await Product.findById(targetProductId).populate({
+        path: "variants",
+        match: { isActive: true },
+      });
+      if (!product) {
+        throw new ApiError("NOT_FOUND", "Product not found.", { field: "productId" });
+      }
+      if (!product.isActive) {
+        throw new ApiError("VALIDATION_ERROR", "This product is no longer available.", { field: "productId" });
+      }
+      const targetVariantId =
+        parsed.productVariantId !== undefined
+          ? parsed.productVariantId
+          : (existingItem as unknown as { productVariantId?: number | null }).productVariantId;
+      if (targetVariantId != null) {
+        const productJson = (typeof product.toJSON === "function" ? product.toJSON() : product) as {
+          variants?: Array<{ id?: number; _id?: number }>;
+        };
+        const variants = Array.isArray(productJson.variants) ? productJson.variants : [];
+        const match = variants.find((v) => (v.id ?? v._id) === targetVariantId);
+        if (!match) {
+          throw new ApiError("VALIDATION_ERROR", "The selected variant is unavailable.", {
+            field: "productVariantId",
+          });
+        }
+      }
+    }
+
     await QuotationItem.findByIdAndUpdate(itId, { $set: data });
 
     // Response-only populate: just the fields the editor/proposal/PDF render
@@ -109,6 +146,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
     const session = await requireSession();
     const role = (session.user as { role?: string }).role;
     const userId = Number((session.user as any).id);
+    const actor = actorFromSession(session);
 
     const { id, itemId } = await context.params;
     const quotationId = parseQuotationId(id);
@@ -136,7 +174,14 @@ export async function DELETE(_req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Item not found for this quotation.");
     }
 
-    await QuotationItem.findByIdAndDelete(itId);
+    // Soft delete — the item keeps every pricing/GST/discount field intact
+    // in the record itself, just hidden from the live quotation view.
+    await softDeleteOne({
+      model: QuotationItem,
+      entityType: "quotationItem",
+      id: itId,
+      actor,
+    });
 
     return apiSuccess({ id: itId, deleted: true });
   } catch (error) {

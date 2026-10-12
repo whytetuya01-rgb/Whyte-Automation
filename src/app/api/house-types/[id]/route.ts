@@ -4,9 +4,10 @@ import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { requireRole } from "@/lib/api-auth";
-import { getHouseTypeDependencies } from "@/lib/dependencies";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { updateHouseTypeSchema } from "@/lib/validation/catalog";
+import { actorFromSession } from "@/lib/softDelete/actor";
+import { softDeleteOne } from "@/lib/softDelete/service";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -92,45 +93,28 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin");
+    const session = await requireRole("super_admin");
+    const actor = actorFromSession(session);
     const { id } = await context.params;
     const houseTypeId = parseNumericId(id, "id");
 
     await connectMongoDB();
 
-    const houseType = await HouseType.findById(houseTypeId).select("_id").lean();
+    const houseType = await HouseType.findById(houseTypeId).select("name").lean();
     if (!houseType) {
       throw new ApiError("NOT_FOUND", "House type not found.");
     }
 
-    const dependencies = await getHouseTypeDependencies(houseTypeId);
-    const blocking: Array<{ type: string; label: string; count: number }> = [];
-    if (dependencies.roomTemplates > 0) {
-      blocking.push({
-        type: "roomTemplates",
-        label: "configured room template(s)",
-        count: dependencies.roomTemplates,
-      });
-    }
-    if (dependencies.quotations > 0) {
-      blocking.push({
-        type: "quotations",
-        label: "quotation(s)",
-        count: dependencies.quotations,
-      });
-    }
-    if (blocking.length > 0) {
-      const summary = blocking
-        .map((item) => `${item.count} ${item.label}`)
-        .join(" and ");
-      throw new ApiError(
-        "DEPENDENCY_EXISTS",
-        `Cannot delete house type: it is still used in ${summary}. Remove those references first.`,
-        { dependencies: blocking }
-      );
-    }
-
-    await HouseType.findByIdAndDelete(houseTypeId);
+    // Soft delete always succeeds: its room templates and any quotation built
+    // on it keep resolving through historical-reference lookups. It only
+    // stops being offered for a NEW quotation or template, enforced there.
+    await softDeleteOne({
+      model: HouseType,
+      entityType: "houseType",
+      id: houseTypeId,
+      actor,
+      label: houseType.name,
+    });
 
     return apiSuccess({ id: houseTypeId, deleted: true });
   } catch (error) {

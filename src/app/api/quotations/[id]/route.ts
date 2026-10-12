@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem, HouseType } from "@/models";
-import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
@@ -10,10 +9,13 @@ import { parseQuotationId, updateQuotationSchema } from "@/lib/validation/quotat
 
 import { normalizeQuotation } from "@/lib/quotationNormalization";
 import { redactQuotationForRole } from "@/lib/variantRedaction";
-import { calculateDealerEarning, customerDiscountError, subtotalFromRooms, toPlainNumber } from "@/lib/dealerEarnings";
+import { calculateDealerEarning, customerDiscountError, toPlainNumber } from "@/lib/dealerEarnings";
+import { eligibleSubtotalFromRooms } from "@/lib/quotationTotals";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { canModifyQuotation, canViewQuotation } from "@/lib/quotationAccess";
+import { actorFromSession } from "@/lib/softDelete/actor";
+import { softDeleteOne } from "@/lib/softDelete/service";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -38,12 +40,14 @@ async function fetchPopulatedQuotation(quotationId: string) {
           // audit and `QuotationItemVariantSummary` in `@/types`.
           populate: [
             {
+              // `isDeleted` added so the response can flag an unavailable
+              // product without exposing anything else from the catalog.
               path: "product",
-              select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes",
+              select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes isDeleted",
             },
             {
               path: "productVariant",
-              select: "surfaceFinish automationTier",
+              select: "surfaceFinish automationTier isDeleted",
             },
           ],
         },
@@ -111,9 +115,15 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     await connectMongoDB();
 
+    // Minimal nested populate (just `isDeleted`) so the eligible-subtotal
+    // check below can tell a soft-deleted product/variant/room type apart
+    // from a legacy/missing reference — see `eligibleSubtotalFromRooms`.
     const existing = await Quotation.findById(quotationId).populate({
       path: "rooms",
-      populate: { path: "items" },
+      populate: [
+        { path: "roomType", select: "isDeleted" },
+        { path: "items", populate: [{ path: "product", select: "isDeleted" }, { path: "productVariant", select: "isDeleted" }] },
+      ],
     });
     if (!existing) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
@@ -167,8 +177,8 @@ export async function PATCH(req: Request, context: RouteContext) {
         ? Number(discountValue)
         : undefined;
 
-    const existingRooms = (existing as unknown as { rooms?: Parameters<typeof subtotalFromRooms>[0] }).rooms;
-    const subtotal = subtotalFromRooms(existingRooms);
+    const existingRooms = (existing as unknown as { rooms?: Parameters<typeof eligibleSubtotalFromRooms>[0] }).rooms;
+    const subtotal = eligibleSubtotalFromRooms(existingRooms, existing.status);
 
     if (requestedPercent !== undefined) {
       const nextCust = Number(requestedPercent);
@@ -269,6 +279,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
     const session = await requireSession();
     const role = (session.user as { role?: string }).role;
     const userId = Number((session.user as any).id);
+    const actor = actorFromSession(session);
 
     const quotationId = parseQuotationId(id);
     await connectMongoDB();
@@ -289,42 +300,37 @@ export async function DELETE(_req: Request, context: RouteContext) {
       throw new ApiError("FORBIDDEN", "You do not have permission to delete this quotation.");
     }
 
-    const deleted = await withTransaction(async (dbSession) => {
-      const roomsQuery = QuotationRoom.find({ quotationId }, { _id: 1 });
-      if (dbSession) roomsQuery.session(dbSession);
-      const rooms = await roomsQuery;
-      const roomIds = rooms.map((room) => room._id);
-
-      // Quotation rooms and items have no meaning without their parent quotation,
-      // so they are always removed with it. The counts are reported back.
-      let deletedItems = 0;
-      if (roomIds.length > 0) {
-        const itemQuery = QuotationItem.deleteMany(
-          { quotationRoomId: { $in: roomIds } },
-          dbSession ? { session: dbSession } : undefined
-        );
-        const itemResult = await itemQuery;
-        deletedItems = itemResult.deletedCount ?? 0;
-      }
-
-      if (dbSession) {
-        await QuotationRoom.deleteMany({ quotationId }, { session: dbSession });
-      } else {
-        await QuotationRoom.deleteMany({ quotationId });
-      }
-
-      const deleteQuotationQuery = Quotation.findByIdAndDelete(quotationId);
-      if (dbSession) deleteQuotationQuery.session(dbSession);
-      const removed = await deleteQuotationQuery;
-
-      if (!removed) {
-        throw new ApiError("NOT_FOUND", "Quotation not found.");
-      }
-
-      return { rooms: roomIds.length, items: deletedItems };
+    // Soft delete. Quotation rooms and items have no meaning without their
+    // parent quotation, so they are cascaded with it — but, like the
+    // quotation itself, never physically removed: an approved/delivered
+    // quotation can never reach this path anyway (blocked above), and a
+    // draft/sent/rejected one that gets deleted keeps its full snapshot
+    // (pricing, GST, discounts, room/item detail) intact for audit purposes,
+    // just hidden from normal listings. Items are matched through their room
+    // BEFORE rooms are cascaded, so the lookup still sees live rooms.
+    const result = await softDeleteOne({
+      model: Quotation,
+      entityType: "quotation",
+      id: quotationId,
+      actor,
+      label: target.quotationNumber,
+      cascade: [
+        {
+          entityType: "quotationItem",
+          model: QuotationItem,
+          match: async (parentId) => {
+            const roomIds = await QuotationRoom.find({ quotationId: String(parentId) }).distinct("_id");
+            return { quotationRoomId: { $in: roomIds } };
+          },
+        },
+        { entityType: "quotationRoom", model: QuotationRoom, foreignField: "quotationId" },
+      ],
     });
 
-    return apiSuccess({ id: quotationId, deleted: true, ...deleted });
+    const rooms = result.cascade.find((c) => c.entityType === "quotationRoom")?.count ?? 0;
+    const items = result.cascade.find((c) => c.entityType === "quotationItem")?.count ?? 0;
+
+    return apiSuccess({ id: quotationId, deleted: true, rooms, items });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/quotations/[id]" });
   }

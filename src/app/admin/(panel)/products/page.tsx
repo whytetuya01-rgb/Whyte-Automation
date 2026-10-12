@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useMemo, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { Plus, RefreshCw } from "lucide-react";
+import { Plus, RefreshCw, Package } from "lucide-react";
 import { Product, Category } from "@/types";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError, safeMessage } from "@/lib/apiClient";
+import { confirmDeletionWithImpact } from "@/lib/deletionImpactClient";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
+import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import ProductForm from "@/components/admin/ProductForm";
 import ProductVariantsEditModal from "@/components/admin/ProductVariantsEditModal";
@@ -207,21 +209,17 @@ function ProductsPageContent() {
     }
   };
 
-  // Handle Delete Product — confirmation is raised through the global provider,
-  // which keeps the dialog open (and its button disabled) until the API replies.
+  // Handle Delete Product — real, server-checked impact is fetched first (see
+  // confirmDeletionWithImpact), so the dialog never shows a guessed count and
+  // a blocked delete is never offered as if it would succeed.
   const handleDeleteProduct = async (product: Product) => {
-    const variantCount = product.variants?.length || 0;
-
-    await confirm({
-      title: "Delete Product",
-      message: `Are you sure you want to delete "${product.name}"?`,
-      detail: `This product currently has ${variantCount} associated ${
-        variantCount === 1 ? "variant" : "variants"
-      }. If it is used in any quotation, deletion will be blocked.`,
+    await confirmDeletionWithImpact({
+      confirm,
+      impactUrl: `/api/products/${product.id}/deletion-impact`,
+      recordLabel: product.name,
+      entityName: "product",
       confirmText: "Delete Product",
-      cancelText: "Cancel",
-      variant: "danger",
-      onConfirm: async () => {
+      onConfirmedDelete: async () => {
         try {
           await apiJson.delete(`/api/products/${product.id}`);
           notify.success("Product deleted", `Product "${product.name}" has been removed.`);
@@ -302,42 +300,40 @@ function ProductsPageContent() {
   return (
     <div className="w-full space-y-5 pb-16">
       {/* ─── 1. PAGE HEADER ───────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-1">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-neutral-900 tracking-tight">Products</h1>
-            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-neutral-100 text-neutral-700 border border-neutral-200/80 font-mono">
-              {total} {total === 1 ? "Product" : "Products"}
-            </span>
-          </div>
-          <p className="text-[13px] text-neutral-500 mt-1">
-            Manage catalog products, variants, surface finishes, and pricing.
-          </p>
-        </div>
+      <PageHeader
+        title="Products"
+        icon={Package}
+        badge={
+          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-neutral-100 text-neutral-700 border border-neutral-200/80 font-mono">
+            {total} {total === 1 ? "Product" : "Products"}
+          </span>
+        }
+        subtitle="Manage catalog products, variants, surface finishes, and pricing."
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={fetchProducts}
+              disabled={loading}
+              className="h-9 gap-1.5 text-xs font-semibold rounded-xl"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+              Refresh
+            </Button>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchProducts}
-            disabled={loading}
-            className="h-9 gap-1.5 text-xs font-semibold rounded-xl"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
-
-          <button
-            onClick={() => {
-              setEditingProduct(null);
-              setShowProductModal(true);
-            }}
-            className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-xs shrink-0"
-          >
-            <Plus size={14} /> Add Product
-          </button>
-        </div>
-      </div>
+            <button
+              onClick={() => {
+                setEditingProduct(null);
+                setShowProductModal(true);
+              }}
+              className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-xs shrink-0"
+            >
+              <Plus size={14} /> Add Product
+            </button>
+          </>
+        }
+      />
 
       {/* Catalog summary */}
       <ProductCatalogStats items={statCards} />

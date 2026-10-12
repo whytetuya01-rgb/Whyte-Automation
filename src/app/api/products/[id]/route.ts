@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Product, ProductVariant, ProductVariantHistory, Category } from "@/models";
 import { withTransaction } from "@/lib/transaction";
@@ -13,9 +12,10 @@ import {
   readJsonBody,
 } from "@/lib/api-response";
 import { updateProductSchema } from "@/lib/validation/product";
-import { getProductDependencies } from "@/lib/dependencies";
 import { normalizeProduct } from "@/lib/quotationNormalization";
 import { redactProductForRole } from "@/lib/variantRedaction";
+import { actorFromSession } from "@/lib/softDelete/actor";
+import { softDeleteOne } from "@/lib/softDelete/service";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -171,16 +171,27 @@ export async function PATCH(req: Request, context: RouteContext) {
 /**
  * DELETE /api/products/[id]
  *
- * Hard delete. Blocked with 409 when the product is still referenced by any
- * quotation item; its variants are removed in the same transaction, and every
- * cascaded variant gets the same inert history row a direct variant delete
- * would have written (so a product delete never silently loses the audit trail).
+ * Soft delete. Always succeeds — the product and its variants are never
+ * destroyed, so an existing quotation item keeps resolving them exactly as
+ * before (pricing, GST, PDF output and dealer earnings are untouched, since
+ * none of that reads through the live-only default scope). The only effect
+ * is that the product stops being offered for a NEW quotation item, enforced
+ * at quotation-item creation, not here.
+ *
+ * Variants are cascaded (soft-deleted, never physically removed) in the same
+ * step. The pre-existing ProductVariantHistory snapshot is STILL written
+ * first, exactly as a hard delete would have — the "Edit Variants" matrix
+ * screen's own, separate restore-from-history flow (`variantMatrix.ts`,
+ * untouched by this phase) depends on that row to tell a removed combination
+ * apart from one that was never added; it is unaffected by whether the
+ * underlying ProductVariant row was hard- or soft-deleted.
  */
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
     // Catalog writes are restricted to Super Admin / Admin. The session is
     // also kept so the soft-delete audit field records the actor.
     const authSession = await requireRole("super_admin", "admin");
+    const actor = actorFromSession(authSession);
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
 
@@ -189,82 +200,48 @@ export async function DELETE(_req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Product not found.", { field: "id" });
     }
 
-    const dependencies = await getProductDependencies(productId);
-
-    if (dependencies.quotationItems > 0) {
-      throw new ApiError(
-        "DEPENDENCY_EXISTS",
-        `This product cannot be deleted because it is used in ${dependencies.quotationItems} quotation ${
-          dependencies.quotationItems === 1 ? "item" : "items"
-        }. Deactivate it instead.`,
-        { details: { quotationItemIds: dependencies.quotationItemIds } }
-      );
-    }
-
     const deletedBy = authSession.user?.email ?? null;
     const deletedAt = new Date();
 
-    const cascaded = await withTransaction(async (dbSession) => {
-      const deleteQuery = Product.findByIdAndDelete(productId);
-      if (dbSession) deleteQuery.session(dbSession);
-      const deleted = await deleteQuery;
-      if (!deleted) {
-        throw new ApiError("NOT_FOUND", "Product not found.", { field: "id" });
+    const variants = await ProductVariant.find({ productId }).lean();
+    await withTransaction(async (dbSession) => {
+      for (const variant of variants) {
+        const historyId = await getNextSequence("productVariantHistory", ProductVariantHistory, dbSession);
+        const historyDoc = new ProductVariantHistory({
+          _id: historyId,
+          variantId: variant._id,
+          productId,
+          productCode: product.code ?? null,
+          variantCode: variant.variantCode ?? null,
+          name: variant.name ?? null,
+          code: variant.code ?? null,
+          automationTier: variant.automationTier ?? null,
+          surfaceFinish: variant.surfaceFinish ?? null,
+          config: variant.config ?? {},
+          price: variant.price ?? null,
+          isActive: variant.isActive ?? true,
+          sortOrder: variant.sortOrder ?? 0,
+          reason: "product_hard_delete",
+          deletedBy,
+          deletedAt,
+        });
+        if (dbSession) await historyDoc.save({ session: dbSession });
+        else await historyDoc.save();
       }
+    });
 
-      // Snapshot the variants BEFORE removing them.
-      const variantQuery = ProductVariant.find({ productId });
-      if (dbSession) variantQuery.session(dbSession);
-      const variants = await variantQuery.lean().exec();
-
-      const historyDocs = variants.map(
-        (variant) =>
-          new ProductVariantHistory({
-            _id: 0, // replaced below with the real sequence
-            variantId: variant._id,
-            productId,
-            productCode: product.code ?? null,
-            variantCode: variant.variantCode ?? null,
-            name: variant.name ?? null,
-            code: variant.code ?? null,
-            automationTier: variant.automationTier ?? null,
-            surfaceFinish: variant.surfaceFinish ?? null,
-            config: variant.config ?? {},
-            price: variant.price ?? null,
-            isActive: variant.isActive ?? true,
-            sortOrder: variant.sortOrder ?? 0,
-            reason: "product_hard_delete",
-            deletedBy,
-            deletedAt,
-          })
-      );
-
-      for (const historyDoc of historyDocs) {
-        const historyId = await getNextSequence(
-          "productVariantHistory",
-          ProductVariantHistory,
-          dbSession
-        );
-        historyDoc._id = historyId;
-        if (dbSession) {
-          await historyDoc.save({ session: dbSession });
-        } else {
-          await historyDoc.save();
-        }
-      }
-
-      if (dbSession) {
-        await ProductVariant.deleteMany({ productId }, { session: dbSession });
-      } else {
-        await ProductVariant.deleteMany({ productId });
-      }
-
-      return { variantsDeleted: variants.length };
+    await softDeleteOne({
+      model: Product,
+      entityType: "product",
+      id: productId,
+      actor,
+      label: product.name,
+      cascade: [{ entityType: "productVariant", model: ProductVariant, foreignField: "productId" }],
     });
 
     return apiSuccess({
       productId,
-      deletedVariants: cascaded.variantsDeleted,
+      deletedVariants: variants.length,
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/products/[id]" });

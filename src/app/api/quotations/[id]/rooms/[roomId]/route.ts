@@ -1,11 +1,12 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem, RoomType } from "@/models";
-import { withTransaction } from "@/lib/transaction";
 import { requireSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationRoomSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
 import { canModifyQuotation } from "@/lib/quotationAccess";
+import { actorFromSession } from "@/lib/softDelete/actor";
+import { softDeleteOne } from "@/lib/softDelete/service";
 
 type RouteContext = { params: Promise<{ id: string; roomId: string }> };
 
@@ -80,6 +81,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
     const session = await requireSession();
     const role = (session.user as { role?: string }).role;
     const userId = Number((session.user as any).id);
+    const actor = actorFromSession(session);
 
     const { id, roomId } = await context.params;
     const quotationId = parseQuotationId(id);
@@ -98,33 +100,23 @@ export async function DELETE(_req: Request, context: RouteContext) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 
-    const removed = await withTransaction(async (dbSession) => {
-      const roomQuery = QuotationRoom.findOne({ _id: rId, quotationId });
-      if (dbSession) roomQuery.session(dbSession);
-      const existing = await roomQuery;
+    const existing = await QuotationRoom.findOne({ _id: rId, quotationId }).select("_id").lean();
+    if (!existing) {
+      throw new ApiError("NOT_FOUND", "Room not found for this quotation.");
+    }
 
-      if (!existing) {
-        throw new ApiError("NOT_FOUND", "Room not found for this quotation.");
-      }
-
-      // Items cannot exist without their room, so they are removed with it.
-      // The counts are reported back so the UI can explain what was dropped.
-      const itemQuery = QuotationItem.deleteMany(
-        { quotationRoomId: rId },
-        dbSession ? { session: dbSession } : undefined
-      );
-      const itemResult = await itemQuery;
-
-      if (dbSession) {
-        await QuotationRoom.findByIdAndDelete(rId, { session: dbSession });
-      } else {
-        await QuotationRoom.findByIdAndDelete(rId);
-      }
-
-      return { items: itemResult.deletedCount ?? 0 };
+    // Soft delete. Items cannot exist without their room, so they are
+    // cascaded with it — soft-deleted, never physically removed.
+    const result = await softDeleteOne({
+      model: QuotationRoom,
+      entityType: "quotationRoom",
+      id: rId,
+      actor,
+      cascade: [{ entityType: "quotationItem", model: QuotationItem, foreignField: "quotationRoomId" }],
     });
 
-    return apiSuccess({ id: rId, deleted: true, ...removed });
+    const items = result.cascade.find((c) => c.entityType === "quotationItem")?.count ?? 0;
+    return apiSuccess({ id: rId, deleted: true, items });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/quotations/[id]/rooms/[roomId]" });
   }

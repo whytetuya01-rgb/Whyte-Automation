@@ -1,8 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
+import { Building2 } from "lucide-react";
 import { Company } from "@/types";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
+import PageHeader from "@/components/admin/PageHeader";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useCompany } from "@/lib/swr";
 import { Input, Textarea, Button } from "@/components/ui";
@@ -57,10 +59,12 @@ export default function CompanyPage() {
 
   return (
     <div className="max-w-2xl">
-      <div className="mb-4 sm:mb-6">
-        <h1 className="text-xl sm:text-2xl font-bold text-neutral-900">Company Settings</h1>
-        <p className="text-neutral-500 text-xs sm:text-sm mt-1">Shown on all PDF quotations</p>
-      </div>
+      <PageHeader
+        title="Company Settings"
+        icon={Building2}
+        subtitle="Shown on all PDF quotations"
+        className="mb-4 sm:mb-6"
+      />
 
       <div className="bg-white rounded-2xl shadow-xs border border-admin-grey-border p-4 sm:p-6">
         <form onSubmit={handleSubmit} className="space-y-4" noValidate>

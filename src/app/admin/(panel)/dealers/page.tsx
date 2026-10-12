@@ -21,6 +21,7 @@ import notify from "@/lib/notify";
 import { apiJson, notifyApiError, safeMessage } from "@/lib/apiClient";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
+import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Pagination from "@/components/shared/Pagination";
@@ -210,28 +211,23 @@ export default function DealersPage() {
   return (
     <div className="space-y-6 max-w-full">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight flex items-center gap-2.5">
-            <Users className="text-[#D85B83]" size={24} />
-            <span>Dealer Management</span>
-          </h1>
-          <p className="text-gray-500 text-xs sm:text-sm mt-1">
-            {total} registered partner{total !== 1 ? "s" : ""} recorded in system
-          </p>
-        </div>
-
-        <button
-          onClick={() => {
-            setRefreshing(true);
-            fetchDealers();
-          }}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition shadow-2xs self-start sm:self-auto cursor-pointer"
-        >
-          <RefreshCw size={14} className={refreshing ? "animate-spin text-[#D85B83]" : ""} />
-          <span>Refresh</span>
-        </button>
-      </div>
+      <PageHeader
+        title="Dealer Management"
+        icon={Users}
+        subtitle={`${total} registered partner${total !== 1 ? "s" : ""} recorded in system`}
+        actions={
+          <button
+            onClick={() => {
+              setRefreshing(true);
+              fetchDealers();
+            }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition shadow-2xs cursor-pointer"
+          >
+            <RefreshCw size={14} className={refreshing ? "animate-spin text-[#D85B83]" : ""} />
+            <span>Refresh</span>
+          </button>
+        }
+      />
 
       {/* Filters Bar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 bg-white p-3.5 rounded-2xl border border-gray-200/80 shadow-2xs">

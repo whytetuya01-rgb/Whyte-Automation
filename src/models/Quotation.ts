@@ -1,8 +1,11 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import { createDecimalField } from "./helpers";
 import type { QuotationStatus, DiscountType } from "@/types";
+import { softDeletePlugin } from "@/lib/softDelete/plugin";
+import type { SoftDeleteFields } from "@/lib/softDelete/fields";
+import { historicalReferenceOptions } from "@/lib/softDelete/scope";
 
-export interface IQuotation {
+export interface IQuotation extends SoftDeleteFields {
   _id: string;
   id?: string;
   quotationNumber: string;
@@ -132,11 +135,16 @@ QuotationSchema.virtual("id").get(function () {
 });
 
 // HouseType virtual relation
+// A quotation always refers to whatever house type it was created with —
+// never "is this house type still offered for a NEW quotation" — so this
+// populate must keep resolving a soft-deleted HouseType, or a historical
+// quotation (and its PDF) would render with the house type blanked out.
 QuotationSchema.virtual("houseType", {
   ref: "HouseType",
   localField: "houseTypeId",
   foreignField: "_id",
   justOne: true,
+  options: historicalReferenceOptions(),
 });
 
 // Quotation rooms virtual relation
@@ -172,6 +180,8 @@ QuotationSchema.index({ createdAt: -1 });
 QuotationSchema.index({ dealerId: 1, createdAt: -1 });
 QuotationSchema.index({ createdBy: 1, createdAt: -1 });
 QuotationSchema.index({ assignedSalesId: 1, status: 1 });
+
+softDeletePlugin(QuotationSchema, { blockHardDelete: true });
 
 const existingQuotationModel = mongoose.models.Quotation as Model<IQuotationDocument> | undefined;
 

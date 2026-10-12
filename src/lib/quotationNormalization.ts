@@ -1,6 +1,7 @@
 import type { Quotation, QuotationRoom, QuotationItem, QuotationItemVariantSummary, Category, RoomType, HouseType, Product, ProductVariant } from "@/types";
 import { serializeVariant } from "@/lib/productVariantService";
 import { calculateQuotationGst } from "@/lib/pricing";
+import { isProtectedQuotationStatus, isRoomUnavailable } from "@/lib/quotationAvailability";
 
 /**
  * Normalizes a product variant to guarantee a plain, server-safe shape:
@@ -187,6 +188,23 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
     rawTaxAmount = Math.round((rawUnitPrice - rawPriceWithoutTax) * 100) / 100;
   }
 
+  // Captured from the RAW populated product/variant before normalization —
+  // `normalizeProduct` builds an explicit field list and does not carry
+  // `isDeleted` through, and this is the one place that needs it. A
+  // soft-deleted catalog record still fully resolves here (the
+  // `historicalReferenceOptions()` populate on QuotationItem.product/
+  // productVariant — see Phase 3), so `item.product`/`item.productVariant`
+  // being present but `isDeleted: true` is exactly how "unavailable" is told
+  // apart from "legacy row with no populated reference at all" (never flagged).
+  const productIsDeleted = item.product?.isDeleted === true;
+  const variantIsDeleted = item.productVariantId != null && item.productVariant?.isDeleted === true;
+  const isUnavailable = productIsDeleted || variantIsDeleted;
+  const unavailableReason: "product" | "variant" | null = productIsDeleted
+    ? "product"
+    : variantIsDeleted
+    ? "variant"
+    : null;
+
   const product = item.product ? normalizeProduct(item.product) : undefined;
   // A quoted item's embedded variant is a lightweight RENDERING snapshot
   // (id/surfaceFinish/automationTier only — see QuotationItemVariantSummary),
@@ -224,27 +242,45 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
     variantConfig: item.variantConfig ?? null,
     sbNumber: item.sbNumber ?? null,
     sortOrder: Number(item.sortOrder ?? 0),
+    isUnavailable,
+    unavailableReason,
   };
 }
 
 /**
  * Normalizes a quotation room to guarantee `id: number`, `quotationId: string`,
  * normalized roomType, and normalized items list.
+ *
+ * `status` gates whether an unavailable item (its own product/variant
+ * deleted, or this room's own room type deleted) is excluded from this
+ * room's displayed subtotal/productsCount — see `isProtectedQuotationStatus`
+ * in `@/lib/quotationTotals`. Omit it (as the single-room POST/PATCH
+ * response call sites do, which are never reachable for a protected
+ * quotation — that lock rejects the request earlier) to always exclude,
+ * the safe default that never silently inflates a total.
  */
-export function normalizeQuotationRoom(room: any, fallbackQuotationId?: string): QuotationRoom {
+export function normalizeQuotationRoom(
+  room: any,
+  fallbackQuotationId?: string,
+  status?: string | null
+): QuotationRoom {
   if (!room || typeof room !== "object") return room;
   const id = Number(room.id ?? room._id ?? 0);
   const quotationId = String(room.quotationId ?? fallbackQuotationId ?? "");
   const roomTypeId = room.roomTypeId !== undefined && room.roomTypeId !== null ? Number(room.roomTypeId) : null;
+  // Raw check before normalizeRoomType — see the matching comment on the item helper.
+  const isUnavailable = isRoomUnavailable({ roomTypeId, roomType: room.roomType });
   const roomType = room.roomType ? normalizeRoomType(room.roomType) : undefined;
   const items = Array.isArray(room.items)
     ? room.items.map((i: any) => normalizeQuotationItem(i, id))
     : [];
 
+  const protected_ = isProtectedQuotationStatus(status);
+  const eligibleItems = protected_ ? items : items.filter((it: any) => !isUnavailable && !it.isUnavailable);
   const subtotal = Math.round(
-    items.reduce((sum: number, it: any) => sum + (it.linePrice ?? (Number(it.unitPrice || 0) * (it.quantity || 1))), 0) * 100
+    eligibleItems.reduce((sum: number, it: any) => sum + (it.linePrice ?? (Number(it.unitPrice || 0) * (it.quantity || 1))), 0) * 100
   ) / 100;
-  const productsCount = items.reduce((sum: number, it: any) => sum + (it.quantity || 1), 0);
+  const productsCount = eligibleItems.reduce((sum: number, it: any) => sum + (it.quantity || 1), 0);
 
   return {
     ...room,
@@ -260,6 +296,8 @@ export function normalizeQuotationRoom(room: any, fallbackQuotationId?: string):
     items,
     subtotal,
     productsCount,
+    isUnavailable,
+    unavailableReason: isUnavailable ? "roomType" : null,
   };
 }
 
@@ -277,6 +315,7 @@ export function normalizeQuotation(quotation: any): Quotation & {
   netSubtotal: number;
   cgstAmount: number;
   sgstAmount: number;
+  hasUnavailableItems: boolean;
 } {
   if (!quotation || typeof quotation !== "object") return quotation;
 
@@ -287,14 +326,26 @@ export function normalizeQuotation(quotation: any): Quotation & {
   const houseType = quotation.houseType ? normalizeHouseType(quotation.houseType) : undefined;
 
   const rawRooms = Array.isArray(quotation.rooms) ? quotation.rooms : [];
-  const rooms = rawRooms.map((r: any) => normalizeQuotationRoom(r, id));
+  const rooms = rawRooms.map((r: any) => normalizeQuotationRoom(r, id, quotation.status));
 
-  // Compute canonical subtotal and total products count
+  // Approved/Delivered quotations keep their historical totals exactly as
+  // stored, no matter what has since been soft-deleted from the catalog —
+  // see `isProtectedQuotationStatus`. Every other status excludes a room or
+  // item whose catalog reference is gone, same rule as the per-room subtotal
+  // above (and the same rule `aggregateQuotationRoomTotals`'s aggregation
+  // pipeline applies for list/dashboard/earnings screens — see
+  // `@/lib/quotationTotals`), so the number never disagrees with itself
+  // between the quotation total and a refresh of this same page.
+  const protected_ = isProtectedQuotationStatus(quotation.status);
   let subtotal = 0;
   let productsCount = 0;
+  let hasUnavailableItems = false;
 
   for (const r of rooms) {
+    if (r.isUnavailable) hasUnavailableItems = true;
     for (const item of r.items) {
+      if (item.isUnavailable) hasUnavailableItems = true;
+      if (!protected_ && (r.isUnavailable || item.isUnavailable)) continue;
       const q = Math.max(1, item.quantity || 1);
       const p = Number(item.unitPrice || 0);
       subtotal += q * p;
@@ -354,6 +405,7 @@ export function normalizeQuotation(quotation: any): Quotation & {
     estimatedEarningAmount: earningAmount,
     earningPercent: earningPct,
     estimatedEarning: earningAmount,
+    hasUnavailableItems,
   };
 }
 

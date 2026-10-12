@@ -1,7 +1,8 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { requireRole } from "@/lib/api-auth";
 import { apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
-import { hardDeleteVariant, syncProductPriceFromVariants } from "@/lib/variantDeletion";
+import { softDeleteVariant, syncProductPriceFromVariants } from "@/lib/variantDeletion";
+import { actorFromSession } from "@/lib/softDelete/actor";
 
 type RouteContext = { params: Promise<{ id: string; variantId: string }> };
 
@@ -27,15 +28,17 @@ export async function DELETE(_req: Request, context: RouteContext) {
     // Variant deletion is Super Admin / Admin only. The session is also kept
     // so the delete audit field records the actor.
     const authSession = await requireRole("super_admin", "admin");
+    const actor = actorFromSession(authSession);
     await connectMongoDB();
 
     const { id, variantId } = await context.params;
     const productId = parseNumericId(id, "product id");
     const varId = parseNumericId(variantId, "variant id");
 
-    const result = await hardDeleteVariant({
+    const result = await softDeleteVariant({
       variantId: varId,
       productId,
+      actor,
       deletedBy: authSession.user?.email ?? null,
     });
 

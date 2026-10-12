@@ -14,6 +14,7 @@ import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Trash2, ExternalLink, Search, RefreshCw, X, FileText, Plus } from "lucide-react";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError, safeMessage } from "@/lib/apiClient";
+import PageHeader from "@/components/admin/PageHeader";
 
 const STATUSES: { value: string; label: string }[] = [
   { value: "all", label: "All" },
@@ -299,38 +300,34 @@ function QuotationsPageContent() {
   return (
     <div className="space-y-6 max-w-full">
       {/* ── Top Header Section ────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-gray-900 tracking-tight">
-            Quotations
-          </h1>
-          <p className="text-gray-500 text-xs sm:text-sm mt-1">
-            {total} total quotation{total !== 1 ? "s" : ""} recorded in system
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <button
-            onClick={() => fetchData(page, pageSize, debouncedSearch, statusFilter, true)}
-            disabled={refreshing || loading}
-            className="h-10 px-3.5 border border-gray-200 rounded-xl flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-600 shadow-2xs text-xs font-semibold"
-            title="Refresh quotations list"
-          >
-            <RefreshCw size={14} className={refreshing ? "animate-spin text-neutral-900" : ""} />
-            <span>Refresh</span>
-          </button>
-          {canCreateAndFilterOwners && (
-            <Link
-              href="/quotation/new"
-              className="h-10 px-4 rounded-xl flex items-center gap-2 bg-neutral-950 text-white hover:bg-neutral-800 transition-colors text-xs font-semibold shadow-2xs"
-              title="Create a quotation and optionally assign it to a dealer"
+      <PageHeader
+        title="Quotations"
+        icon={FileText}
+        subtitle={`${total} total quotation${total !== 1 ? "s" : ""} recorded in system`}
+        actions={
+          <>
+            <button
+              onClick={() => fetchData(page, pageSize, debouncedSearch, statusFilter, true)}
+              disabled={refreshing || loading}
+              className="h-10 px-3.5 border border-gray-200 rounded-xl flex items-center gap-2 hover:bg-gray-50 transition-colors text-gray-600 shadow-2xs text-xs font-semibold"
+              title="Refresh quotations list"
             >
-              <Plus size={14} />
-              <span>New Quotation</span>
-            </Link>
-          )}
-        </div>
-      </div>
+              <RefreshCw size={14} className={refreshing ? "animate-spin text-neutral-900" : ""} />
+              <span>Refresh</span>
+            </button>
+            {canCreateAndFilterOwners && (
+              <Link
+                href="/quotation/new"
+                className="h-10 px-4 rounded-xl flex items-center gap-2 bg-neutral-950 text-white hover:bg-neutral-800 transition-colors text-xs font-semibold shadow-2xs"
+                title="Create a quotation and optionally assign it to a dealer"
+              >
+                <Plus size={14} />
+                <span>New Quotation</span>
+              </Link>
+            )}
+          </>
+        }
+      />
 
       {/* ── Ownership filters (Super Admin / Admin) ─────────────────── */}
       {canCreateAndFilterOwners && (

@@ -1,6 +1,9 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import { softDeletePlugin } from "@/lib/softDelete/plugin";
+import type { SoftDeleteFields } from "@/lib/softDelete/fields";
+import { historicalReferenceOptions } from "@/lib/softDelete/scope";
 
-export interface IQuotationRoom {
+export interface IQuotationRoom extends SoftDeleteFields {
   _id: number;
   id?: number;
   quotationId: string;
@@ -60,11 +63,16 @@ QuotationRoomSchema.virtual("quotation", {
 });
 
 // RoomType virtual relation
+// A quotation room always refers to whatever room type it was created with —
+// never "is this room type still offered for a NEW room" — so this populate
+// must keep resolving a soft-deleted RoomType, exactly like a historical
+// product reference, or an old quotation would render with a blank room name.
 QuotationRoomSchema.virtual("roomType", {
   ref: "RoomType",
   localField: "roomTypeId",
   foreignField: "_id",
   justOne: true,
+  options: historicalReferenceOptions(),
 });
 
 // Quotation items virtual relation
@@ -76,6 +84,8 @@ QuotationRoomSchema.virtual("items", {
 
 // Compound index for querying rooms belonging to a quotation in display order
 QuotationRoomSchema.index({ quotationId: 1, sortOrder: 1 });
+
+softDeletePlugin(QuotationRoomSchema, { blockHardDelete: true });
 
 export const QuotationRoom: Model<IQuotationRoomDocument> =
   mongoose.models.QuotationRoom ||

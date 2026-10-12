@@ -8,7 +8,8 @@ import {
   parseNumericId,
   readJsonBody,
 } from "@/lib/api-response";
-import { getCategoryDependencies } from "@/lib/dependencies";
+import { actorFromSession } from "@/lib/softDelete/actor";
+import { softDeleteOne } from "@/lib/softDelete/service";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -73,43 +74,29 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    await requireRole("super_admin", "admin");
+    const session = await requireRole("super_admin", "admin");
+    const actor = actorFromSession(session);
 
     await connectMongoDB();
     const catId = parseNumericId((await context.params).id, "category id");
 
-    // 404 before any dependency reasoning
-    const existing = await Category.findById(catId);
+    const existing = await Category.findById(catId).select("name").lean();
     if (!existing) {
       throw new ApiError("NOT_FOUND", "Category not found.", { field: "id" });
     }
 
-    const dependencies = await getCategoryDependencies(catId);
-
-    if (dependencies.childCategories > 0) {
-      throw new ApiError(
-        "DEPENDENCY_EXISTS",
-        `Cannot delete: this category has ${dependencies.childCategories} subcategor${
-          dependencies.childCategories === 1 ? "y" : "ies"
-        }. Delete them first.`,
-        { field: "id" }
-      );
-    }
-
-    if (dependencies.activeProducts > 0) {
-      throw new ApiError(
-        "DEPENDENCY_EXISTS",
-        `Cannot delete: ${dependencies.activeProducts} active product${
-          dependencies.activeProducts === 1 ? "" : "s"
-        } use this category.`,
-        { field: "id" }
-      );
-    }
-
-    const deleted = await Category.findByIdAndDelete(catId);
-    if (!deleted) {
-      throw new ApiError("NOT_FOUND", "Category not found.", { field: "id" });
-    }
+    // Soft delete always succeeds: the record is never destroyed, so an
+    // existing subcategory/product that still points at it keeps resolving
+    // through historical-reference lookups exactly as it did before. The
+    // only effect is that this category stops being offered for NEW
+    // subcategories/products — enforced at those creation points, not here.
+    await softDeleteOne({
+      model: Category,
+      entityType: "category",
+      id: catId,
+      actor,
+      label: existing.name,
+    });
 
     return apiSuccess({ categoryId: catId });
   } catch (error) {

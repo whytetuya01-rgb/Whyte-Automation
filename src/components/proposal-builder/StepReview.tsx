@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, EditorCatalogProduct, Category } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
+import UnavailabilityWarning from "./UnavailabilityWarning";
+import { eligibleItemsOfRoom } from "@/lib/quotationAvailability";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
 import { useSession } from "next-auth/react";
@@ -212,27 +214,36 @@ export default function StepReview({
   const rooms = quotation.rooms || [];
   const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
 
-  // Calculations (unitPrice multiplied by quantity)
+  const allocatedPercent = Number(quotation.allocatedDiscountPercent || 0);
+  const isLocked = quotation.status === "approved" || quotation.status === "delivered";
+
+  // Calculations (unitPrice multiplied by quantity). An Approved/Delivered
+  // quotation keeps its historical total regardless of any catalog deletion
+  // since; every other status excludes a room/item whose catalog reference
+  // has been soft-deleted — the exact same rule the server applies in
+  // `normalizeQuotation` (`@/lib/quotationNormalization`) and
+  // `aggregateQuotationRoomTotals` (`@/lib/quotationTotals`), so this number
+  // never disagrees with a fresh GET of the same quotation.
   const subtotal = useMemo(() => {
     return rooms.reduce((sum, r) => {
       return (
         sum +
-        (r.items || []).reduce(
+        eligibleItemsOfRoom(r, r.items, isLocked).reduce(
           (acc, i) => acc + (i.quantity || 1) * Number(i.unitPrice || 0),
           0
         )
       );
     }, 0);
-  }, [rooms]);
+  }, [rooms, isLocked]);
 
   const totalDevices = useMemo(() => {
     return rooms.reduce((sum, r) => {
-      return sum + (r.items || []).reduce((acc, i) => acc + (i.quantity || 1), 0);
+      return (
+        sum +
+        eligibleItemsOfRoom(r, r.items, isLocked).reduce((acc, i) => acc + (i.quantity || 1), 0)
+      );
     }, 0);
-  }, [rooms]);
-
-  const allocatedPercent = Number(quotation.allocatedDiscountPercent || 0);
-  const isLocked = quotation.status === "approved" || quotation.status === "delivered";
+  }, [rooms, isLocked]);
 
   const discountAmount =
     discountType === "percentage"
@@ -254,11 +265,13 @@ export default function StepReview({
     grandTotal,
   } = gstCalculations;
 
-  // Category breakdown for device categorization clarity
+  // Category breakdown for device categorization clarity — same eligibility
+  // rule as the subtotal above, so its rows never sum to more than it.
   const categoryBreakdown = useMemo(() => {
     const map = new Map<string, { count: number; subtotal: number }>();
     rooms.forEach((r) => {
       (r.items || []).forEach((item) => {
+        if (!isLocked && (r.isUnavailable || item.isUnavailable)) return;
         const catName =
           item.product?.category?.name ||
           (categories.find((c) => Number(c.id ?? (c as any)._id) === Number(item.product?.categoryId))?.name) ||
@@ -270,7 +283,7 @@ export default function StepReview({
       });
     });
     return Array.from(map.entries()).map(([name, data]) => ({ name, ...data }));
-  }, [rooms, categories]);
+  }, [rooms, categories, isLocked]);
 
   // A quotation that belongs to a dealer is capped at its allocation snapshot (even 0%).
   const hasDealer = quotation.dealerId !== null && quotation.dealerId !== undefined;
@@ -595,11 +608,17 @@ export default function StepReview({
                 )}
 
                 {group.rooms.map((room) => {
-                  const roomSubtotal = (room.items || []).reduce(
+                  // Approved/Delivered quotations keep their historical total
+                  // regardless of any catalog deletion since; every other
+                  // status excludes an unavailable room/item, exactly like
+                  // the server-computed grand total — so this header number
+                  // never disagrees with the total at the bottom of the page.
+                  const eligibleItems = eligibleItemsOfRoom(room, room.items, isLocked);
+                  const roomSubtotal = eligibleItems.reduce(
                     (acc, i) => acc + (i.quantity || 1) * Number(i.unitPrice || 0),
                     0
                   );
-                  const roomProductCount = (room.items || []).reduce(
+                  const roomProductCount = eligibleItems.reduce(
                     (acc, i) => acc + (i.quantity || 1),
                     0
                   );
@@ -647,6 +666,16 @@ export default function StepReview({
                           </button>
                         </div>
                       </div>
+
+                      {/* Unavailable room type (never shown once Approved/Delivered) */}
+                      {!isLocked && room.isUnavailable && (
+                        <div className="px-5 py-2.5 border-b border-amber-100">
+                          <UnavailabilityWarning
+                            reason={room.unavailableReason}
+                            label={room.customName ?? room.roomType?.name ?? "This space"}
+                          />
+                        </div>
+                      )}
 
                       {/* Room Notes (if any) */}
                       {room.notes && (
@@ -726,6 +755,11 @@ export default function StepReview({
                                           {formattedName}
                                         </h5>
                                       </div>
+
+                                      {/* Unavailable product/variant (never shown once Approved/Delivered, or when the whole room is already flagged above) */}
+                                      {!isLocked && !room.isUnavailable && item.isUnavailable && (
+                                        <UnavailabilityWarning reason={item.unavailableReason} />
+                                      )}
 
                                       {/* Product Category, Code & Configuration / Tier / Finish */}
                                       <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-500">

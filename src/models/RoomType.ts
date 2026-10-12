@@ -1,6 +1,8 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import { softDeletePlugin } from "@/lib/softDelete/plugin";
+import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 
-export interface IRoomType {
+export interface IRoomType extends SoftDeleteFields {
   _id: number;
   id?: number;
   name: string;
@@ -62,6 +64,8 @@ RoomTypeSchema.virtual("quotationRooms", {
 });
 
 RoomTypeSchema.index({ isActive: 1, sortOrder: 1 });
+
+softDeletePlugin(RoomTypeSchema, { blockHardDelete: true });
 
 export const RoomType: Model<IRoomTypeDocument> =
   mongoose.models.RoomType || mongoose.model<IRoomTypeDocument>("RoomType", RoomTypeSchema);

@@ -20,6 +20,7 @@ import { attachQuotationActors } from "@/lib/quotationActors";
 import { resolveNewQuotationOwnership } from "@/lib/quotationOwnership";
 import { dealerVisibilityFilter } from "@/lib/quotationAccess";
 import { dealerSnapshot, recordQuotationEvents } from "@/lib/quotationAudit";
+import { isItemUnavailable, isProtectedQuotationStatus, isRoomUnavailable } from "@/lib/quotationAvailability";
 
 export const dynamic = "force-dynamic";
 
@@ -47,41 +48,68 @@ const POPULATE_OPTIONS = [
   },
   {
     path: "rooms",
-    populate: { path: "items", select: "quantity unitPrice" },
+    // `isDeleted` on roomType/product/productVariant is the ONLY extra field
+    // added beyond what this list already needed — just enough for
+    // `withDerivedTotals` to apply the same eligibility rule as the
+    // quotation detail view (`quotationNormalization.ts`) and the dealer
+    // earnings/homepage aggregation (`quotationTotals.ts`), never more.
+    populate: [
+      { path: "roomType", select: "isDeleted" },
+      {
+        path: "items",
+        select: "quantity unitPrice productId productVariantId",
+        populate: [
+          { path: "product", select: "isDeleted" },
+          { path: "productVariant", select: "isDeleted" },
+        ],
+      },
+    ],
   },
 ];
 
 interface QuotationListItem {
-  rooms: Array<{ items?: Array<{ quantity?: number; unitPrice?: unknown }> }>;
-  discountType?: string | null;
-  discountValue?: unknown;
-  allocatedDiscountPercent?: number;
-  customerDiscountPercent?: number;
-  estimatedEarningPercent?: number;
-  estimatedEarningAmount?: unknown;
+  roomTypeId?: unknown;
+  roomType?: { isDeleted?: boolean | null } | null;
+  items?: Array<{
+    quantity?: number;
+    unitPrice?: unknown;
+    productId?: unknown;
+    productVariantId?: unknown;
+    product?: { isDeleted?: boolean | null } | null;
+    productVariant?: { isDeleted?: boolean | null } | null;
+  }>;
 }
 
-/** Derived totals the quotation list renders. */
+/**
+ * Derived totals the quotation list renders — gated by the same
+ * Approved/Delivered historical-preservation rule as everywhere else (see
+ * `@/lib/quotationAvailability`): those keep every item/room unconditionally,
+ * every other status excludes one whose catalog reference is soft-deleted.
+ */
 function withDerivedTotals(quotation: Record<string, unknown>): Record<string, unknown> {
-  const rooms = Array.isArray(quotation.rooms) ? (quotation.rooms as QuotationListItem["rooms"]) : [];
+  const rooms = Array.isArray(quotation.rooms) ? (quotation.rooms as QuotationListItem[]) : [];
   const roomCount = rooms.length;
-  const productsCount = rooms.reduce(
-    (sum, room) =>
-      sum +
-      (Array.isArray(room.items)
-        ? room.items.reduce((itemSum, item) => itemSum + (item.quantity || 1), 0)
-        : 0),
+  const protected_ = isProtectedQuotationStatus(quotation.status as string | null | undefined);
+
+  let hasUnavailableItems = false;
+  const eligibleItemsPerRoom = rooms.map((room) => {
+    const roomDown = isRoomUnavailable(room);
+    if (roomDown) hasUnavailableItems = true;
+    const items = Array.isArray(room.items) ? room.items : [];
+    return items.filter((item) => {
+      const itemDown = isItemUnavailable(item, room);
+      if (itemDown) hasUnavailableItems = true;
+      return protected_ || (!roomDown && !itemDown);
+    });
+  });
+
+  const productsCount = eligibleItemsPerRoom.reduce(
+    (sum, items) => sum + items.reduce((itemSum, item) => itemSum + (item.quantity || 1), 0),
     0
   );
-  const subtotal = rooms.reduce(
-    (sum, room) =>
-      sum +
-      (Array.isArray(room.items)
-        ? room.items.reduce(
-            (itemSum, item) => itemSum + (item.quantity || 1) * Number(item.unitPrice || 0),
-            0
-          )
-        : 0),
+  const subtotal = eligibleItemsPerRoom.reduce(
+    (sum, items) =>
+      sum + items.reduce((itemSum, item) => itemSum + (item.quantity || 1) * Number(item.unitPrice || 0), 0),
     0
   );
 
@@ -126,6 +154,7 @@ function withDerivedTotals(quotation: Record<string, unknown>): Record<string, u
     customerDiscountPercent: customerPct,
     estimatedEarningPercent: earningPct,
     estimatedEarningAmount: earningAmount,
+    hasUnavailableItems,
   };
 }
 
@@ -344,12 +373,14 @@ export async function POST(req: Request) {
           .session(dbSession ?? null);
 
         // `roomType` is a Mongoose virtual, so it is read from the lean output.
-        const validTemplates = template.filter(
-          (t) =>
-            !isBathroomLikeRoomName(
-              (t as unknown as { roomType?: { name?: string } | null }).roomType?.name
-            )
-        );
+        // It also resolves only LIVE room types (RoomType is soft-deletable),
+        // so a template whose room type has since been soft-deleted is
+        // skipped here too — a new quotation can never pick up a dead
+        // reference just because an old template still points at it.
+        const validTemplates = template.filter((t) => {
+          const roomType = (t as unknown as { roomType?: { name?: string } | null }).roomType;
+          return Boolean(roomType) && !isBathroomLikeRoomName(roomType?.name);
+        });
 
         const totalRooms = validTemplates.reduce((sum, t) => sum + (Number(t.defaultCount) || 1), 0);
         const roomIds = await reserveSequenceBlock("quotationRoom", totalRooms, QuotationRoom, dbSession);
