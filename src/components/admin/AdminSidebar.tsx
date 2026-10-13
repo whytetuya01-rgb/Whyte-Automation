@@ -13,6 +13,7 @@ import {
   Store,
   Activity,
   ShieldCheck,
+  Users,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ const navGroups: NavGroup[] = [
     title: "OVERSIGHT",
     items: [
       { href: "/admin/activity", label: "Activity Log", icon: Activity, roles: ["super_admin"] },
+      { href: "/admin/users", label: "Users", icon: Users, roles: ["super_admin"] },
       { href: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheck, roles: ["super_admin"] },
     ],
   },

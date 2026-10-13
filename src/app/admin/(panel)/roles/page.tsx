@@ -1,36 +1,31 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import {
   Shield,
   ShieldCheck,
-  UserCog,
   Users,
   Lock,
   Check,
-  Search,
   RefreshCw,
   Plus,
   Sliders,
   CheckCircle2,
   AlertCircle,
   Eye,
-  Info,
-  ChevronRight,
   Sparkles,
   KeyRound,
-  Layers,
   RotateCcw,
   Trash2,
   SlidersHorizontal,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
-import Pagination from "@/components/shared/Pagination";
-import { Button, Input, Select, Badge } from "@/components/ui";
+import { Button, Input, Badge } from "@/components/ui";
 import { Switch } from "@/components/ui/Switch";
 import {
   Permission,
@@ -40,7 +35,6 @@ import {
   PERMISSION_PRESETS,
   SUPER_ADMIN_EXCLUSIVE_PERMISSIONS,
   ADMIN_DEFAULT_PERMISSIONS,
-  DEALER_DEFAULT_PERMISSIONS,
 } from "@/lib/permissions";
 
 interface RoleMetadata {
@@ -61,19 +55,6 @@ interface RoleMetadata {
   updatedAt?: string;
 }
 
-interface AdminUserItem {
-  _id: number;
-  name: string;
-  firstName?: string;
-  lastName?: string;
-  email: string;
-  role: string;
-  isActive: boolean;
-  permissions?: string[];
-  contactNumber?: string;
-  createdAt: string;
-}
-
 export default function RoleManagementPage() {
   const { data: session, status: sessionStatus } = useSession();
   const sessionUser = session?.user as { role?: string; permissions?: string[] } | undefined;
@@ -87,28 +68,12 @@ export default function RoleManagementPage() {
     currentRole === "admin" ||
     (Array.isArray(sessionUser?.permissions) && sessionUser.permissions.includes("admins:read"));
 
+  const router = useRouter();
+
   // Overview and Data States
   const [roles, setRoles] = useState<RoleMetadata[]>([]);
-  const [users, setUsers] = useState<AdminUserItem[]>([]);
-  const [totalUsers, setTotalUsers] = useState(0);
   const [loadingRoles, setLoadingRoles] = useState(true);
-  const [loadingUsers, setLoadingUsers] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  // Filters and Pagination
-  const [activeTab, setActiveTab] = useState<"accounts" | "matrix">("accounts");
-  const [roleFilter, setRoleFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [totalPages, setTotalPages] = useState(1);
-
-  // Configure Individual User Modal (for configurable_admin)
-  const [configuringUser, setConfiguringUser] = useState<AdminUserItem | null>(null);
-  const [userSelectedPermissions, setUserSelectedPermissions] = useState<Set<Permission>>(new Set());
-  const [savingUserPermissions, setSavingUserPermissions] = useState(false);
 
   // Configure Role Permissions Modal (for admin, dealer, or custom roles)
   const [configuringRole, setConfiguringRole] = useState<RoleMetadata | null>(null);
@@ -130,31 +95,6 @@ export default function RoleManagementPage() {
   const [createRolePermissions, setCreateRolePermissions] = useState<Set<Permission>>(new Set());
   const [creatingRole, setCreatingRole] = useState(false);
 
-  // Create User Modal
-  const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
-  const [createUserForm, setCreateUserForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    password: "",
-    role: "configurable_admin",
-    contactNumber: "",
-  });
-  const [createUserPermissions, setCreateUserPermissions] = useState<Set<Permission>>(new Set());
-  const [creatingUser, setCreatingUser] = useState(false);
-
-  // Quick State Toggling for user active status
-  const [togglingUserId, setTogglingUserId] = useState<number | null>(null);
-
-  // Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(search);
-      setPage(1);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [search]);
-
   // Load Roles Metadata
   const fetchRoles = useCallback(async () => {
     try {
@@ -170,44 +110,15 @@ export default function RoleManagementPage() {
     }
   }, []);
 
-  // Load Admin Users
-  const fetchUsers = useCallback(async () => {
-    try {
-      setLoadingUsers(true);
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: pageSize.toString(),
-      });
-      if (roleFilter !== "all") params.append("role", roleFilter);
-      if (statusFilter !== "all") params.append("status", statusFilter);
-      if (debouncedSearch.trim()) params.append("search", debouncedSearch.trim());
-
-      const res = await apiJson.get<{ items: AdminUserItem[]; total: number; totalPages: number }>(
-        `/api/admin/users?${params.toString()}`
-      );
-
-      if (res) {
-        setUsers(res.items || []);
-        setTotalUsers(res.total || 0);
-        setTotalPages(res.totalPages || 1);
-      }
-    } catch (err) {
-      notifyApiError(err);
-    } finally {
-      setLoadingUsers(false);
-    }
-  }, [page, pageSize, roleFilter, statusFilter, debouncedSearch]);
-
   useEffect(() => {
     if (sessionStatus === "authenticated") {
       fetchRoles();
-      fetchUsers();
     }
-  }, [sessionStatus, fetchRoles, fetchUsers]);
+  }, [sessionStatus, fetchRoles]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([fetchRoles(), fetchUsers()]);
+    await fetchRoles();
     setRefreshing(false);
     notify.success("Role data refreshed");
   };
@@ -285,7 +196,7 @@ export default function RoleManagementPage() {
         `Permissions for role "${configuringRole.name}" updated successfully. All assigned accounts will receive these permissions.`
       );
       setConfiguringRole(null);
-      await Promise.all([fetchRoles(), fetchUsers()]);
+      await fetchRoles();
     } catch (err) {
       notifyApiError(err);
     } finally {
@@ -310,7 +221,7 @@ export default function RoleManagementPage() {
       if (configuringRole?.key === roleKey) {
         setConfiguringRole(null);
       }
-      await Promise.all([fetchRoles(), fetchUsers()]);
+      await fetchRoles();
     } catch (err) {
       notifyApiError(err);
     } finally {
@@ -380,117 +291,13 @@ export default function RoleManagementPage() {
     }
   };
 
-  // ===================== INDIVIDUAL USER MODAL HANDLERS =====================
-
-  const handleOpenConfigureUser = (user: AdminUserItem) => {
-    setConfiguringUser(user);
-    const existing = new Set<Permission>();
-    if (Array.isArray(user.permissions)) {
-      for (const p of user.permissions) {
-        if (p in PERMISSION_METADATA && !SUPER_ADMIN_EXCLUSIVE_PERMISSIONS.has(p as Permission)) {
-          existing.add(p as Permission);
-        }
-      }
-    }
-    setUserSelectedPermissions(existing);
-  };
-
-  const handleSaveUserPermissions = async () => {
-    if (!configuringUser || !canManageAdmins) return;
-
-    try {
-      setSavingUserPermissions(true);
-      await apiJson.patch<AdminUserItem>(`/api/admin/users/${configuringUser._id}`, {
-        permissions: Array.from(userSelectedPermissions),
-      });
-
-      notify.success(`Permissions for ${configuringUser.name} saved successfully`);
-      setConfiguringUser(null);
-      fetchUsers();
-    } catch (err) {
-      notifyApiError(err);
-    } finally {
-      setSavingUserPermissions(false);
-    }
-  };
-
-  const handleToggleUserActive = async (user: AdminUserItem) => {
-    if (!canManageAdmins) return;
-    const nextState = !user.isActive;
-
-    try {
-      setTogglingUserId(user._id);
-      await apiJson.patch<AdminUserItem>(`/api/admin/users/${user._id}`, {
-        isActive: nextState,
-      });
-
-      notify.success(`Account ${nextState ? "activated" : "deactivated"} successfully`);
-      setUsers((prev) =>
-        prev.map((u) => (u._id === user._id ? { ...u, isActive: nextState } : u))
-      );
-      fetchRoles();
-    } catch (err) {
-      notifyApiError(err);
-    } finally {
-      setTogglingUserId(null);
-    }
-  };
-
-  const handleCreateUser = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!canManageAdmins) return;
-
-    if (!createUserForm.firstName.trim() || !createUserForm.lastName.trim() || !createUserForm.email.trim()) {
-      notify.error("First name, last name, and email are required.");
-      return;
-    }
-    if (createUserForm.password.length < 8) {
-      notify.error("Password must be at least 8 characters.");
-      return;
-    }
-
-    try {
-      setCreatingUser(true);
-      await apiJson.post<AdminUserItem>("/api/admin/users", {
-        firstName: createUserForm.firstName.trim(),
-        lastName: createUserForm.lastName.trim(),
-        email: createUserForm.email.trim().toLowerCase(),
-        password: createUserForm.password,
-        contactNumber: createUserForm.contactNumber.trim() || undefined,
-        role: createUserForm.role,
-        permissions:
-          createUserForm.role === "configurable_admin"
-            ? Array.from(createUserPermissions)
-            : [],
-      });
-
-      notify.success("Administrative user created successfully");
-      setIsCreateUserModalOpen(false);
-      setCreateUserForm({
-        firstName: "",
-        lastName: "",
-        email: "",
-        password: "",
-        role: "configurable_admin",
-        contactNumber: "",
-      });
-      setCreateUserPermissions(new Set());
-      fetchRoles();
-      fetchUsers();
-    } catch (err) {
-      notifyApiError(err);
-    } finally {
-      setCreatingUser(false);
-    }
-  };
-
   // Access guard check for unauthorized users
   if (sessionStatus === "authenticated" && !canReadAdmins) {
     return (
       <div className="p-6 max-w-4xl mx-auto space-y-6">
         <PageHeader
-          title="Role Management"
-          subtitle="Manage system roles, permissions, and administrative accounts."
+          title="Roles & Permissions"
+          subtitle="Manage system roles, permissions, and the permission matrix."
           icon={ShieldCheck}
         />
         <div className="bg-white rounded-2xl border border-neutral-200 p-8 text-center space-y-4 shadow-xs">
@@ -499,7 +306,7 @@ export default function RoleManagementPage() {
           </div>
           <h2 className="text-lg font-bold text-neutral-900">Restricted Access</h2>
           <p className="text-sm text-neutral-600 max-w-md mx-auto">
-            You do not have the required administrative permissions (<code>admins:read</code>) to view the Role Management dashboard. Please contact a Super Administrator.
+            You do not have the required administrative permissions (<code>admins:read</code>) to view the Roles & Permissions dashboard. Please contact a Super Administrator.
           </p>
         </div>
       </div>
@@ -510,8 +317,8 @@ export default function RoleManagementPage() {
     <div className="space-y-6 w-full max-w-full">
       {/* Page Header */}
       <PageHeader
-        title="Role & Permission Management"
-        subtitle="Manage system roles, configure permissions for Admin and Dealer, create custom roles, and administer accounts."
+        title="Roles & Permissions"
+        subtitle="Define role definitions, configure permissions for Admin and Dealer, and create custom roles. Manage user accounts under Users."
         icon={ShieldCheck}
         actions={
           <div className="flex items-center gap-2.5 flex-wrap">
@@ -525,30 +332,17 @@ export default function RoleManagementPage() {
               Refresh
             </Button>
             {canManageAdmins && (
-              <>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setCreateRolePermissions(new Set(ADMIN_DEFAULT_PERMISSIONS));
-                    setIsCreateRoleModalOpen(true);
-                  }}
-                  leftIcon={<KeyRound className="w-4 h-4 text-indigo-600" />}
-                >
-                  Create Custom Role
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => {
-                    setCreateUserPermissions(new Set(ADMIN_DEFAULT_PERMISSIONS));
-                    setIsCreateUserModalOpen(true);
-                  }}
-                  leftIcon={<Plus className="w-4 h-4" />}
-                >
-                  New User Account
-                </Button>
-              </>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setCreateRolePermissions(new Set(ADMIN_DEFAULT_PERMISSIONS));
+                  setIsCreateRoleModalOpen(true);
+                }}
+                leftIcon={<KeyRound className="w-4 h-4" />}
+              >
+                Create Custom Role
+              </Button>
             )}
           </div>
         }
@@ -716,12 +510,10 @@ export default function RoleManagementPage() {
                         variant="ghost"
                         size="sm"
                         className="text-xs font-semibold w-full h-8.5"
-                        onClick={() => {
-                          setRoleFilter("configurable_admin");
-                          setActiveTab("accounts");
-                        }}
+                        onClick={() => router.push("/admin/users?role=configurable_admin")}
+                        leftIcon={<Users className="w-3.5 h-3.5" />}
                       >
-                        Filter Accounts <ChevronRight className="w-3.5 h-3.5 ml-1" />
+                        View Accounts
                       </Button>
                     )}
                   </div>
@@ -732,223 +524,8 @@ export default function RoleManagementPage() {
         )}
       </div>
 
-      {/* Tabs Bar */}
-      <div className="flex items-center justify-between border-b border-neutral-200 w-full">
-        <div className="flex items-center gap-6 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab("accounts")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "accounts"
-                ? "border-neutral-900 text-neutral-900"
-                : "border-transparent text-neutral-500 hover:text-neutral-800"
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Administrative Accounts ({totalUsers})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("matrix")}
-            className={`pb-3 text-sm font-semibold border-b-2 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap ${
-              activeTab === "matrix"
-                ? "border-neutral-900 text-neutral-900"
-                : "border-transparent text-neutral-500 hover:text-neutral-800"
-            }`}
-          >
-            <Layers className="w-4 h-4" />
-            Permission Matrix Reference
-          </button>
-        </div>
-      </div>
-
-      {/* TAB 1: ACCOUNTS LIST */}
-      {activeTab === "accounts" && (
-        <div className="space-y-4 w-full">
-          {/* Filters Bar */}
-          <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3.5 w-full">
-            <div className="relative flex-1 max-w-lg">
-              <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <Input
-                placeholder="Search by name, email..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-10 text-xs sm:text-sm h-10 w-full"
-              />
-            </div>
-
-            <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
-              <div className="w-full sm:w-48">
-                <Select
-                  value={roleFilter}
-                  onChange={(e) => {
-                    setRoleFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  className="text-xs sm:text-sm h-10 w-full"
-                >
-                  <option value="all">All Roles</option>
-                  {roles.map((r) => (
-                    <option key={r.key} value={r.key}>
-                      {r.name}
-                    </option>
-                  ))}
-                </Select>
-              </div>
-
-              <div className="w-full sm:w-40">
-                <Select
-                  value={statusFilter}
-                  onChange={(e) => {
-                    setStatusFilter(e.target.value);
-                    setPage(1);
-                  }}
-                  className="text-xs sm:text-sm h-10 w-full"
-                >
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                </Select>
-              </div>
-            </div>
-          </div>
-
-          {/* Accounts Table */}
-          <div className="bg-white rounded-2xl border border-neutral-200/80 overflow-hidden shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-neutral-200/80 bg-neutral-50/60 text-[11px] font-bold text-neutral-500 uppercase tracking-wider">
-                    <th className="py-3.5 px-4">User</th>
-                    <th className="py-3.5 px-4">Role</th>
-                    <th className="py-3.5 px-4">Permissions Mode</th>
-                    <th className="py-3.5 px-4">Status</th>
-                    <th className="py-3.5 px-4">Created</th>
-                    {canManageAdmins && <th className="py-3.5 px-4 text-right">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-100 text-xs text-neutral-700">
-                  {loadingUsers ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-neutral-400">
-                        <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2 text-neutral-400" />
-                        Loading accounts...
-                      </td>
-                    </tr>
-                  ) : users.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-12 text-center text-neutral-500">
-                        No administrative user accounts found.
-                      </td>
-                    </tr>
-                  ) : (
-                    users.map((u) => {
-                      const isSuper = u.role === "super_admin";
-                      const isConfig = u.role === "configurable_admin";
-                      const roleMeta = roles.find((r) => r.key === u.role);
-
-                      return (
-                        <tr key={u._id} className="hover:bg-neutral-50/50 transition-colors">
-                          <td className="py-3.5 px-4">
-                            <div className="font-bold text-neutral-900">{u.name}</div>
-                            <div className="text-[11px] text-neutral-500 font-mono">{u.email}</div>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <Badge
-                              variant={
-                                isSuper
-                                  ? "danger"
-                                  : isConfig
-                                  ? "info"
-                                  : "secondary"
-                              }
-                              size="sm"
-                            >
-                              {roleMeta?.name || u.role}
-                            </Badge>
-                          </td>
-                          <td className="py-3.5 px-4">
-                            {isSuper ? (
-                              <span className="text-[11px] text-neutral-600 font-medium flex items-center gap-1">
-                                <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                All 23 (Owner)
-                              </span>
-                            ) : isConfig ? (
-                              <span className="text-[11px] text-purple-700 font-medium flex items-center gap-1">
-                                <Sliders className="w-3.5 h-3.5" />
-                                {u.permissions?.length || 0} granular assigned
-                              </span>
-                            ) : (
-                              <span className="text-[11px] text-neutral-600 font-medium">
-                                Inherited from {roleMeta?.name || u.role}
-                                {roleMeta?.isCustomized && (
-                                  <span className="ml-1 text-amber-700 font-semibold">(Customized)</span>
-                                )}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3.5 px-4">
-                            <Badge variant={u.isActive ? "success" : "secondary"} size="sm">
-                              {u.isActive ? "Active" : "Inactive"}
-                            </Badge>
-                          </td>
-                          <td className="py-3.5 px-4 text-neutral-500 text-[11px]">
-                            {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
-                          </td>
-                          {canManageAdmins && (
-                            <td className="py-3.5 px-4 text-right">
-                              <div className="flex items-center justify-end gap-2">
-                                {isConfig && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="text-xs h-8 px-2.5"
-                                    onClick={() => handleOpenConfigureUser(u)}
-                                    leftIcon={<Sliders className="w-3.5 h-3.5 text-purple-600" />}
-                                  >
-                                    Configure User
-                                  </Button>
-                                )}
-                                {!isSuper && (
-                                  <Button
-                                    variant={u.isActive ? "ghost" : "outline"}
-                                    size="sm"
-                                    className={`text-xs h-8 px-2.5 ${
-                                      u.isActive ? "text-rose-600 hover:text-rose-700 hover:bg-rose-50" : "text-emerald-700"
-                                    }`}
-                                    onClick={() => handleToggleUserActive(u)}
-                                    loading={togglingUserId === u._id}
-                                  >
-                                    {u.isActive ? "Deactivate" : "Activate"}
-                                  </Button>
-                                )}
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="p-4 border-t border-neutral-100 flex justify-between items-center">
-                <div className="text-xs text-neutral-500">
-                  Showing {(page - 1) * pageSize + 1} to {Math.min(page * pageSize, totalUsers)} of {totalUsers} accounts
-                </div>
-                <Pagination currentPage={page} totalPages={totalPages} onPageChange={setPage} />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* TAB 2: PERMISSION MATRIX REFERENCE */}
-      {activeTab === "matrix" && (
-        <div className="bg-white rounded-2xl border border-neutral-200/80 p-5 sm:p-6 shadow-xs space-y-6 w-full">
+      {/* Permission Matrix Reference */}
+      <div className="bg-white rounded-2xl border border-neutral-200/80 p-5 sm:p-6 shadow-xs space-y-6 w-full">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-base sm:text-lg font-bold text-neutral-900">Application Permission Matrix</h2>
@@ -1023,7 +600,6 @@ export default function RoleManagementPage() {
             ))}
           </div>
         </div>
-      )}
 
       {/* ===================== CONFIGURE ROLE PERMISSIONS MODAL ===================== */}
       <Modal
@@ -1406,128 +982,6 @@ export default function RoleManagementPage() {
         </form>
       </Modal>
 
-      {/* ===================== CONFIGURE INDIVIDUAL USER MODAL ===================== */}
-      <Modal
-        isOpen={!!configuringUser}
-        onClose={() => setConfiguringUser(null)}
-        title="Configure Individual User Permissions"
-        size="4xl"
-      >
-        {configuringUser && (
-          <div className="space-y-6">
-            <div className="bg-neutral-50 rounded-xl p-4 border border-neutral-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-              <div>
-                <div className="text-xs uppercase font-bold tracking-wider text-neutral-500">
-                  Target Account
-                </div>
-                <div className="text-base font-bold text-neutral-900">{configuringUser.name}</div>
-                <div className="text-xs text-neutral-500 font-mono">{configuringUser.email}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs uppercase font-bold tracking-wider text-neutral-500">
-                  Selected Permissions
-                </div>
-                <div className="text-sm font-bold text-neutral-900">
-                  <span className="text-admin-primary">{userSelectedPermissions.size}</span> granted
-                </div>
-              </div>
-            </div>
-
-            {/* Presets */}
-            <div className="space-y-2">
-              <div className="text-xs font-bold text-neutral-700 flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-admin-primary" />
-                Quick Permission Presets:
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {PERMISSION_PRESETS.map((preset) => (
-                  <Button
-                    key={preset.id}
-                    variant="outline"
-                    size="sm"
-                    className="text-xs h-8"
-                    onClick={() => {
-                      const next = new Set<Permission>();
-                      for (const p of preset.permissions) {
-                        if (!SUPER_ADMIN_EXCLUSIVE_PERMISSIONS.has(p)) next.add(p);
-                      }
-                      setUserSelectedPermissions(next);
-                    }}
-                  >
-                    {preset.name}
-                  </Button>
-                ))}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="text-xs h-8 text-rose-600 hover:text-rose-700 hover:bg-rose-50"
-                  onClick={() => setUserSelectedPermissions(new Set())}
-                >
-                  Clear All
-                </Button>
-              </div>
-            </div>
-
-            {/* Module toggles */}
-            <div className="space-y-3 max-h-[44vh] overflow-y-auto pr-1">
-              {PERMISSION_MODULE_GROUPS.map((group) => {
-                const safePerms = group.permissions.filter((p) => !p.isSuperAdminExclusive);
-                return (
-                  <div key={group.id} className="border border-neutral-200 rounded-xl p-3.5 bg-neutral-50/40">
-                    <div className="text-xs font-bold uppercase tracking-wider text-neutral-800 mb-2">
-                      {group.name}
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {safePerms.map((perm) => (
-                        <div key={perm.key} className="flex items-center justify-between text-xs p-2 rounded-lg bg-white border border-neutral-200/80">
-                          <div className="pr-2 flex-1 min-w-0">
-                            <span className="font-semibold text-neutral-800 block truncate">{perm.label}</span>
-                            <span className="text-neutral-500 block text-[11px] truncate">{perm.description}</span>
-                          </div>
-                          <Switch
-                            checked={userSelectedPermissions.has(perm.key)}
-                            onChange={() => {
-                              setUserSelectedPermissions((prev) => {
-                                const next = new Set(prev);
-                                if (next.has(perm.key)) next.delete(perm.key);
-                                else next.add(perm.key);
-                                return next;
-                              });
-                            }}
-                            size="sm"
-                            ariaLabel={perm.label}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="pt-4 border-t border-neutral-200 flex items-center justify-between">
-              <Button
-                variant="outline"
-                size="md"
-                onClick={() => setConfiguringUser(null)}
-                disabled={savingUserPermissions}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                onClick={handleSaveUserPermissions}
-                loading={savingUserPermissions}
-                leftIcon={<Check className="w-4 h-4" />}
-              >
-                Save Permissions
-              </Button>
-            </div>
-          </div>
-        )}
-      </Modal>
-
       {/* ===================== INSPECT PROTECTED SYSTEM ROLE MODAL ===================== */}
       <Modal
         isOpen={!!inspectingRole}
@@ -1581,192 +1035,6 @@ export default function RoleManagementPage() {
         )}
       </Modal>
 
-      {/* ===================== CREATE USER ACCOUNT MODAL ===================== */}
-      <Modal
-        isOpen={isCreateUserModalOpen}
-        onClose={() => setIsCreateUserModalOpen(false)}
-        title="Create Administrative Account"
-        size="4xl"
-      >
-        <form onSubmit={handleCreateUser} className="space-y-5">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-neutral-700 mb-1">
-                First Name <span className="text-rose-500">*</span>
-              </label>
-              <Input
-                value={createUserForm.firstName}
-                onChange={(e) => setCreateUserForm({ ...createUserForm, firstName: e.target.value })}
-                placeholder="e.g. Jane"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-neutral-700 mb-1">
-                Last Name <span className="text-rose-500">*</span>
-              </label>
-              <Input
-                value={createUserForm.lastName}
-                onChange={(e) => setCreateUserForm({ ...createUserForm, lastName: e.target.value })}
-                placeholder="e.g. Doe"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-neutral-700 mb-1">
-                Email Address <span className="text-rose-500">*</span>
-              </label>
-              <Input
-                type="email"
-                value={createUserForm.email}
-                onChange={(e) => setCreateUserForm({ ...createUserForm, email: e.target.value })}
-                placeholder="e.g. jane.doe@whyte.com"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-neutral-700 mb-1">
-                Password <span className="text-rose-500">*</span>
-              </label>
-              <Input
-                type="password"
-                value={createUserForm.password}
-                onChange={(e) => setCreateUserForm({ ...createUserForm, password: e.target.value })}
-                placeholder="Minimum 8 characters"
-                required
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-neutral-700 mb-1">
-                Assign Role <span className="text-rose-500">*</span>
-              </label>
-              <Select
-                value={createUserForm.role}
-                onChange={(e) => setCreateUserForm({ ...createUserForm, role: e.target.value })}
-              >
-                {roles
-                  .filter((r) => r.key !== "dealer")
-                  .map((r) => (
-                    <option key={r.key} value={r.key}>
-                      {r.name} ({r.badge})
-                    </option>
-                  ))}
-              </Select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-neutral-700 mb-1">
-                Contact Number (Optional)
-              </label>
-              <Input
-                value={createUserForm.contactNumber}
-                onChange={(e) => setCreateUserForm({ ...createUserForm, contactNumber: e.target.value })}
-                placeholder="e.g. +91 9876543210"
-              />
-            </div>
-          </div>
-
-          {/* If Configurable Admin, allow configuring individual initial permissions */}
-          {createUserForm.role === "configurable_admin" && (
-            <div className="pt-3 border-t border-neutral-200 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-bold text-neutral-900">
-                    Initial Permission Profile
-                  </div>
-                  <div className="text-xs text-neutral-500">
-                    Select initial capabilities for this configurable admin account.
-                  </div>
-                </div>
-                <Badge variant="info" size="md">
-                  {createUserPermissions.size} granted
-                </Badge>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {PERMISSION_PRESETS.map((preset) => (
-                  <Button
-                    key={preset.id}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="text-xs h-7"
-                    onClick={() => {
-                      const next = new Set<Permission>();
-                      for (const p of preset.permissions) {
-                        if (!SUPER_ADMIN_EXCLUSIVE_PERMISSIONS.has(p)) next.add(p);
-                      }
-                      setCreateUserPermissions(next);
-                    }}
-                  >
-                    {preset.name}
-                  </Button>
-                ))}
-              </div>
-
-              <div className="space-y-3 max-h-[30vh] overflow-y-auto pr-1">
-                {PERMISSION_MODULE_GROUPS.map((group) => {
-                  const safePerms = group.permissions.filter((p) => !p.isSuperAdminExclusive);
-                  return (
-                    <div key={group.id} className="border border-neutral-200 rounded-xl p-3 bg-neutral-50/40">
-                      <div className="text-xs font-bold text-neutral-800 mb-2">{group.name}</div>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                        {safePerms.map((perm) => (
-                          <div key={perm.key} className="flex items-center justify-between text-xs p-2 rounded-lg bg-white border border-neutral-200/80">
-                            <div className="pr-2 flex-1 min-w-0">
-                              <span className="font-semibold text-neutral-800 block truncate">{perm.label}</span>
-                              <span className="text-neutral-500 block text-[11px] truncate">{perm.description}</span>
-                            </div>
-                            <Switch
-                              checked={createUserPermissions.has(perm.key)}
-                              onChange={() => {
-                                setCreateUserPermissions((prev) => {
-                                  const next = new Set(prev);
-                                  if (next.has(perm.key)) next.delete(perm.key);
-                                  else next.add(perm.key);
-                                  return next;
-                                });
-                              }}
-                              size="sm"
-                              ariaLabel={perm.label}
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="pt-4 border-t border-neutral-200 flex items-center justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              size="md"
-              onClick={() => setIsCreateUserModalOpen(false)}
-              disabled={creatingUser}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="md"
-              loading={creatingUser}
-              leftIcon={<Plus className="w-4 h-4" />}
-            >
-              Create Account
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }

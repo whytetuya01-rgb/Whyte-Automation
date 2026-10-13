@@ -13,7 +13,12 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/admin/users
- * Lists internal administrative users (super_admin, admin, configurable_admin).
+ * Lists every user account in the system — Super Admin, Admin, Dealer,
+ * Configurable Admin, and any custom role — for the unified admin Users
+ * screen. Dealers are the same `AdminUser` collection (`role: "dealer"`),
+ * just normally managed through their own richer `/api/admin/dealers`
+ * endpoints (quotation stats, earnings); this listing intentionally
+ * includes them so the Users screen can show every account in one place.
  * Guarded by `admins:read` (Super Admin or Admins with permission).
  */
 export async function GET(req: Request) {
@@ -27,9 +32,7 @@ export async function GET(req: Request) {
     const roleParam = parseStringQueryParam(searchParams, "role", { max: 30 });
     const status = parseStringQueryParam(searchParams, "status", { max: 20 });
 
-    const filter: Record<string, unknown> = {
-      role: { $ne: "dealer" },
-    };
+    const filter: Record<string, unknown> = {};
 
     if (roleParam && roleParam !== "all") {
       filter.role = roleParam;
