@@ -1144,24 +1144,34 @@ export default function StepProposalPreview({
                     return (
                       <div key={sIdx} className="space-y-6">
                         {/* Section Header */}
-                        <div>
-                          <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                            Company Profile & Ecosystem
-                          </span>
-                          <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
-                            About Whyte Automations
-                          </h2>
-                          <p className="text-sm text-gray-600 mt-1 leading-relaxed">
-                            Founded in Gandhinagar, Gujarat, Whyte Automations is
-                            dedicated to bringing the next generation of smart
-                            living to modern premises through the Internet of
-                            Things, intuitive touch architecture, and intelligent
-                            power management.
-                          </p>
+                        <div
+                          className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-pink-50 via-white to-slate-100"
+                          style={{ minHeight: 250 }}
+                        >
+                          <img
+                            src="/proposal/whyte/about-hero.webp"
+                            alt=""
+                            className="absolute right-0 top-0 h-full w-auto max-w-none object-cover object-right"
+                          />
+                          <div className="relative z-10 w-[58%] p-6">
+                            <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
+                              Company Profile & Ecosystem
+                            </span>
+                            <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
+                              About Whyte Automations
+                            </h2>
+                            <p className="text-sm text-gray-700 mt-2 leading-relaxed">
+                              Founded in Gandhinagar, Gujarat, Whyte Automations is
+                              dedicated to bringing the next generation of smart
+                              living to modern premises through the Internet of
+                              Things, intuitive touch architecture, and intelligent
+                              power management.
+                            </p>
+                          </div>
                         </div>
 
                         {/* Proven Milestone Statistics */}
-                        <div className="grid grid-cols-5 gap-2 p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-center">
+                        <div className="grid grid-cols-5 gap-2 p-4 rounded-2xl bg-white border border-gray-200 shadow-sm text-center">
                           <div>
                             <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
                               250+
@@ -1290,7 +1300,7 @@ export default function StepProposalPreview({
                             Why Whyte
                           </h3>
                           <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 space-y-1">
+                            <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 border-l-[3px] border-l-accent space-y-1">
                               <div className="flex items-center gap-1.5 font-bold text-gray-950">
                                 <ShieldCheck size={14} className="text-gray-950" />
                                 <span>5* Years Limited Warranty</span>
@@ -1301,7 +1311,7 @@ export default function StepProposalPreview({
                               </p>
                             </div>
 
-                            <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 space-y-1">
+                            <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 border-l-[3px] border-l-accent space-y-1">
                               <div className="flex items-center gap-1.5 font-bold text-gray-950">
                                 <Sliders size={14} className="text-gray-950" />
                                 <span>Modular & 100% Retrofit</span>
@@ -1336,20 +1346,30 @@ export default function StepProposalPreview({
                     return (
                       <div key={sIdx} className="space-y-6">
                         {/* Section Header */}
-                        <div>
-                          <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                            Specification & Scope
-                          </span>
-                          <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
-                            Your Project Overview
-                          </h2>
-                          <p className="text-sm text-gray-600 mt-0.5">
-                            Tailored smart automation configuration designed for{" "}
-                            <strong className="text-gray-950">
-                              {quotation.clientName}
-                            </strong>
-                            .
-                          </p>
+                        <div
+                          className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-pink-50 via-white to-slate-100"
+                          style={{ minHeight: 200 }}
+                        >
+                          <img
+                            src="/proposal/whyte/overview-hero.webp"
+                            alt=""
+                            className="absolute right-0 top-0 h-full w-auto max-w-none object-cover object-right"
+                          />
+                          <div className="relative z-10 w-[55%] p-6">
+                            <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
+                              Specification & Scope
+                            </span>
+                            <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
+                              Your Project Overview
+                            </h2>
+                            <p className="text-sm text-gray-700 mt-1">
+                              Tailored smart automation configuration designed for{" "}
+                              <strong className="text-gray-950">
+                                {quotation.clientName}
+                              </strong>
+                              .
+                            </p>
+                          </div>
                         </div>
 
                         {/* Authorized Dealer — only ever quotation.dealer (the existing
@@ -1619,7 +1639,7 @@ export default function StepProposalPreview({
                         {/* Room Header Banner — device count only; the subtotal is
                             shown exactly once, in the room's footer banner below. */}
                         {showRoomHeader && (
-                          <div className="bg-gray-50 px-4 py-2.5 rounded-t-xl border border-gray-200 flex items-center justify-between">
+                          <div className="bg-gray-50 px-4 py-3 rounded-t-2xl border border-gray-200 border-l-[3px] border-l-accent flex items-center justify-between">
                             <div className="flex items-center gap-2">
                               <Icon size={14} className="text-accent" />
                               <h3 className="font-extrabold text-gray-950 text-sm sm:text-base uppercase tracking-wider">
@@ -1925,7 +1945,7 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Final Investment Callout */}
-                        <div className="p-3.5 rounded-xl border border-accent-border/80 bg-accent-light/30 text-center space-y-1">
+                        <div className="p-4 rounded-2xl border border-accent-border/80 bg-accent-light/40 text-center space-y-1">
                           <p className="text-[11px] uppercase font-bold tracking-widest text-accent">
                             ESTIMATED PROJECT INVESTMENT
                           </p>
