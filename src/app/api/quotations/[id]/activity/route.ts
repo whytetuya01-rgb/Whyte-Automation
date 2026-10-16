@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationAuditEvent } from "@/models";
-import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
 import { parseQuotationId } from "@/lib/validation/quotation";
 import { canViewQuotation } from "@/lib/quotationAccess";
@@ -17,33 +17,33 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    const { role, userId, permissions } = await getAuthenticatedActor();
+    return await withSession(async ({ role, userId, permissions }) => {
+      const { id } = await context.params;
+      const quotationId = parseQuotationId(id);
 
-    const { id } = await context.params;
-    const quotationId = parseQuotationId(id);
+      await connectMongoDB();
+      const quotation = await Quotation.findById(quotationId).select("_id dealerId assignedSalesId createdBy").lean();
+      if (!quotation) {
+        throw new ApiError("NOT_FOUND", "Quotation not found.");
+      }
+      if (!canViewQuotation(role, userId, quotation, permissions)) {
+        throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
+      }
 
-    await connectMongoDB();
-    const quotation = await Quotation.findById(quotationId).select("_id dealerId createdBy").lean();
-    if (!quotation) {
-      throw new ApiError("NOT_FOUND", "Quotation not found.");
-    }
-    if (!canViewQuotation(role, userId, quotation, permissions)) {
-      throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
-    }
+      const events = await QuotationAuditEvent.find({ quotationId }).sort({ performedOn: 1, _id: 1 }).lean();
 
-    const events = await QuotationAuditEvent.find({ quotationId }).sort({ performedOn: 1, _id: 1 }).lean();
-
-    return apiSuccess(
-      events.map((event) => ({
-        id: event._id,
-        action: event.action,
-        performedByName: event.performedByName ?? null,
-        performedOn: event.performedOn.toISOString(),
-        previousValue: event.previousValue ?? null,
-        newValue: event.newValue ?? null,
-        metadata: event.metadata ?? null,
-      }))
-    );
+      return apiSuccess(
+        events.map((event) => ({
+          id: event._id,
+          action: event.action,
+          performedByName: event.performedByName ?? null,
+          performedOn: event.performedOn.toISOString(),
+          previousValue: event.previousValue ?? null,
+          newValue: event.newValue ?? null,
+          metadata: event.metadata ?? null,
+        }))
+      );
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/quotations/[id]/activity" });
   }

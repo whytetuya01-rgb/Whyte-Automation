@@ -99,8 +99,20 @@ export async function aggregateQuotationRoomTotals(
       // its isDeleted flag is exactly what decides eligibility below.
       $lookup: {
         from: "roomtypes",
-        let: { rtId: "$roomTypeId" },
-        pipeline: [{ $match: { $expr: { $eq: ["$_id", "$$rtId"] } } }, { $project: { isDeleted: 1 } }],
+        let: { rtId: "$roomTypeId", compId: "$companyId" },
+        pipeline: [
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$_id", "$$rtId"] },
+                  { $eq: ["$companyId", "$$compId"] },
+                ],
+              },
+            },
+          },
+          { $project: { isDeleted: 1, companyId: 1 } },
+        ],
         as: "roomTypeDoc",
       },
     },
@@ -117,28 +129,62 @@ export async function aggregateQuotationRoomTotals(
     {
       // A pipeline-form $lookup (rather than localField/foreignField) so it
       // explicitly excludes soft-deleted items itself — required by the
-      // soft-delete plugin, since it cannot scope a $lookup into another
+      // soft-delete and tenant-scope plugins, since they cannot scope a $lookup into another
       // collection for you. The nested lookups below additionally fetch
       // (in include scope) each item's own Product/ProductVariant isDeleted
       // flag, which is what makes this pipeline eligibility-aware.
       $lookup: {
         from: "quotationitems",
-        let: { roomId: "$_id" },
+        let: { roomId: "$_id", compId: "$companyId" },
         pipeline: [
-          { $match: { $expr: { $eq: ["$quotationRoomId", "$$roomId"] }, isDeleted: { $ne: true } } },
+          {
+            $match: {
+              $expr: {
+                $and: [
+                  { $eq: ["$quotationRoomId", "$$roomId"] },
+                  { $eq: ["$companyId", "$$compId"] },
+                ],
+              },
+              isDeleted: { $ne: true },
+            },
+          },
           {
             $lookup: {
               from: "products",
-              let: { pid: "$productId" },
-              pipeline: [{ $match: { $expr: { $eq: ["$_id", "$$pid"] } } }, { $project: { isDeleted: 1 } }],
+              let: { pid: "$productId", itemCompId: "$companyId" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        { $eq: ["$_id", "$$pid"] },
+                        { $eq: ["$companyId", "$$itemCompId"] },
+                      ],
+                    },
+                  },
+                },
+                { $project: { isDeleted: 1, companyId: 1 } },
+              ],
               as: "productDoc",
             },
           },
           {
             $lookup: {
               from: "productvariants",
-              let: { vid: "$productVariantId" },
-              pipeline: [{ $match: { $expr: { $eq: ["$_id", "$$vid"] } } }, { $project: { isDeleted: 1 } }],
+              let: { vid: "$productVariantId", itemCompId: "$companyId" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        { $eq: ["$_id", "$$vid"] },
+                        { $eq: ["$companyId", "$$itemCompId"] },
+                      ],
+                    },
+                  },
+                },
+                { $project: { isDeleted: 1, companyId: 1 } },
+              ],
               as: "variantDoc",
             },
           },

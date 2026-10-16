@@ -223,7 +223,7 @@ export default function DealersPage() {
             }}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition shadow-2xs cursor-pointer"
           >
-            <RefreshCw size={14} className={refreshing ? "animate-spin text-[#D85B83]" : ""} />
+            <RefreshCw size={14} className={refreshing ? "animate-spin text-[var(--color-admin-primary,#D85B83)]" : ""} />
             <span>Refresh</span>
           </button>
         }

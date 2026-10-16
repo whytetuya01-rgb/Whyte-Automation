@@ -20,28 +20,30 @@ try {
   server = await startIsolatedServer(
     "sd-mongo-verify",
     [
-      { _id: 1, email: "super_admin@example.com", role: "super_admin", name: "Super Admin" },
-      { _id: 2, email: "dealer_a@example.com", role: "dealer", name: "Dealer A", discountAllocationPercent: 20 },
+      { _id: 1, email: "owner_a@example.com", role: "company_owner", name: "Owner A", companyId: 1 },
+      { _id: 2, email: "dealer_a@example.com", role: "dealer", name: "Dealer A", discountAllocationPercent: 20, companyId: 1 },
     ],
     { production: true }
   );
   const { db, login, api } = server;
   const now = new Date();
 
-  await db.collection("categories").insertOne({ _id: 1, name: "Switches", level: 1, parentId: null, sortOrder: 1, isActive: true, variantTiers: [], variantFinishes: [] });
-  await db.collection("roomtypes").insertOne({ _id: 1, name: "Living Room", isActive: true, sortOrder: 1 });
-  await db.collection("housetypes").insertOne({ _id: 1, name: "2BHK", isActive: true, sortOrder: 1 });
-  await db.collection("housetyperoomtemplates").insertOne({ _id: 1, houseTypeId: 1, roomTypeId: 1, defaultCount: 1, sortOrder: 1 });
+  await db.collection("companies").insertOne({ _id: 1, name: "Company A", slug: "company-a", status: "active", phone: "1111111111", address: "A St", gstNumber: null, email: null, logoUrl: null, tagline: null, createdAt: now, updatedAt: now });
+
+  await db.collection("categories").insertOne({ _id: 1, companyId: 1, name: "Switches", level: 1, parentId: null, sortOrder: 1, isActive: true, variantTiers: [], variantFinishes: [] });
+  await db.collection("roomtypes").insertOne({ _id: 1, companyId: 1, name: "Living Room", isActive: true, sortOrder: 1 });
+  await db.collection("housetypes").insertOne({ _id: 1, companyId: 1, name: "2BHK", isActive: true, sortOrder: 1 });
+  await db.collection("housetyperoomtemplates").insertOne({ _id: 1, companyId: 1, houseTypeId: 1, roomTypeId: 1, defaultCount: 1, sortOrder: 1 });
   await db.collection("products").insertOne({
-    _id: 1, name: "Verify Switch", code: "VERIFY-1", type: "switch_board", categoryId: 1, unit: "pcs",
+    _id: 1, companyId: 1, name: "Verify Switch", code: "VERIFY-1", type: "switch_board", categoryId: 1, unit: "pcs",
     isActive: true, sortOrder: 1, isMatrix: false, matrixDimensions: null, createdAt: now, updatedAt: now,
   });
   await db.collection("productvariants").insertOne({
-    _id: 1, productId: 1, variantCode: "VERIFY-1-A", config: {}, price: Decimal128.fromString("500.00"),
+    _id: 1, companyId: 1, productId: 1, variantCode: "VERIFY-1-A", config: {}, price: Decimal128.fromString("500.00"),
     priceWithoutTax: Decimal128.fromString("500.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 1,
   });
 
-  const superCookie = await login("super_admin@example.com", "admin");
+  const superCookie = await login("owner_a@example.com", "admin");
   const dealerA = await login("dealer_a@example.com", "user");
 
   // ═══ Step 1: capture the record before deletion ════════════════════
@@ -72,7 +74,7 @@ try {
   // ═══ Step 2: execute the application's normal delete endpoint ══════
   const deleteResponse = await api(superCookie, "DELETE", "/api/products/1");
   assert.equal(deleteResponse.status, 200, `the authorized delete must succeed, got ${deleteResponse.status}`);
-  pass("Step 2 — executed DELETE /api/products/1 as super_admin: 200 OK");
+  pass("Step 2 — executed DELETE /api/products/1 as company_owner: 200 OK");
 
   // ═══ Step 3 + 4: confirm the record still exists, isDeleted/deletedAt set ═══
   const after = await db.collection("products").findOne({ _id: 1 });
@@ -80,7 +82,7 @@ try {
   assert.equal(after.name, "Verify Switch", "the record's own data is untouched — only the soft-delete fields change");
   assert.equal(after.isDeleted, true, "Step 4 — isDeleted must be true");
   assert.ok(after.deletedAt instanceof Date, "Step 4 — deletedAt must be populated");
-  assert.equal(after.deletedBy, 1, "deletedBy must be the server-trusted session user id (super_admin, _id 1), never client input");
+  assert.equal(after.deletedBy, 1, "deletedBy must be the server-trusted session user id (company_owner, _id 1), never client input");
   pass("Step 3/4 — confirmed directly in MongoDB: the document still exists, isDeleted=true, deletedAt populated, deletedBy=1 (the actor)");
 
   // Repeated delete requests must not corrupt state (idempotency / no double-processing).

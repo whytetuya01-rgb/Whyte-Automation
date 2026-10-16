@@ -3,7 +3,7 @@ import { HouseType, HouseTypeRoomTemplate, RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
-import { requirePermission, requireRole } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { updateHouseTypeSchema } from "@/lib/validation/catalog";
 import { actorFromSession } from "@/lib/softDelete/actor";
@@ -13,7 +13,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requirePermission("spaces:manage");
+    return await withPermission("spaces:manage", async () => {
     const { id } = await context.params;
     const houseTypeId = parseNumericId(id, "id");
 
@@ -86,6 +86,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     });
 
     return apiSuccess(updatedHouseType);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/house-types/[id]" });
   }
@@ -93,30 +94,31 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    const session = await requirePermission("spaces:hard_delete");
-    const actor = actorFromSession(session);
-    const { id } = await context.params;
-    const houseTypeId = parseNumericId(id, "id");
+    return await withPermission("spaces:hard_delete", async ({ session }) => {
+      const actor = actorFromSession(session);
+      const { id } = await context.params;
+      const houseTypeId = parseNumericId(id, "id");
 
-    await connectMongoDB();
+      await connectMongoDB();
 
-    const houseType = await HouseType.findById(houseTypeId).select("name").lean();
-    if (!houseType) {
-      throw new ApiError("NOT_FOUND", "House type not found.");
-    }
+      const houseType = await HouseType.findById(houseTypeId).select("name").lean();
+      if (!houseType) {
+        throw new ApiError("NOT_FOUND", "House type not found.");
+      }
 
-    // Soft delete always succeeds: its room templates and any quotation built
-    // on it keep resolving through historical-reference lookups. It only
-    // stops being offered for a NEW quotation or template, enforced there.
-    await softDeleteOne({
-      model: HouseType,
-      entityType: "houseType",
-      id: houseTypeId,
-      actor,
-      label: houseType.name,
+      // Soft delete always succeeds: its room templates and any quotation built
+      // on it keep resolving through historical-reference lookups. It only
+      // stops being offered for a NEW quotation or template, enforced there.
+      await softDeleteOne({
+        model: HouseType,
+        entityType: "houseType",
+        id: houseTypeId,
+        actor,
+        label: houseType.name,
+      });
+
+      return apiSuccess({ id: houseTypeId, deleted: true });
     });
-
-    return apiSuccess({ id: houseTypeId, deleted: true });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/house-types/[id]" });
   }

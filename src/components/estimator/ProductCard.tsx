@@ -13,7 +13,7 @@ const typeColors: Record<string, string> = {
   accessory: "bg-purple-50 text-purple-600",
   curtain: "bg-green-50 text-green-600",
   smart_lock: "bg-yellow-50 text-yellow-700",
-  vdp: "bg-pink-50 text-pink-600",
+  vdp: "bg-[var(--color-admin-primary-soft,#FCEAF0)] text-[var(--color-admin-primary,#D85B83)]",
   other: "bg-gray-50 text-gray-600",
 };
 

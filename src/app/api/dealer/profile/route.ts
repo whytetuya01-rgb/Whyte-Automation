@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser } from "@/models";
-import { requireSession } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { updateDealerProfileSchema } from "@/lib/validation/admin-user";
 
@@ -18,27 +18,25 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    return await withSession(async ({ role, userId }) => {
+      if (role !== "dealer") {
+        throw new ApiError("FORBIDDEN", "Only Dealers can access the Dealer Profile.");
+      }
 
-    if (role !== "dealer") {
-      throw new ApiError("FORBIDDEN", "Only Dealers can access the Dealer Profile.");
-    }
+      await connectMongoDB();
+      const dealer = await AdminUser.findOne({ _id: userId, role: "dealer" }).lean();
 
-    await connectMongoDB();
-    const dealer = await AdminUser.findOne({ _id: userId, role: "dealer" }).lean();
+      if (!dealer) {
+        throw new ApiError("NOT_FOUND", "Dealer profile not found.");
+      }
 
-    if (!dealer) {
-      throw new ApiError("NOT_FOUND", "Dealer profile not found.");
-    }
+      const { passwordHash, ...rest } = dealer as any;
 
-    const { passwordHash, ...rest } = dealer as any;
-
-    return NextResponse.json({
-      ...rest,
-      id: dealer._id,
-      discountAllocationPercent: dealer.discountAllocationPercent || 0,
+      return NextResponse.json({
+        ...rest,
+        id: dealer._id,
+        discountAllocationPercent: dealer.discountAllocationPercent || 0,
+      });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/dealer/profile" });
@@ -56,10 +54,7 @@ export async function GET() {
  */
 export async function PATCH(req: Request) {
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
-
+    return await withSession(async ({ role, userId }) => {
     if (role !== "dealer") {
       throw new ApiError("FORBIDDEN", "Only Dealers can access the Dealer Profile.");
     }
@@ -118,6 +113,7 @@ export async function PATCH(req: Request) {
       ...rest,
       id: updated?._id,
       discountAllocationPercent: updated?.discountAllocationPercent || 0,
+    });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/dealer/profile" });

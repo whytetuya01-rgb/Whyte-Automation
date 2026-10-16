@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 /**
  * Append-only audit trail of soft delete, restore and purge operations.
@@ -42,6 +43,7 @@ export interface IDeletionAuditCascade {
 export interface IDeletionAuditEvent {
   _id: string;
   id?: string;
+  companyId: number;
   action: DeletionAuditAction;
   entityType: SoftDeleteEntityType;
   /** The record's `_id`, stringified (models use numeric and string ids). */
@@ -103,9 +105,11 @@ const DeletionAuditEventSchema = new Schema<IDeletionAuditEventDocument>(
   }
 );
 
-DeletionAuditEventSchema.index({ performedOn: -1 });
-DeletionAuditEventSchema.index({ entityType: 1, entityId: 1, performedOn: -1 });
-DeletionAuditEventSchema.index({ deletionGroupId: 1 });
+DeletionAuditEventSchema.index({ companyId: 1, performedOn: -1 });
+DeletionAuditEventSchema.index({ companyId: 1, entityType: 1, entityId: 1, performedOn: -1 });
+DeletionAuditEventSchema.index({ companyId: 1, deletionGroupId: 1 });
+
+tenantScopePlugin(DeletionAuditEventSchema);
 
 const IMMUTABLE_MESSAGE = "Deletion audit events are append-only and cannot be modified or deleted.";
 

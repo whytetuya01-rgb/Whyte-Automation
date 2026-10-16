@@ -1,4 +1,4 @@
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission, withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
 import {
   PERMISSION_MODULE_GROUPS,
@@ -28,27 +28,40 @@ const createRoleSchema = z.object({
 
 /**
  * GET /api/admin/roles
- * Returns role metadata (including admin, dealer, configurable_admin, and custom roles),
- * user counts, and the centralized permission matrix.
- * Guarded server-side by `admins:read`.
+ * Returns role metadata and centralized permission configuration.
+ * - Full platform permission matrix & presets are strictly restricted to super_admin.
+ * - Approved read-only exception: Company Admins (admin / company_owner) may read role metadata
+ *   strictly to populate company user assignment, with platform configuration stripped.
  */
 export async function GET() {
   try {
-    await requirePermission("admins:read");
+    return await withSession(async ({ role, companyId }) => {
+      const isSuperAdmin = role === "super_admin";
+      const isManager = role === "admin" || role === "company_owner";
 
-    const roles = await getAllRolesMetadata();
+      if (!isSuperAdmin && !isManager) {
+        throw new ApiError("FORBIDDEN", "Only Super Admin may access global role definitions.");
+      }
 
-    const totalAccounts = roles.reduce((sum, r) => sum + r.userCount, 0);
-    const activeAccounts = roles.reduce((sum, r) => sum + r.activeUserCount, 0);
+      const roles = await getAllRolesMetadata(companyId);
 
-    return apiSuccess({
-      roles,
-      modules: PERMISSION_MODULE_GROUPS,
-      presets: PERMISSION_PRESETS,
-      stats: {
-        totalAccounts,
-        activeAccounts,
-      },
+      const totalAccounts = roles.reduce((sum, r) => sum + r.userCount, 0);
+      const activeAccounts = roles.reduce((sum, r) => sum + r.activeUserCount, 0);
+
+      // Platform permission configuration and presets are Super Admin-exclusive
+      return apiSuccess({
+        roles,
+        ...(isSuperAdmin
+          ? {
+              modules: PERMISSION_MODULE_GROUPS,
+              presets: PERMISSION_PRESETS,
+            }
+          : {}),
+        stats: {
+          totalAccounts,
+          activeAccounts,
+        },
+      });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/admin/roles" });
@@ -62,22 +75,27 @@ export async function GET() {
  */
 export async function POST(req: Request) {
   try {
-    const session = await requirePermission("admins:manage");
-    const callerRole = (session.user as { role?: string }).role;
+    // Role definitions are platform-managed: Super Admin only, acting as a
+    // company. Not `withPermission("admins:manage", ...)` because the company
+    // is taken from the act-as context, not from a permission check.
+    return await withSession(async ({ role, companyId }) => {
+      if (role !== "super_admin") {
+        throw new ApiError("FORBIDDEN", "Only Super Admin may create role definitions.");
+      }
+      if (!companyId) {
+        throw new ApiError("FORBIDDEN", "A company context is required to create a custom role.");
+      }
 
-    if (callerRole !== "super_admin") {
-      throw new ApiError("FORBIDDEN", "Only Super Admins may create custom roles.");
-    }
+      const body = await req.json();
+      const parsed = createRoleSchema.safeParse(body);
+      if (!parsed.success) {
+        return handleApiError(parsed.error, { logPrefix: "POST /api/admin/roles" });
+      }
 
-    const body = await req.json();
-    const parsed = createRoleSchema.safeParse(body);
-    if (!parsed.success) {
-      return handleApiError(parsed.error, { logPrefix: "POST /api/admin/roles" });
-    }
+      const created = await createCustomRole(parsed.data, companyId);
 
-    const created = await createCustomRole(parsed.data);
-
-    return apiSuccess(created, { status: 201 });
+      return apiSuccess(created, { status: 201 });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/admin/roles" });
   }

@@ -84,12 +84,12 @@ export default function RecentProducts({ products, categories, addedAtById }: Re
           </thead>
           <tbody className="divide-y divide-[#F0F0F2] text-sm">
             {products.map((product) => (
-              <tr key={product.id} className="hover:bg-[#FFF6F8]/70 transition-colors">
+              <tr key={product.id} className="hover:bg-[var(--color-admin-primary-subtle,#FFF6F8)]/70 transition-colors">
                 <td className="pl-5 pr-3 py-2.5 max-w-[260px]">
                   <Link href={`/admin/products/${product.id}`} className="flex items-center gap-3 min-w-0 group">
                     <Thumb product={product} size={36} />
                     <span className="min-w-0">
-                      <span className="block truncate font-medium text-[#111111] group-hover:text-[#B83E68] transition-colors">{product.name}</span>
+                      <span className="block truncate font-medium text-[#111111] group-hover:text-[var(--color-admin-primary-foreground,#B83E68)] transition-colors">{product.name}</span>
                       {product.code && <span className="block font-mono text-[11px] text-[#8A8A93]">{product.code}</span>}
                     </span>
                   </Link>
@@ -113,7 +113,7 @@ export default function RecentProducts({ products, categories, addedAtById }: Re
       <ul className="md:hidden divide-y divide-[#F0F0F2] border-t border-[#F0F0F2]">
         {products.map((product) => (
           <li key={product.id}>
-            <Link href={`/admin/products/${product.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-[#FFF6F8]/70 transition-colors">
+            <Link href={`/admin/products/${product.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-[var(--color-admin-primary-subtle,#FFF6F8)]/70 transition-colors">
               <Thumb product={product} size={40} />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-[#111111] truncate">{product.name}</p>

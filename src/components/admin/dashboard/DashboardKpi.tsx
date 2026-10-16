@@ -18,11 +18,11 @@ export default function DashboardKpi({ label, value, icon: Icon, href, hint, tre
   return (
     <Link
       href={href}
-      className="group bg-white rounded-2xl border border-[#E5E5E7] p-4 sm:p-5 flex flex-col gap-3 hover:border-[#F1B8C8] transition-colors min-w-0"
+      className="group bg-white rounded-2xl border border-[#E5E5E7] p-4 sm:p-5 flex flex-col gap-3 hover:border-[var(--color-admin-primary-border,#F1B8C8)] transition-colors min-w-0"
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-medium text-[#8A8A93] truncate">{label}</span>
-        <span className="w-7 h-7 rounded-lg bg-[#FFF6F8] text-[#D85B83] flex items-center justify-center shrink-0">
+        <span className="w-7 h-7 rounded-lg bg-[var(--color-admin-primary-subtle,#FFF6F8)] text-[var(--color-admin-primary,#D85B83)] flex items-center justify-center shrink-0">
           <Icon size={15} aria-hidden="true" />
         </span>
       </div>

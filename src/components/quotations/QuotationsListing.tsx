@@ -79,6 +79,7 @@ interface Props {
   initialQuotations: QuotationRowData[];
   houseTypes: HouseType[];
   userRole?: string;
+  userPermissions?: string[];
   dealerEarnings?: number;
   /**
    * Server-computed totals over every quotation the caller can see, not just
@@ -114,11 +115,21 @@ export default function QuotationsListing({
   initialQuotations,
   houseTypes,
   userRole,
+  userPermissions,
   dealerEarnings = 0,
   summary,
   pagination,
 }: Props) {
   const router = useRouter();
+  const isSuperOrAdmin =
+    userRole === "super_admin" ||
+    userRole === "admin" ||
+    userRole === "company_owner";
+  const isConfigurableReviewer =
+    userRole === "configurable_admin" &&
+    (userPermissions?.includes("quotations:transition") ||
+      userPermissions?.includes("quotations:approve"));
+  const canReview = isSuperOrAdmin || Boolean(isConfigurableReviewer);
   const [quotations, setQuotations] = useState<QuotationRowData[]>(initialQuotations);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -378,7 +389,7 @@ export default function QuotationsListing({
       {/* ── Filters ────────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm">
         {/* Approval queue banner */}
-        {(userRole === "sales" || userRole === "super_admin" || userRole === "admin") && summaryMetrics.pendingSent > 0 && (
+        {canReview && summaryMetrics.pendingSent > 0 && (
           <div className="flex items-center justify-between px-4 py-3 bg-amber-50 border-b border-amber-100 text-xs sm:text-sm rounded-t-2xl">
             <div className="flex items-center gap-2 text-amber-800">
               <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
@@ -562,7 +573,7 @@ export default function QuotationsListing({
                     const isLocked = q.status === "approved" || q.status === "delivered";
                     const isSent = q.status === "sent";
                     const isApproved = q.status === "approved";
-                    const canReview = userRole === "sales" || userRole === "super_admin" || userRole === "admin";
+                    const canDelete = !isLocked && userRole !== "sales_executive" && (userRole !== "dealer" || q.status === "draft");
 
                     return (
                       <tr
@@ -587,7 +598,7 @@ export default function QuotationsListing({
                         {userRole !== "dealer" && (
                           <td className="py-4 px-4 text-xs">
                             <span className="font-semibold text-gray-800 block">{q.dealerName || "Direct / Admin"}</span>
-                            {q.allocatedDiscountPercent !== undefined && q.allocatedDiscountPercent > 0 && (
+                            {userRole !== "sales_executive" && q.allocatedDiscountPercent !== undefined && q.allocatedDiscountPercent > 0 && (
                               <span className="text-[10px] text-gray-400 block mt-0.5">
                                 Alloc: {q.allocatedDiscountPercent}% · Cust: {q.customerDiscountPercent || 0}%
                               </span>
@@ -731,7 +742,7 @@ export default function QuotationsListing({
                               </button>
                             )}
 
-                            {!isLocked && (
+                            {canDelete && (
                               <button
                                 type="button"
                                 onClick={() => handleDelete(q)}
@@ -771,7 +782,7 @@ export default function QuotationsListing({
               const isLocked = q.status === "approved" || q.status === "delivered";
               const isSent = q.status === "sent";
               const isApproved = q.status === "approved";
-              const canReview = userRole === "sales" || userRole === "super_admin" || userRole === "admin";
+              const canDelete = !isLocked && userRole !== "sales_executive" && (userRole !== "dealer" || q.status === "draft");
 
               return (
                 <div
@@ -878,7 +889,7 @@ export default function QuotationsListing({
                       </button>
                     )}
 
-                    {!isLocked && (
+                    {canDelete && (
                       <button
                         onClick={() => handleDelete(q)}
                         className="p-2 bg-red-50 hover:bg-red-100 border border-red-100 rounded-xl text-red-500 transition"

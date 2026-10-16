@@ -4,6 +4,8 @@ import PageHeader from "@/components/admin/PageHeader";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Category as CategoryModel, Product } from "@/models";
 import { getAdminDashboardData } from "@/lib/adminDashboardData";
+import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withTenant } from "@/lib/tenant/context";
 import { formatCurrency } from "@/lib/utils";
 import { normalizeCategories, normalizeProducts } from "@/lib/quotationNormalization";
 import type { Product as IProduct } from "@/types";
@@ -28,17 +30,20 @@ export const dynamic = "force-dynamic";
  * instead of simply stacking the desktop order.
  */
 export default async function DashboardPage() {
+  const actor = await getAuthenticatedActor();
   await connectMongoDB();
 
-  const [data, rawProducts, rawCategories] = await Promise.all([
-    getAdminDashboardData(),
-    Product.find()
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .populate({ path: "category", populate: { path: "parent" } })
-      .populate({ path: "variants", options: { sort: { sortOrder: 1 } } }),
-    CategoryModel.find().lean(),
-  ]);
+  const [data, rawProducts, rawCategories] = await withTenant(actor, () =>
+    Promise.all([
+      getAdminDashboardData(),
+      Product.find()
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .populate({ path: "category", populate: { path: "parent" } })
+        .populate({ path: "variants", options: { sort: { sortOrder: 1 } } }),
+      CategoryModel.find().lean(),
+    ])
+  );
 
   const recentProducts: IProduct[] = normalizeProducts(rawProducts.map((doc) => doc.toObject()));
   const categories = normalizeCategories(rawCategories);
@@ -66,7 +71,7 @@ export default async function DashboardPage() {
           <>
             <Link
               href="/admin/products"
-              className="inline-flex items-center h-9 px-3.5 rounded-xl border border-[#E5E5E7] bg-white text-sm font-medium text-[#3F3F46] hover:border-[#F1B8C8] hover:text-[#B83E68] transition-colors"
+              className="inline-flex items-center h-9 px-3.5 rounded-xl border border-[#E5E5E7] bg-white text-sm font-medium text-[#3F3F46] hover:border-[var(--color-admin-primary-border,#F1B8C8)] hover:text-[var(--color-admin-primary-foreground,#B83E68)] transition-colors"
             >
               Add Product
             </Link>

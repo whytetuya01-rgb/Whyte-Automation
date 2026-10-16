@@ -9,7 +9,14 @@ export const TYPE_LABELS: Record<string, string> = {
   other: "Other Devices",
 };
 
-const BAR_COLORS = ["#D85B83", "#1E1E22", "#E58AA7", "#6E6E78", "#B83E68", "#C9C9D0"];
+const BAR_COLORS = [
+  "var(--color-admin-primary, #D85B83)",
+  "#1E1E22",
+  "var(--color-admin-primary-border, #E58AA7)",
+  "#6E6E78",
+  "var(--color-admin-primary-hover, #B83E68)",
+  "#C9C9D0",
+];
 
 /** Compact catalog health: product counts and the hardware-type distribution. */
 export default function CatalogSnapshot({ catalog }: { catalog: DashboardData["catalog"] }) {

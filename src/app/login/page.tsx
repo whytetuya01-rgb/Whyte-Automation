@@ -39,15 +39,24 @@ function UserLoginForm() {
     try {
       const result = await signIn("credentials", { email: email.trim(), password, portal: "user", redirect: false });
       if (result?.error) {
-        const message = "This account is not authorized for this portal, or the credentials are incorrect.";
+        let message = "Invalid email address or password. Please try again.";
+        if (result.error === "ADMIN_IN_USER_PORTAL") {
+          message = "This portal is exclusively for Dealer accounts. Administrators must log in via the Admin Portal at /admin/login.";
+        }
         setAuthError(message);
         toast.error(message);
         return;
       }
       const session = await getSession();
       const role = (session?.user as { role?: string } | undefined)?.role;
+      if (role !== "dealer") {
+        const message = "This portal is strictly for Dealers. Administrators must use /admin/login.";
+        setAuthError(message);
+        toast.error(message);
+        return;
+      }
       let destination = safeUserCallback(searchParams.get("callbackUrl")) ?? "/";
-      if (role === "dealer" && (destination === "/dealer/access" || destination.startsWith("/admin") || destination === "/dealers")) {
+      if (destination === "/dealer/access" || destination.startsWith("/admin") || destination === "/dealers") {
         destination = "/";
       }
       toast.success("Welcome back.");
@@ -67,8 +76,8 @@ function UserLoginForm() {
       <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-5xl items-center justify-center">
         <section className="grid w-full overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-xl shadow-neutral-900/5 lg:grid-cols-[1.05fr_0.95fr]">
           <div className="bg-neutral-900 p-7 text-white sm:p-10 lg:p-12">
-            <div className="inline-flex items-center rounded-xl bg-white px-3 py-1.5 shadow-xs">
-              <WhyteLogo theme="light" alt="Whyte logo" size="login" preload />
+            <div className="inline-flex items-center">
+              <WhyteLogo theme="dark" alt="Whyte logo" size="login" preload />
             </div>
             <div className="mt-16 max-w-md lg:mt-24">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-400">Whyte Automations</p>

@@ -5,6 +5,7 @@ import { SWR_ADMIN_OPTIONS } from "@/lib/swr";
 import NavigationLoaderProvider from "@/components/providers/NavigationLoaderProvider";
 import ApiLoadingProvider from "@/components/providers/ApiLoadingProvider";
 import { ConfirmProvider } from "@/components/providers/ConfirmProvider";
+import { ThemeProvider } from "@/components/providers/ThemeProvider";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
   return (
@@ -16,13 +17,15 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       refetchOnWindowFocus={false}
     >
       <SWRConfig value={SWR_ADMIN_OPTIONS}>
-        <NavigationLoaderProvider>
-          <ApiLoadingProvider>
-            <ConfirmProvider>
-              {children}
-            </ConfirmProvider>
-          </ApiLoadingProvider>
-        </NavigationLoaderProvider>
+        <ThemeProvider>
+          <NavigationLoaderProvider>
+            <ApiLoadingProvider>
+              <ConfirmProvider>
+                {children}
+              </ConfirmProvider>
+            </ApiLoadingProvider>
+          </NavigationLoaderProvider>
+        </ThemeProvider>
       </SWRConfig>
     </SessionProvider>
   );

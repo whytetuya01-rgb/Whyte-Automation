@@ -108,10 +108,10 @@ export default function ProductCatalogCard({
           <Link
             href={`/admin/products/${product.id}`}
             title={product.name}
-            className="group/title inline-flex items-center gap-1.5 text-[15px] font-medium leading-tight text-pink-600 hover:text-pink-700 max-w-full"
+            className="group/title inline-flex items-center gap-1.5 text-[15px] font-medium leading-tight text-[var(--color-admin-primary,#D85B83)] hover:text-[var(--color-admin-primary-foreground,#B83E68)] max-w-full"
           >
             <span className="truncate hover:underline">{product.name}</span>
-            <ArrowRight className="h-3.5 w-3.5 text-pink-600 opacity-0 -translate-x-1 transition-all duration-200 group-hover/title:opacity-100 group-hover/title:translate-x-0 shrink-0" />
+            <ArrowRight className="h-3.5 w-3.5 text-[var(--color-admin-primary,#D85B83)] opacity-0 -translate-x-1 transition-all duration-200 group-hover/title:opacity-100 group-hover/title:translate-x-0 shrink-0" />
           </Link>
 
           {/* Labeled Metadata Line */}

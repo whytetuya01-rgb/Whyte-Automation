@@ -36,9 +36,9 @@ export default function QuickActions() {
           <Link
             key={href}
             href={href}
-            className="flex items-center gap-2 h-9 px-2.5 rounded-lg border border-[#E5E5E7] text-xs font-medium text-[#3F3F46] hover:border-[#F1B8C8] hover:bg-[#FFF6F8] hover:text-[#B83E68] transition-colors min-w-0"
+            className="flex items-center gap-2 h-9 px-2.5 rounded-lg border border-[#E5E5E7] text-xs font-medium text-[#3F3F46] hover:border-[var(--color-admin-primary-border,#F1B8C8)] hover:bg-[var(--color-admin-primary-subtle,#FFF6F8)] hover:text-[var(--color-admin-primary-foreground,#B83E68)] transition-colors min-w-0"
           >
-            <Icon size={14} className="shrink-0 text-[#D85B83]" aria-hidden="true" />
+            <Icon size={14} className="shrink-0 text-[var(--color-admin-primary,#D85B83)]" aria-hidden="true" />
             <span className="truncate">{label}</span>
           </Link>
         ))}

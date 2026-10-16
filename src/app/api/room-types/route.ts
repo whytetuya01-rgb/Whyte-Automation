@@ -4,7 +4,7 @@ import { RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { ensureRoomTypesAndTemplatesSeeded } from "@/lib/seedRoomData";
-import { requirePermission, requireRole, requireSession } from "@/lib/api-auth";
+import { withPermission, withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createRoomTypeSchema } from "@/lib/validation/catalog";
 
@@ -12,16 +12,16 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireSession();
-
-    await connectMongoDB();
-    await ensureRoomTypesAndTemplatesSeeded();
-    const roomTypes = await RoomType.find().sort({ sortOrder: 1 });
-    const cleaned = roomTypes
-      .map((doc) => (typeof doc.toJSON === "function" ? doc.toJSON() : doc))
-      .filter((rt: { name?: string }) => !isBathroomLikeRoomName(rt.name));
-    // GET responses stay unwrapped: the proposal builder reads this array directly.
-    return NextResponse.json(cleaned);
+    return await withSession(async () => {
+      await connectMongoDB();
+      await ensureRoomTypesAndTemplatesSeeded();
+      const roomTypes = await RoomType.find().sort({ sortOrder: 1 });
+      const cleaned = roomTypes
+        .map((doc) => (typeof doc.toJSON === "function" ? doc.toJSON() : doc))
+        .filter((rt: { name?: string }) => !isBathroomLikeRoomName(rt.name));
+      // GET responses stay unwrapped: the proposal builder reads this array directly.
+      return NextResponse.json(cleaned);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/room-types" });
   }
@@ -30,7 +30,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     // Creating room types requires spaces:manage permission.
-    await requirePermission("spaces:manage");
+    return await withPermission("spaces:manage", async () => {
     await connectMongoDB();
 
     const input = createRoomTypeSchema.parse(await readJsonBody(req));
@@ -55,6 +55,7 @@ export async function POST(req: Request) {
     });
 
     return apiSuccess(roomType, { status: 201 });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/room-types" });
   }

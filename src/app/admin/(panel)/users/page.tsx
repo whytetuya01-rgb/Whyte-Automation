@@ -26,6 +26,9 @@ import Modal from "@/components/shared/Modal";
 import Pagination from "@/components/shared/Pagination";
 import { Button, Input, Select, Badge } from "@/components/ui";
 import { Switch } from "@/components/ui/Switch";
+import { getUsersPageAccess } from "@/lib/rolesPageAccess";
+import { useCompanyContext } from "@/lib/useCompanyContext";
+import { canAssignRole, canModifyAccountWithRole } from "@/lib/userManagementRules";
 import {
   Permission,
   PERMISSION_MODULE_GROUPS,
@@ -93,15 +96,13 @@ const emptyEditForm = {
 export default function UsersPage() {
   const { data: session, status: sessionStatus } = useSession();
   const sessionUser = session?.user as { role?: string; permissions?: string[] } | undefined;
-  const currentRole = sessionUser?.role?.trim().toLowerCase();
-  const isSuperAdmin =
-    currentRole === "super_admin" ||
-    (Array.isArray(sessionUser?.permissions) && sessionUser.permissions.includes("admins:manage"));
-  const canManageAdmins = isSuperAdmin;
-  const canReadAdmins =
-    isSuperAdmin ||
-    currentRole === "admin" ||
-    (Array.isArray(sessionUser?.permissions) && sessionUser.permissions.includes("admins:read"));
+  const companyContext = useCompanyContext(sessionUser?.role, sessionStatus === "authenticated");
+  const {
+    canRead: canReadAdmins,
+    canManage: canManageAdmins,
+    needsCompanySelection,
+  } = getUsersPageAccess(sessionUser?.role, sessionUser?.permissions, companyContext.hasCompanyContext);
+  const actor = { role: sessionUser?.role, hasCompanyContext: companyContext.hasCompanyContext };
 
   const confirm = useConfirm();
 
@@ -210,6 +211,13 @@ export default function UsersPage() {
   };
 
   const roleMeta = (key: string) => roles.find((r) => r.key === key);
+  const customRoleKeys = roles.filter((r) => r.type === "custom").map((r) => r.key);
+  // Same rules the API enforces (`src/lib/userManagementRules.ts`): a Company
+  // Owner never sees super_admin/company_owner here, and a Super Admin with no
+  // company selected can only create another Super Admin.
+  const assignableRoles = roles.filter((r) => canAssignRole(actor, r.key, customRoleKeys));
+  const canActOnAccount = (u: UserItem) =>
+    u.role === "dealer" ? actor.hasCompanyContext : canModifyAccountWithRole(actor, u.role);
   const roleLabel = (key: string) => roleMeta(key)?.name || key;
   const roleBadgeVariant = (key: string): "danger" | "warning" | "info" | "secondary" => {
     if (key === "super_admin") return "danger";
@@ -222,7 +230,10 @@ export default function UsersPage() {
   // ===================== ADD USER =====================
 
   const openAdd = () => {
-    setAddForm(emptyAddForm);
+    const preferred = assignableRoles.some((r) => r.key === emptyAddForm.role)
+      ? emptyAddForm.role
+      : assignableRoles[0]?.key ?? "";
+    setAddForm({ ...emptyAddForm, role: preferred });
     setAddPermissions(new Set());
     setIsAddOpen(true);
   };
@@ -385,8 +396,6 @@ export default function UsersPage() {
     );
   }
 
-  const assignableRoles = roles.filter((r) => r.key !== "dealer");
-
   const customCount = roles
     .filter((r) => r.type === "custom" || r.key === "configurable_admin")
     .reduce((sum, r) => sum + r.userCount, 0);
@@ -397,7 +406,7 @@ export default function UsersPage() {
       label: "Super Admins",
       value: roleMeta("super_admin")?.userCount ?? 0,
       icon: ShieldCheck,
-      tone: "bg-rose-50 text-rose-700 border-rose-100",
+      tone: "bg-[var(--color-admin-primary-soft)] text-[var(--color-admin-primary-foreground)] border-[var(--color-admin-primary-border)]",
     },
     { label: "Admins", value: roleMeta("admin")?.userCount ?? 0, icon: Shield, tone: "bg-blue-50 text-blue-700 border-blue-100" },
     { label: "Dealers", value: roleMeta("dealer")?.userCount ?? 0, icon: Store, tone: "bg-amber-50 text-amber-700 border-amber-100" },
@@ -431,6 +440,19 @@ export default function UsersPage() {
           </div>
         }
       />
+
+      {companyContext.ready && needsCompanySelection && (
+        <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-4 flex items-start gap-3">
+          <Lock className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="text-xs font-bold text-amber-900 uppercase tracking-wider">No company selected</div>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              Accounts belong to a company. Select a company to view, edit or add its accounts. Until then the only
+              action available is creating another Super Admin, which belongs to no company.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 w-full">
@@ -571,7 +593,7 @@ export default function UsersPage() {
                         {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        {canManageAdmins && (
+                        {canManageAdmins && canActOnAccount(u) && (
                           <div className="relative inline-block text-left">
                             <button
                               type="button"

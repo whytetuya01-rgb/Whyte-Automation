@@ -22,11 +22,12 @@ export function isPrivilegedRole(
   permissions?: string[] | null | undefined
 ): boolean {
   if (!role) return false;
-  if (role === "super_admin") return true;
+  const normRole = (role || "").trim().toLowerCase();
+  if (normRole === "super_admin") return true;
   if (Array.isArray(permissions)) {
-    return hasPermission(role, permissions, "pricing:view_cost");
+    return hasPermission(normRole, permissions, "pricing:view_cost");
   }
-  if (role === "admin") return true;
+  if (normRole === "admin" || normRole === "company_owner") return true;
   return false;
 }
 
@@ -87,22 +88,45 @@ export function redactQuotationItemForRole<T extends Pick<QuotationItem, "produc
   };
 }
 
-/** Redacts every item inside every room of a quotation. */
+/** Redacts every item inside a single quotation room. */
+export function redactQuotationRoomForRole<T extends Pick<QuotationRoom, "items">>(
+  room: T,
+  role: string | null | undefined,
+  permissions?: string[] | null | undefined
+): T {
+  if (isPrivilegedRole(role, permissions)) return room;
+  if (!Array.isArray(room.items)) return room;
+  return {
+    ...room,
+    items: room.items.map((item) => redactQuotationItemForRole(item, role, permissions)),
+  };
+}
+
+/** Redacts internal data from a quotation (costs from items; dealer earnings/allocations for unprivileged non-dealers). */
 export function redactQuotationForRole<T extends Pick<Quotation, "rooms">>(
   quotation: T,
   role: string | null | undefined,
   permissions?: string[] | null | undefined
 ): T {
   if (isPrivilegedRole(role, permissions)) return quotation;
+  const normRole = (role || "").trim().toLowerCase();
   const rooms = quotation.rooms as QuotationRoom[] | undefined;
-  if (!Array.isArray(rooms)) return quotation;
-  return {
+  const redactedRooms = Array.isArray(rooms)
+    ? rooms.map((room) => redactQuotationRoomForRole(room, role, permissions))
+    : rooms;
+
+  const result: Record<string, unknown> = {
     ...quotation,
-    rooms: rooms.map((room) => ({
-      ...room,
-      items: Array.isArray(room.items)
-        ? room.items.map((item) => redactQuotationItemForRole(item, role, permissions))
-        : room.items,
-    })),
+    rooms: redactedRooms,
   };
+
+  // For sales_executive, remove unauthorized dealer earnings and restricted discount-allocation details
+  if (normRole === "sales_executive") {
+    delete result.allocatedDiscountPercent;
+    delete result.estimatedEarningPercent;
+    delete result.estimatedEarningAmount;
+  }
+
+  return result as T;
 }
+

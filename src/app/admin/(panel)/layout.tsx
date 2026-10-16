@@ -10,7 +10,7 @@ export default async function AdminPanelLayout({ children }: { children: React.R
   const session = await getServerSession(authOptions);
   if (!session) redirect("/admin/login");
   const role = (session.user as { role?: string }).role;
-  if (role === "dealer" || role === "sales") redirect("/");
+  if (role === "dealer" || role === "sales" || role === "sales_executive") redirect("/");
   if (!role) redirect("/admin/login");
 
   // Revalidate (short TTL cache) that this account is still real, active and

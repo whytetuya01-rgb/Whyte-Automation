@@ -1,12 +1,12 @@
-import { getServerSession } from "next-auth/next";
-import { authOptions } from "@/lib/auth";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, HouseType } from "@/models";
-import { dealerVisibilityFilter } from "@/lib/quotationAccess";
+import { dealerVisibilityFilter, salesExecutiveVisibilityFilter } from "@/lib/quotationAccess";
 import { getConfirmedEarningsForDealer } from "@/lib/dealerEarningsService";
 import { aggregateQuotationRoomTotals, isProtectedQuotationStatus, totalsForQuotation } from "@/lib/quotationTotals";
 import { getSessionActor } from "@/lib/sessionGuard";
 import { hasPermission } from "@/lib/permissions";
+import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withTenant } from "@/lib/tenant/context";
 import QuotationsListing, {
   QuotationRowData,
   QuotationSummaryMetrics,
@@ -60,142 +60,165 @@ export default async function HomePage(props: PageProps) {
   let houseTypes: Array<{ id: number; name: string; description: string | null; isActive: boolean; sortOrder: number }> = [];
   let dealerEarnings = 0;
   let userRole: string | undefined;
+  let userPermissions: string[] | undefined;
   let summary: QuotationSummaryMetrics | undefined;
   let pagination: QuotationPaginationMeta | undefined;
 
   try {
-    const session = await getServerSession(authOptions);
-    userRole = (session?.user as { role?: string })?.role;
-    const userId = Number((session?.user as { id?: string } | undefined)?.id);
+    const actor = await getAuthenticatedActor();
+    userRole = actor.role;
+    userPermissions = actor.permissions ?? [];
+    const userId = actor.userId;
 
     const searchParams = await props.searchParams;
     const requestedPage = Math.max(1, parseInt(searchParams.page ?? "1", 10) || 1);
     const pageSize = DEFAULT_PAGE_SIZE;
 
-    await connectMongoDB();
+    const result = await withTenant(actor, async () => {
 
-    // Determine query filter based on verified role (unchanged).
-    let filterQuery: Record<string, unknown> = {};
+      await connectMongoDB();
 
-    if (userRole === "dealer") {
-      filterQuery = dealerVisibilityFilter(userId);
+      // Determine query filter based on verified role (unchanged).
+      let filterQuery: Record<string, unknown> = {};
+      let dealerEarningsResult = 0;
 
-      // Confirmed earnings: Approved + Delivered quotations assigned to this dealer,
-      // calculated server-side from each quotation's allocation snapshot.
-      dealerEarnings = await getConfirmedEarningsForDealer(userId);
-    } else if (userRole === "configurable_admin") {
-      const actor = await getSessionActor(userId, userRole);
-      if (!hasPermission("configurable_admin", actor?.permissions, "quotations:read_all")) {
-        filterQuery = { createdBy: String(userId) };
+      if (userRole === "dealer") {
+        filterQuery = dealerVisibilityFilter(userId);
+
+        // Confirmed earnings: Approved + Delivered quotations assigned to this dealer,
+        // calculated server-side from each quotation's allocation snapshot.
+        dealerEarningsResult = await getConfirmedEarningsForDealer(userId);
+      } else if (userRole === "sales_executive") {
+        filterQuery = salesExecutiveVisibilityFilter(userId);
+        dealerEarningsResult = 0;
+      } else if (userRole === "configurable_admin") {
+        const actor = await getSessionActor(userId, userRole);
+        if (!hasPermission("configurable_admin", actor?.permissions, "quotations:read_all")) {
+          filterQuery = { createdBy: String(userId) };
+        }
       }
-    }
 
-    // Lightweight pass over EVERY matching quotation (not just the current
-    // page): just the few scalar fields the summary cards and the discount
-    // formula need, never the rooms/items. This replaces what used to be a
-    // single `populate(rooms -> items)` across the whole result set.
-    const [allMatchingLight, htDocs] = await Promise.all([
-      Quotation.find(filterQuery)
-        .select("_id status discountType discountValue")
+      // Lightweight pass over EVERY matching quotation (not just the current
+      // page): just the few scalar fields the summary cards and the discount
+      // formula need, never the rooms/items. This replaces what used to be a
+      // single `populate(rooms -> items)` across the whole result set.
+      const [allMatchingLight, htDocs] = await Promise.all([
+        Quotation.find(filterQuery)
+          .select("_id status discountType discountValue")
+          .sort({ createdAt: -1 })
+          .lean({ virtuals: true }),
+        HouseType.find({ isActive: true }).sort({ sortOrder: 1 }).lean({ virtuals: true }),
+      ]);
+
+      const allIds = allMatchingLight.map((d) => String((d as { _id: unknown })._id));
+      // Approved/Delivered quotations keep their historical totals regardless
+      // of any catalog deletion since — every other status excludes an
+      // unavailable room/item from the sum. See `isProtectedQuotationStatus`.
+      const protectedIds = (allMatchingLight as Array<{ _id: unknown; status?: string }>)
+        .filter((d) => isProtectedQuotationStatus(d.status))
+        .map((d) => String(d._id));
+      // One aggregation covers both the full-set summary below AND the current
+      // page's per-row totals further down — MongoDB does the rooms/items
+      // fan-out and the sum once, instead of Node loading and reducing it.
+      const aggregatedTotals = await aggregateQuotationRoomTotals(allIds, protectedIds);
+
+      const total = allMatchingLight.length;
+      let drafts = 0;
+      let completed = 0;
+      let pendingSent = 0;
+      let totalValue = 0;
+      for (const doc of allMatchingLight as Array<{ _id: unknown; status?: string; discountType?: unknown; discountValue?: unknown }>) {
+        const status = doc.status || "draft";
+        if (status === "draft") drafts += 1;
+        if (status === "approved" || status === "sent" || status === "delivered") completed += 1;
+        if (status === "sent") pendingSent += 1;
+
+        const { subtotal } = totalsForQuotation(aggregatedTotals, String(doc._id));
+        totalValue += rowTotalAmount(subtotal, doc.discountType, doc.discountValue);
+      }
+      const summaryResult: QuotationSummaryMetrics = { total, drafts, completed, pendingSent, totalValue };
+
+      const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const safePage = Math.min(requestedPage, totalPages);
+      const paginationResult: QuotationPaginationMeta = { page: safePage, pageSize, total, totalPages };
+
+      // Full quotation documents for ONLY the current page. `rooms` is a
+      // virtual (not a stored field), so simply not populating it here is what
+      // removes the expensive deep populate — its data comes from
+      // `aggregatedTotals` instead, computed above in one database round trip.
+      const quoteDocs = await Quotation.find(filterQuery)
         .sort({ createdAt: -1 })
-        .lean({ virtuals: true }),
-      HouseType.find({ isActive: true }).sort({ sortOrder: 1 }).lean({ virtuals: true }),
-    ]);
+        .skip((safePage - 1) * pageSize)
+        .limit(pageSize)
+        .populate({ path: "houseType", select: "id name" })
+        .populate({ path: "dealer", select: "id name email firstName lastName" })
+        .lean({ virtuals: true });
 
-    const allIds = allMatchingLight.map((d) => String((d as { _id: unknown })._id));
-    // Approved/Delivered quotations keep their historical totals regardless
-    // of any catalog deletion since — every other status excludes an
-    // unavailable room/item from the sum. See `isProtectedQuotationStatus`.
-    const protectedIds = (allMatchingLight as Array<{ _id: unknown; status?: string }>)
-      .filter((d) => isProtectedQuotationStatus(d.status))
-      .map((d) => String(d._id));
-    // One aggregation covers both the full-set summary below AND the current
-    // page's per-row totals further down — MongoDB does the rooms/items
-    // fan-out and the sum once, instead of Node loading and reducing it.
-    const aggregatedTotals = await aggregateQuotationRoomTotals(allIds, protectedIds);
+      const quotationsResult: QuotationRowData[] = (quoteDocs as unknown as Array<Record<string, unknown>>).map((q) => {
+        const quotationId = String(q._id);
+        const { roomsCount, productsCount, subtotal } = totalsForQuotation(aggregatedTotals, quotationId);
+        const totalAmount = rowTotalAmount(subtotal, q.discountType, q.discountValue);
+        const houseType = q.houseType as { id?: number; _id?: number; name?: string } | null | undefined;
+        const dealer = q.dealer as { name?: string; firstName?: string; lastName?: string } | null | undefined;
 
-    const total = allMatchingLight.length;
-    let drafts = 0;
-    let completed = 0;
-    let pendingSent = 0;
-    let totalValue = 0;
-    for (const doc of allMatchingLight as Array<{ _id: unknown; status?: string; discountType?: unknown; discountValue?: unknown }>) {
-      const status = doc.status || "draft";
-      if (status === "draft") drafts += 1;
-      if (status === "approved" || status === "sent" || status === "delivered") completed += 1;
-      if (status === "sent") pendingSent += 1;
+        return {
+          id: (q.id as string) || quotationId,
+          quotationNumber: q.quotationNumber as string,
+          clientName: q.clientName as string,
+          clientPhone: (q.clientPhone as string | null) ?? null,
+          clientEmail: (q.clientEmail as string | null) ?? null,
+          clientAddress: (q.clientAddress as string | null) ?? null,
+          houseTypeId: (q.houseTypeId as number | null) ?? null,
+          houseType: houseType ? { id: Number(houseType.id ?? houseType._id ?? 0), name: String(houseType.name ?? "") } : null,
+          status: (q.status as QuotationRowData["status"]) || "draft",
+          notes: (q.notes as string | null) ?? null,
+          discountType: (q.discountType as string | null) ?? null,
+          discountValue: toNum(q.discountValue) || null,
+          createdAt: q.createdAt ? new Date(q.createdAt as string).toISOString() : new Date().toISOString(),
+          updatedAt: q.updatedAt ? new Date(q.updatedAt as string).toISOString() : undefined,
+          roomsCount,
+          productsCount,
+          totalAmount,
+          dealerId: (q.dealerId as number | null) ?? null,
+          dealerName: dealer?.name || (dealer ? `${dealer.firstName || ""} ${dealer.lastName || ""}`.trim() : null),
+          allocatedDiscountPercent: userRole === "sales_executive" ? 0 : toNum(q.allocatedDiscountPercent),
+          customerDiscountPercent: toNum(q.customerDiscountPercent),
+          estimatedEarningPercent: userRole === "sales_executive" ? 0 : toNum(q.estimatedEarningPercent),
+          estimatedEarningAmount: userRole === "sales_executive" ? 0 : toNum(q.estimatedEarningAmount),
+          clonedFromQuotationId: (q.clonedFromQuotationId as string | null) ?? null,
+          sentAt: q.sentAt ? new Date(q.sentAt as string).toISOString() : null,
+          approvedAt: q.approvedAt ? new Date(q.approvedAt as string).toISOString() : null,
+          deliveredAt: q.deliveredAt ? new Date(q.deliveredAt as string).toISOString() : null,
+        };
+      });
 
-      const { subtotal } = totalsForQuotation(aggregatedTotals, String(doc._id));
-      totalValue += rowTotalAmount(subtotal, doc.discountType, doc.discountValue);
-    }
-    summary = { total, drafts, completed, pendingSent, totalValue };
-
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const safePage = Math.min(requestedPage, totalPages);
-    pagination = { page: safePage, pageSize, total, totalPages };
-
-    // Full quotation documents for ONLY the current page. `rooms` is a
-    // virtual (not a stored field), so simply not populating it here is what
-    // removes the expensive deep populate — its data comes from
-    // `aggregatedTotals` instead, computed above in one database round trip.
-    const quoteDocs = await Quotation.find(filterQuery)
-      .sort({ createdAt: -1 })
-      .skip((safePage - 1) * pageSize)
-      .limit(pageSize)
-      .populate({ path: "houseType", select: "id name" })
-      .populate({ path: "dealer", select: "id name email firstName lastName" })
-      .lean({ virtuals: true });
-
-    quotations = (quoteDocs as unknown as Array<Record<string, unknown>>).map((q) => {
-      const quotationId = String(q._id);
-      const { roomsCount, productsCount, subtotal } = totalsForQuotation(aggregatedTotals, quotationId);
-      const totalAmount = rowTotalAmount(subtotal, q.discountType, q.discountValue);
-      const houseType = q.houseType as { id?: number; _id?: number; name?: string } | null | undefined;
-      const dealer = q.dealer as { name?: string; firstName?: string; lastName?: string } | null | undefined;
+      const houseTypesResult = htDocs.map((ht) => {
+        const item = (typeof (ht as { toJSON?: () => unknown }).toJSON === "function"
+          ? (ht as { toJSON: () => Record<string, unknown> }).toJSON()
+          : ht) as Record<string, unknown>;
+        return {
+          id: Number(item.id ?? item._id ?? 0),
+          name: String(item.name ?? ""),
+          description: (item.description as string | null) ?? null,
+          isActive: Boolean(item.isActive),
+          sortOrder: Number(item.sortOrder ?? 0),
+        };
+      });
 
       return {
-        id: (q.id as string) || quotationId,
-        quotationNumber: q.quotationNumber as string,
-        clientName: q.clientName as string,
-        clientPhone: (q.clientPhone as string | null) ?? null,
-        clientEmail: (q.clientEmail as string | null) ?? null,
-        clientAddress: (q.clientAddress as string | null) ?? null,
-        houseTypeId: (q.houseTypeId as number | null) ?? null,
-        houseType: houseType ? { id: Number(houseType.id ?? houseType._id ?? 0), name: String(houseType.name ?? "") } : null,
-        status: (q.status as QuotationRowData["status"]) || "draft",
-        notes: (q.notes as string | null) ?? null,
-        discountType: (q.discountType as string | null) ?? null,
-        discountValue: toNum(q.discountValue) || null,
-        createdAt: q.createdAt ? new Date(q.createdAt as string).toISOString() : new Date().toISOString(),
-        updatedAt: q.updatedAt ? new Date(q.updatedAt as string).toISOString() : undefined,
-        roomsCount,
-        productsCount,
-        totalAmount,
-        dealerId: (q.dealerId as number | null) ?? null,
-        dealerName: dealer?.name || (dealer ? `${dealer.firstName || ""} ${dealer.lastName || ""}`.trim() : null),
-        allocatedDiscountPercent: toNum(q.allocatedDiscountPercent),
-        customerDiscountPercent: toNum(q.customerDiscountPercent),
-        estimatedEarningPercent: toNum(q.estimatedEarningPercent),
-        estimatedEarningAmount: toNum(q.estimatedEarningAmount),
-        clonedFromQuotationId: (q.clonedFromQuotationId as string | null) ?? null,
-        sentAt: q.sentAt ? new Date(q.sentAt as string).toISOString() : null,
-        approvedAt: q.approvedAt ? new Date(q.approvedAt as string).toISOString() : null,
-        deliveredAt: q.deliveredAt ? new Date(q.deliveredAt as string).toISOString() : null,
+        quotations: quotationsResult,
+        houseTypes: houseTypesResult,
+        dealerEarnings: dealerEarningsResult,
+        summary: summaryResult,
+        pagination: paginationResult,
       };
     });
 
-    houseTypes = htDocs.map((ht) => {
-      const item = (typeof (ht as { toJSON?: () => unknown }).toJSON === "function"
-        ? (ht as { toJSON: () => Record<string, unknown> }).toJSON()
-        : ht) as Record<string, unknown>;
-      return {
-        id: Number(item.id ?? item._id ?? 0),
-        name: String(item.name ?? ""),
-        description: (item.description as string | null) ?? null,
-        isActive: Boolean(item.isActive),
-        sortOrder: Number(item.sortOrder ?? 0),
-      };
-    });
+    quotations = result.quotations;
+    houseTypes = result.houseTypes;
+    dealerEarnings = result.dealerEarnings;
+    summary = result.summary;
+    pagination = result.pagination;
   } catch (error) {
     console.error("Database connection failed in HomePage:", error);
   }
@@ -206,6 +229,7 @@ export default async function HomePage(props: PageProps) {
         initialQuotations={quotations}
         houseTypes={houseTypes}
         userRole={userRole}
+        userPermissions={userPermissions}
         dealerEarnings={dealerEarnings}
         summary={summary}
         pagination={pagination}

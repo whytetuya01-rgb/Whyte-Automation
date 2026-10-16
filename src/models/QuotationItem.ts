@@ -3,10 +3,12 @@ import { createDecimalField } from "./helpers";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 import { historicalReferenceOptions } from "@/lib/softDelete/scope";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export interface IQuotationItem extends SoftDeleteFields {
   _id: number;
   id?: number;
+  companyId: number;
   quotationRoomId: number;
   productId: number;
   productVariantId: number | null;
@@ -102,10 +104,11 @@ QuotationItemSchema.virtual("productVariant", {
 });
 
 // Compound index for querying items belonging to a room in display order
-QuotationItemSchema.index({ quotationRoomId: 1, sortOrder: 1 });
-QuotationItemSchema.index({ productId: 1, productVariantId: 1 });
+QuotationItemSchema.index({ companyId: 1, quotationRoomId: 1, sortOrder: 1 });
+QuotationItemSchema.index({ companyId: 1, productId: 1, productVariantId: 1 });
 
 softDeletePlugin(QuotationItemSchema, { blockHardDelete: true });
+tenantScopePlugin(QuotationItemSchema);
 
 const existingQuotationItemModel = mongoose.models.QuotationItem as Model<IQuotationItemDocument> | undefined;
 

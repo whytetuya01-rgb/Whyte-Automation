@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Product } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { getProductDeletionImpact } from "@/lib/deletionImpact";
 
@@ -16,16 +16,17 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    await requirePermission("catalog:delete");
-    await connectMongoDB();
-    const productId = parseNumericId((await context.params).id, "product id");
+    return await withPermission("catalog:delete", async () => {
+      await connectMongoDB();
+      const productId = parseNumericId((await context.params).id, "product id");
 
-    const product = await Product.findById(productId).select("_id").lean();
-    if (!product) {
-      throw new ApiError("NOT_FOUND", "Product not found.", { field: "id" });
-    }
+      const product = await Product.findById(productId).select("_id").lean();
+      if (!product) {
+        throw new ApiError("NOT_FOUND", "Product not found.", { field: "id" });
+      }
 
-    return apiSuccess(await getProductDeletionImpact(productId));
+      return apiSuccess(await getProductDeletionImpact(productId));
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products/[id]/deletion-impact" });
   }

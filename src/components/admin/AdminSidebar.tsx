@@ -14,10 +14,12 @@ import {
   Activity,
   ShieldCheck,
   Users,
+  Palette,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { useSession } from "next-auth/react";
+import { canSeeAdminNavItem, toAdminNavRole } from "@/lib/adminNav";
 import { useConfirmSignOut } from "@/components/shared/SignOutButton";
 import { usePageLoading } from "@/components/providers/NavigationLoaderProvider";
 import AnimatedNavItem from "./sidebar/AnimatedNavItem";
@@ -31,8 +33,6 @@ interface NavGroup {
     href: string;
     label: string;
     icon: React.ElementType;
-    /** Omit to show to every admin-panel role; set to restrict to specific roles. */
-    roles?: Array<"super_admin" | "admin" | "configurable_admin">;
   }[];
 }
 
@@ -62,15 +62,16 @@ const navGroups: NavGroup[] = [
   {
     title: "OVERSIGHT",
     items: [
-      { href: "/admin/activity", label: "Activity Log", icon: Activity, roles: ["super_admin"] },
-      { href: "/admin/users", label: "Users", icon: Users, roles: ["super_admin"] },
-      { href: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheck, roles: ["super_admin"] },
+      { href: "/admin/activity", label: "Activity Log", icon: Activity },
+      { href: "/admin/users", label: "Users", icon: Users },
+      { href: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheck },
     ],
   },
   {
     title: "SYSTEM SETTINGS",
     items: [
       { href: "/admin/company", label: "Company Profile", icon: Building2 },
+      { href: "/admin/theme", label: "Theme & Branding", icon: Palette },
     ],
   },
 ];
@@ -117,8 +118,15 @@ export default function AdminSidebar({
   const userName = session?.user?.name || "Administrator";
   const userEmail = session?.user?.email || "";
   const rawRole = (session?.user as { role?: string })?.role;
-  const currentRole = rawRole === "super_admin" ? "super_admin" : rawRole === "configurable_admin" ? "configurable_admin" : "admin";
-  const userRole = currentRole === "super_admin" ? "Super Admin" : currentRole === "configurable_admin" ? "Configurable Admin" : "Admin";
+  const currentRole = toAdminNavRole(rawRole);
+  const userRole =
+    currentRole === "super_admin"
+      ? "Super Admin"
+      : currentRole === "company_owner"
+      ? "Company Owner"
+      : currentRole === "configurable_admin"
+      ? "Configurable Admin"
+      : "Admin";
 
   // Entrance plays once per mount — the sidebar lives in the persistent panel
   // layout, so route changes never replay it. A group title shares its first
@@ -132,7 +140,7 @@ export default function AdminSidebar({
       {/* Scrollable Navigation Groups — layoutScroll keeps the gliding indicator correct while scrolled. */}
       <motion.nav layoutScroll className="flex-1 p-3 sm:p-4 space-y-6 overflow-y-auto overflow-x-hidden custom-scrollbar">
         {navGroups.map((group) => {
-          const visibleItems = group.items.filter((item) => !item.roles || item.roles.includes(currentRole));
+          const visibleItems = group.items.filter((item) => canSeeAdminNavItem(item.href, currentRole));
           if (visibleItems.length === 0) return null;
           const groupDelay = entranceDelay + rowIndex * STAGGER_S;
           return (
@@ -211,7 +219,7 @@ export default function AdminSidebar({
       >
         <CollapsedTooltip label={`${userName} · ${userRole}`} enabled={collapsed}>
           <div className="profile-card-glow group flex items-center gap-2.5 px-2 py-1.5 rounded-xl bg-white/[0.03] border border-white/5">
-            <div className="w-8 h-8 rounded-lg bg-[#D85B83]/20 border border-[#D85B83]/40 text-[#D85B83] flex items-center justify-center font-bold text-xs shrink-0 transition-[translate] duration-[var(--motion-fast)] ease-[var(--motion-ease)] group-hover:-translate-y-px">
+            <div className="w-8 h-8 rounded-lg bg-[var(--color-admin-primary,#D85B83)]/20 border border-[var(--color-admin-primary,#D85B83)]/40 text-[var(--color-admin-primary,#D85B83)] flex items-center justify-center font-bold text-xs shrink-0 transition-[translate] duration-[var(--motion-fast)] ease-[var(--motion-ease)] group-hover:-translate-y-px">
               {userName.charAt(0).toUpperCase()}
             </div>
             <AnimatePresence initial={false} mode="popLayout">
@@ -219,7 +227,7 @@ export default function AdminSidebar({
                 <motion.div key="profile-text" {...collapseFade} className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-1">
                     <p className="text-xs font-bold text-white truncate">{userName}</p>
-                    <span className="role-chip-shimmer text-[9px] font-bold text-[#D85B83] bg-[#D85B83]/10 border border-[#D85B83]/20 px-1.5 py-0.2 rounded-md uppercase tracking-wider shrink-0">
+                    <span className="role-chip-shimmer text-[9px] font-bold text-[var(--color-admin-primary,#D85B83)] bg-[var(--color-admin-primary,#D85B83)]/10 border border-[var(--color-admin-primary,#D85B83)]/20 px-1.5 py-0.2 rounded-md uppercase tracking-wider shrink-0">
                       {userRole}
                     </span>
                   </div>
@@ -238,7 +246,7 @@ export default function AdminSidebar({
             aria-label={collapsed ? "Sign Out" : undefined}
             className={cn(
               "nav-anim-trigger group flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold text-neutral-400 hover:text-white hover:bg-red-500/10 hover:border-red-500/30 w-full cursor-pointer border border-transparent",
-              "outline-hidden transition-[color,background-color,border-color,scale] duration-[var(--motion-fast)] ease-[var(--motion-ease)] active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-[#D85B83]"
+              "outline-hidden transition-[color,background-color,border-color,scale] duration-[var(--motion-fast)] ease-[var(--motion-ease)] active:scale-[0.98] focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-[var(--color-admin-primary,#D85B83)]"
             )}
           >
             <AnimatedIcon

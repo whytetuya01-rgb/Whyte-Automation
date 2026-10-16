@@ -358,6 +358,7 @@ export default function ProposalBuilder({
             houseTypeId: formData.houseTypeId,
             notes: notesWithProject,
             ...(formData.dealerId ? { dealerId: formData.dealerId } : {}),
+            ...(formData.assignedSalesId ? { assignedSalesId: formData.assignedSalesId } : {}),
           }),
         });
 
@@ -406,18 +407,24 @@ export default function ProposalBuilder({
 
         let resJson = await res.json();
 
-        // Reassignment is a separate, admin-only, audited endpoint. The server
-        // ignores it for any other role, so this only runs when the owner changed.
+        // Reassignment is a separate, admin-only, audited endpoint.
         const previousDealerId = quotation.dealerId ?? null;
-        if (formData.dealerId !== previousDealerId && formData.dealerId !== undefined) {
+        const previousSalesId = quotation.assignedSalesId ?? null;
+        const dealerChanged = formData.dealerId !== previousDealerId && formData.dealerId !== undefined;
+        const salesChanged = formData.assignedSalesId !== previousSalesId && formData.assignedSalesId !== undefined;
+
+        if (dealerChanged || salesChanged) {
           const assignRes = await fetch(`/api/quotations/${quotation.id}/assign`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ dealerId: formData.dealerId }),
+            body: JSON.stringify({
+              ...(dealerChanged ? { dealerId: formData.dealerId } : {}),
+              ...(salesChanged ? { assignedSalesId: formData.assignedSalesId } : {}),
+            }),
           });
           if (!assignRes.ok) {
             const err = await assignRes.json().catch(() => ({}));
-            throw new Error(extractErrorMessage(err, "Failed to update the assigned dealer"));
+            throw new Error(extractErrorMessage(err, "Failed to update quotation assignment"));
           }
           const freshRes = await fetch(`/api/quotations/${quotation.id}`);
           if (freshRes.ok) resJson = await freshRes.json();
@@ -542,6 +549,7 @@ export default function ProposalBuilder({
       // a real refetch, to recover a known-correct state after a failure.
       await refreshQuotation();
       setSaveStatus("unsaved");
+      throw e;
     }
   };
 
@@ -672,8 +680,46 @@ export default function ProposalBuilder({
     } catch (e: any) {
       toast.error(extractErrorMessage(e, "Failed to replace product"));
       setSaveStatus("unsaved");
+      throw e;
     }
   };
+
+  const handleMassUpdateRoomItems = async (
+    roomId: number,
+    updates: Array<{
+      itemId: number;
+      productId: number;
+      productVariantId?: number | null;
+      variantConfig?: Record<string, string> | null;
+      variantLabel?: string | null;
+      quantity?: number;
+    }>
+  ) => {
+    if (!quotation?.id) return;
+    setSaveStatus("saving");
+    try {
+      const res = await fetch(`/api/quotations/${quotation.id}/rooms/${roomId}/items`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: updates }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to update room products"));
+      }
+      const body = await res.json();
+      const updatedRoom = body?.data?.room ?? body?.room ?? body?.data ?? body;
+      upsertRoomLocally(updatedRoom);
+      setSaveStatus("saved");
+      toast.success("Room products updated");
+    } catch (e: any) {
+      toast.error(extractErrorMessage(e, "Failed to update room products"));
+      setSaveStatus("unsaved");
+      throw e;
+    }
+  };
+
 
   const handleDeleteItem = async (itemId: number) => {
     if (!quotation?.id) return;
@@ -950,6 +996,7 @@ export default function ProposalBuilder({
             onAddItem={handleAddItem}
             onUpdateItem={handleUpdateItem}
             onDeleteItem={handleDeleteItem}
+            onReplaceItem={handleReplaceItem}
             onUpdateRoom={handleUpdateRoom}
             onUpdateRoomNotes={handleUpdateRoomNotes}
             onContinue={() => navigateToStep(4)}
@@ -971,6 +1018,7 @@ export default function ProposalBuilder({
             categories={categories}
             onAddItem={handleAddItem}
             onReplaceItem={handleReplaceItem}
+            onMassUpdateRoomItems={handleMassUpdateRoomItems}
             onUpdateItem={handleUpdateItem}
             onDeleteItem={handleDeleteItem}
             onUpdateDiscount={handleUpdateDiscount}

@@ -3,7 +3,7 @@ import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem, Product } from "@/models";
 import { getNextSequence } from "@/lib/counter";
-import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationItemSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationItem } from "@/lib/quotationNormalization";
@@ -96,14 +96,13 @@ function toDecimal128(price: unknown): mongoose.Types.Decimal128 {
 
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const { role, userId, permissions } = await getAuthenticatedActor();
-
+    return await withSession(async ({ role, userId, permissions }) => {
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId createdBy").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status dealerId assignedSalesId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
@@ -275,6 +274,7 @@ export async function POST(req: Request, context: RouteContext) {
     // reaches the normalizer.
     const plainItem = populatedItem?.toObject ? populatedItem.toObject() : populatedItem;
     return apiSuccess(redactQuotationItemForRole(normalizeQuotationItem(plainItem), role, permissions), { status: 201 });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/items" });
   }

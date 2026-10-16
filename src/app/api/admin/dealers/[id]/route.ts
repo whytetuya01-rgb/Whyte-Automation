@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { invalidateSessionActor } from "@/lib/sessionGuard";
 import { z } from "zod";
@@ -28,8 +28,7 @@ const patchDealerSchema = z.object({
 
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    await requirePermission("dealers:read");
-
+    return await withPermission("dealers:read", async () => {
     const { id: rawId } = await context.params;
     const dealerId = parseNumericId(rawId);
 
@@ -83,6 +82,7 @@ export async function GET(_req: Request, context: RouteContext) {
       quotationStats: stats,
       accumulatedEarnings: Math.round(Number(stats.accumulatedEarnings || 0) * 100) / 100,
     });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/admin/dealers/[id]" });
   }
@@ -90,9 +90,7 @@ export async function GET(_req: Request, context: RouteContext) {
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    const session = await requirePermission("dealers:manage");
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as any).id);
+    return await withPermission("dealers:manage", async ({ role, userId, session }) => {
     const callerName = session.user?.name ?? session.user?.email ?? "User";
 
     const { id: rawId } = await context.params;
@@ -151,6 +149,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     delete (userObj as any).passwordHash;
 
     return apiSuccess(userObj);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/admin/dealers/[id]" });
   }

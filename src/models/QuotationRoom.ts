@@ -2,10 +2,12 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 import { historicalReferenceOptions } from "@/lib/softDelete/scope";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export interface IQuotationRoom extends SoftDeleteFields {
   _id: number;
   id?: number;
+  companyId: number;
   quotationId: string;
   roomTypeId: number | null;
   customName: string | null;
@@ -83,9 +85,10 @@ QuotationRoomSchema.virtual("items", {
 });
 
 // Compound index for querying rooms belonging to a quotation in display order
-QuotationRoomSchema.index({ quotationId: 1, sortOrder: 1 });
+QuotationRoomSchema.index({ companyId: 1, quotationId: 1, sortOrder: 1 });
 
 softDeletePlugin(QuotationRoomSchema, { blockHardDelete: true });
+tenantScopePlugin(QuotationRoomSchema);
 
 export const QuotationRoom: Model<IQuotationRoomDocument> =
   mongoose.models.QuotationRoom ||

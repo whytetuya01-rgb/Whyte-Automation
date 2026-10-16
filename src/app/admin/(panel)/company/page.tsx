@@ -45,7 +45,16 @@ export default function CompanyPage() {
     if (nextErrors.gstNumber || nextErrors.phone || nextErrors.email) return;
     setSaving(true);
     try {
-      await apiJson.patch("/api/company", company);
+      const payload = {
+        name: company.name?.trim(),
+        gstNumber: company.gstNumber?.trim() || null,
+        phone: company.phone?.trim() ?? "",
+        email: company.email?.trim() || null,
+        address: company.address?.trim() ?? "",
+        tagline: company.tagline?.trim() || null,
+        logoUrl: company.logoUrl ?? null,
+      };
+      await apiJson.patch("/api/company", payload);
       notify.success("Settings saved", "Company profile information updated successfully.");
       mutate();
     } catch (err: unknown) {

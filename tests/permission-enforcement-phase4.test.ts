@@ -226,7 +226,7 @@ async function runTests() {
   });
 
   test("quotations:edit_all: canModifyQuotation allows modifications with permission, denies without", () => {
-    const quotation = { dealerId: 2, createdBy: "5" };
+    const quotation = { dealerId: 2, createdBy: "99" };
     const callerId = 5;
 
     // Super Admin & Admin can modify
@@ -275,22 +275,31 @@ async function runTests() {
     assert.equal(canDeleteQuotation("dealer", 5, quotation), false);
   });
 
-  test("quotations:transition and quotations:assign_dealer: enforced strictly", () => {
+  test("quotations:transition, quotations:assign_dealer, and quotations:assign_sales: enforced strictly", () => {
     assert.equal(hasPermission("configurable_admin", ["quotations:transition"], "quotations:transition"), true);
     assert.equal(hasPermission("configurable_admin", ["quotations:read_all"], "quotations:transition"), false);
 
     assert.equal(hasPermission("configurable_admin", ["quotations:assign_dealer"], "quotations:assign_dealer"), true);
     assert.equal(hasPermission("configurable_admin", ["quotations:read_all"], "quotations:assign_dealer"), false);
 
-    // Super Admin & Admin have transition and assign_dealer
+    assert.equal(hasPermission("configurable_admin", ["quotations:assign_sales"], "quotations:assign_sales"), true);
+    assert.equal(hasPermission("configurable_admin", ["quotations:assign_dealer"], "quotations:assign_sales"), false);
+    assert.equal(hasPermission("configurable_admin", ["quotations:assign_sales"], "quotations:assign_dealer"), false);
+
+    // Super Admin & Admin have transition and both assign permissions
     assert.equal(hasPermission("super_admin", [], "quotations:transition"), true);
     assert.equal(hasPermission("admin", [], "quotations:transition"), true);
     assert.equal(hasPermission("super_admin", [], "quotations:assign_dealer"), true);
     assert.equal(hasPermission("admin", [], "quotations:assign_dealer"), true);
+    assert.equal(hasPermission("super_admin", [], "quotations:assign_sales"), true);
+    assert.equal(hasPermission("admin", [], "quotations:assign_sales"), true);
 
-    // Dealers never have transition or assign_dealer
+    // Dealers and Sales Executives never have transition or either assign permission
     assert.equal(hasPermission("dealer", [], "quotations:transition"), false);
     assert.equal(hasPermission("dealer", [], "quotations:assign_dealer"), false);
+    assert.equal(hasPermission("dealer", [], "quotations:assign_sales"), false);
+    assert.equal(hasPermission("sales_executive", [], "quotations:assign_dealer"), false);
+    assert.equal(hasPermission("sales_executive", [], "quotations:assign_sales"), false);
   });
 
   // ── 7. System Oversight & User Administration Protections ─────────────

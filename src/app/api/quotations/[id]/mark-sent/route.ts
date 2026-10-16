@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation } from "@/models";
-import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
 import { parseQuotationId } from "@/lib/validation/quotation";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
@@ -23,8 +23,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function POST(_req: Request, context: RouteContext) {
   try {
-    const { role, userId, permissions } = await getAuthenticatedActor();
-
+    return await withSession(async ({ role, userId, permissions }) => {
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
 
@@ -65,6 +64,7 @@ export async function POST(_req: Request, context: RouteContext) {
       status: quotation.status,
       sentAt: quotation.sentAt,
       sentBy: quotation.sentBy,
+    });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/mark-sent" });

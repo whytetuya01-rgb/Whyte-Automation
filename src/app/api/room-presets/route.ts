@@ -5,25 +5,23 @@ import { resolveRoomPresets } from "@/lib/roomPresetsFallback";
 import { ensureRoomTypesAndTemplatesSeeded } from "@/lib/seedRoomData";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { parseIntQueryParam } from "@/lib/validation/common";
-import { requireSession } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { handleApiError } from "@/lib/api-response";
 import type { HouseType as HouseTypeDto, HouseTypeRoomTemplate } from "@/types";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  // Guarded before the main try block on purpose: the catch below deliberately
-  // answers with HTTP 200 fallback presets so the estimator keeps rendering when
-  // Mongo is unavailable. A session check inside that try would be swallowed and
-  // returned as a successful 200, which would be an authentication bypass.
+  // withSession's auth check happens before the callback runs, and a thrown
+  // ApiError from it propagates to the outer catch below (never swallowed by
+  // the inner try, which deliberately answers with HTTP 200 fallback presets
+  // so the estimator keeps rendering when Mongo is unavailable). A session
+  // check inside that inner try would be swallowed and returned as a
+  // successful 200, which would be an authentication bypass.
   try {
-    await requireSession();
-  } catch (error) {
-    return handleApiError(error, { logPrefix: "GET /api/room-presets" });
-  }
-
-  try {
-    const url = new URL(req.url);
+    return await withSession(async () => {
+      try {
+        const url = new URL(req.url);
     // A malformed houseTypeId used to become NaN and was silently ignored.
     const houseTypeId = parseIntQueryParam(url.searchParams, "houseTypeId", { min: 1 }) ?? null;
 
@@ -81,25 +79,30 @@ export async function GET(req: Request) {
       allRoomTypes,
     });
 
-    return NextResponse.json({
-      houseType: selectedHouseType
-        ? { id: selectedHouseType.id, name: selectedHouseType.name }
-        : null,      recommendedPresets: resolved.recommendedPresets,
-      otherPresets: resolved.otherPresets,
-      allPresets: resolved.allPresets,
+        return NextResponse.json({
+          houseType: selectedHouseType
+            ? { id: selectedHouseType.id, name: selectedHouseType.name }
+            : null,
+          recommendedPresets: resolved.recommendedPresets,
+          otherPresets: resolved.otherPresets,
+          allPresets: resolved.allPresets,
+        });
+      } catch (error) {
+        // Deliberate resilience: an infrastructure failure still returns usable
+        // preset data. This is a data response, not an error response, so it is the
+        // one place in the API that intentionally does not use the error envelope.
+        // Authentication is handled above, outside this block.
+        console.error("GET /api/room-presets error:", error);
+        const fallbackResolved = resolveRoomPresets({});
+        return NextResponse.json({
+          houseType: null,
+          recommendedPresets: [],
+          otherPresets: fallbackResolved.allPresets,
+          allPresets: fallbackResolved.allPresets,
+        });
+      }
     });
   } catch (error) {
-    // Deliberate resilience: an infrastructure failure still returns usable
-    // preset data. This is a data response, not an error response, so it is the
-    // one place in the API that intentionally does not use the error envelope.
-    // Authentication is handled above, outside this block.
-    console.error("GET /api/room-presets error:", error);
-    const fallbackResolved = resolveRoomPresets({});
-    return NextResponse.json({
-      houseType: null,
-      recommendedPresets: [],
-      otherPresets: fallbackResolved.allPresets,
-      allPresets: fallbackResolved.allPresets,
-    });
+    return handleApiError(error, { logPrefix: "GET /api/room-presets" });
   }
 }

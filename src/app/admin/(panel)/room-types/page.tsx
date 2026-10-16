@@ -40,7 +40,7 @@ function RoomTypeForm({
 
   const roomIconElement = useMemo(() => {
     const Icon = getRoomIcon(name.trim() || "Room");
-    return React.createElement(Icon, { className: "h-6 w-6 text-pink-400" });
+    return React.createElement(Icon, { className: "h-6 w-6 text-[var(--color-admin-primary,#D85B83)]" });
   }, [name]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -98,7 +98,7 @@ function RoomTypeForm({
       {/* Room Name Input */}
       <div className="space-y-1.5">
         <label className="text-xs font-semibold text-neutral-800">
-          Room Name <span className="text-pink-600">*</span>
+          Room Name <span className="text-[var(--color-admin-primary,#D85B83)]">*</span>
         </label>
         <Input
           value={name}
@@ -108,7 +108,7 @@ function RoomTypeForm({
           }}
           placeholder="e.g. Master Bedroom, Living Room, Home Theater"
           error={error || undefined}
-          className="font-medium focus:ring-pink-500/20 focus:border-neutral-900"
+          className="font-medium focus:ring-[var(--color-admin-primary)]/20 focus:border-neutral-900"
         />
       </div>
 
@@ -469,7 +469,7 @@ export default function RoomTypesPage() {
                   className={cn(
                     "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors",
                     rt.isActive
-                      ? "bg-neutral-900 text-pink-400 shadow-2xs"
+                      ? "bg-neutral-900 text-[var(--color-admin-primary,#D85B83)] shadow-2xs"
                       : "border border-neutral-200 bg-neutral-50 text-neutral-400"
                   )}
                 >

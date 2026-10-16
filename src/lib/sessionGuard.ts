@@ -1,7 +1,9 @@
 import { connectMongoDB } from "@/lib/mongodb";
-import { AdminUser } from "@/models";
+import { AdminUser, Company } from "@/models";
 import { getRolePermissions } from "@/lib/roleService";
 import { SUPER_ADMIN_PERMISSIONS } from "@/lib/permissions";
+import { runUnscoped } from "@/lib/tenant/context";
+import { resolveAccountCompany } from "@/lib/tenant/accountCompany";
 
 /**
  * Revalidates that the JWT's claimed identity is still a real, active,
@@ -46,6 +48,8 @@ export interface SessionActorData {
   valid: boolean;
   role?: string;
   isActive?: boolean;
+  /** `null` for the platform super_admin; every other role's company. */
+  companyId?: number | null;
   permissions: string[];
   expiresAt: number;
 }
@@ -85,10 +89,29 @@ export async function getSessionActor(userId: number, tokenRole: string): Promis
   let data: SessionActorData;
   try {
     await connectMongoDB();
-    const user = await AdminUser.findById(userId).select("isActive role permissions").lean();
+    // Runs before any tenant context exists for this request (this IS the
+    // step that resolves it) — same "auth-lookup" reason as src/lib/auth.ts.
+    // Must `await` INSIDE the callback (not just return the query): Mongoose
+    // queries are lazy thenables that only actually execute once something
+    // calls `.then()` on them, and that has to happen while this callback is
+    // still synchronously running for the tenant-scope plugin's hooks to see
+    // the context `runUnscoped` just established.
+    const user = await runUnscoped("auth-lookup", async () =>
+      await AdminUser.findById(userId).select("isActive role permissions companyId").lean()
+    );
     const userRole = user?.role ? user.role.trim().toLowerCase() : "";
     const normTokenRole = tokenRole ? tokenRole.trim().toLowerCase() : "";
-    const valid = Boolean(user) && user!.isActive !== false && userRole === normTokenRole;
+    let valid = Boolean(user) && user!.isActive !== false && userRole === normTokenRole;
+    // No default company: a non-super account without an explicit, existing company is invalid.
+    const account = resolveAccountCompany(userRole, (user as { companyId?: unknown } | null)?.companyId);
+    const companyId = account.ok ? account.companyId : null;
+    if (valid && !account.ok) valid = false;
+
+    // Invalidate the session if the company is missing or suspended
+    if (valid && companyId !== null) {
+      const company = await Company.findById(companyId).select("status").lean();
+      if (!company || company.status === "suspended") valid = false;
+    }
 
     let permissions: string[] = [];
     if (valid && userRole) {
@@ -97,7 +120,7 @@ export async function getSessionActor(userId: number, tokenRole: string): Promis
       } else if (userRole === "configurable_admin") {
         permissions = Array.isArray(user?.permissions) ? (user.permissions as string[]) : [];
       } else {
-        permissions = await getRolePermissions(userRole);
+        permissions = await getRolePermissions(userRole, companyId);
       }
     }
 
@@ -105,6 +128,7 @@ export async function getSessionActor(userId: number, tokenRole: string): Promis
       valid,
       role: user?.role,
       isActive: user?.isActive,
+      companyId,
       permissions,
       expiresAt: now + resolveCacheTtlMs(),
     };

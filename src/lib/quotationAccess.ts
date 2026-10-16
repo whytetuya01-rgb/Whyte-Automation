@@ -13,17 +13,33 @@
 
 import { hasPermission } from "@/lib/permissions";
 
-export type QuotationActorRole = "super_admin" | "admin" | "dealer" | "configurable_admin" | string | undefined;
+export type QuotationActorRole =
+  | "super_admin"
+  | "admin"
+  | "company_owner"
+  | "sales_executive"
+  | "dealer"
+  | "configurable_admin"
+  | string
+  | undefined;
 
 export interface QuotationOwnershipFields {
   dealerId?: number | null;
+  assignedSalesId?: number | null;
   createdBy?: string | null;
 }
 
-export const ADMIN_QUOTATION_ROLES: readonly string[] = ["super_admin", "admin", "configurable_admin"];
+export const ADMIN_QUOTATION_ROLES: readonly string[] = [
+  "super_admin",
+  "admin",
+  "company_owner",
+  "configurable_admin",
+];
 
 export function isAdminRole(role: QuotationActorRole): boolean {
-  return typeof role === "string" && ADMIN_QUOTATION_ROLES.includes(role);
+  if (!role) return false;
+  const norm = role.trim().toLowerCase();
+  return ADMIN_QUOTATION_ROLES.includes(norm);
 }
 
 export function canViewQuotation(
@@ -32,10 +48,18 @@ export function canViewQuotation(
   quotation: QuotationOwnershipFields,
   permissions?: string[] | null
 ): boolean {
-  if (role === "super_admin") return true;
+  if (!role) return false;
+  const normRole = role.trim().toLowerCase();
 
-  if (role === "dealer") {
+  if (normRole === "super_admin") return true;
+
+  if (normRole === "dealer") {
     return quotation.dealerId === userId || quotation.createdBy === String(userId);
+  }
+
+  if (normRole === "sales_executive") {
+    // Sales Executive may only view quotations explicitly assigned to them
+    return quotation.assignedSalesId === userId;
   }
 
   if (hasPermission(role, permissions, "quotations:read_all")) {
@@ -51,13 +75,25 @@ export function canModifyQuotation(
   quotation: QuotationOwnershipFields,
   permissions?: string[] | null
 ): boolean {
-  if (role === "super_admin") return true;
+  if (!role) return false;
+  const normRole = role.trim().toLowerCase();
 
-  if (role === "dealer") {
+  if (normRole === "super_admin") return true;
+
+  if (normRole === "dealer") {
     return quotation.dealerId === userId;
   }
 
-  return hasPermission(role, permissions, "quotations:edit_all");
+  if (normRole === "sales_executive") {
+    // Sales Executive may only modify quotations explicitly assigned to them
+    return quotation.assignedSalesId === userId;
+  }
+
+  if (hasPermission(role, permissions, "quotations:edit_all")) {
+    return true;
+  }
+
+  return quotation.createdBy === String(userId) && hasPermission(role, permissions, "quotations:create");
 }
 
 export function canDeleteQuotation(
@@ -66,9 +102,15 @@ export function canDeleteQuotation(
   quotation: QuotationOwnershipFields,
   permissions?: string[] | null
 ): boolean {
-  if (role === "super_admin") return true;
+  if (!role) return false;
+  const normRole = role.trim().toLowerCase();
 
-  if (role === "dealer") {
+  if (normRole === "super_admin") return true;
+
+  // Sales Executive does not possess deletion capabilities
+  if (normRole === "sales_executive") return false;
+
+  if (normRole === "dealer") {
     return quotation.dealerId === userId;
   }
 
@@ -82,5 +124,26 @@ export function canDeleteQuotation(
 /** Mongo filter limiting a query to the quotations a dealer may view. */
 export function dealerVisibilityFilter(userId: number): Record<string, unknown> {
   return { $or: [{ dealerId: userId }, { createdBy: String(userId) }] };
+}
+
+/** Mongo filter limiting a query to quotations assigned to a specific sales executive. */
+export function salesExecutiveVisibilityFilter(userId: number): Record<string, unknown> {
+  return { assignedSalesId: userId };
+}
+
+/** Returns the strict visibility query filter for a given actor role and user ID. */
+export function quotationVisibilityFilter(
+  role: string | null | undefined,
+  userId: number,
+  permissions?: string[] | null
+): Record<string, unknown> | null {
+  if (!role) return { companyId: -1 };
+  const normRole = role.trim().toLowerCase();
+
+  if (normRole === "super_admin") return null;
+  if (normRole === "dealer") return dealerVisibilityFilter(userId);
+  if (normRole === "sales_executive") return salesExecutiveVisibilityFilter(userId);
+  if (hasPermission(role, permissions, "quotations:read_all")) return null;
+  return { createdBy: String(userId) };
 }
 

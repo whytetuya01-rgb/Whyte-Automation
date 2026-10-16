@@ -27,6 +27,8 @@ import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import { Button, Input, Badge } from "@/components/ui";
 import { Switch } from "@/components/ui/Switch";
+import { getRolesPageAccess } from "@/lib/rolesPageAccess";
+import { useCompanyContext } from "@/lib/useCompanyContext";
 import {
   Permission,
   PermissionModuleGroup,
@@ -58,15 +60,12 @@ interface RoleMetadata {
 export default function RoleManagementPage() {
   const { data: session, status: sessionStatus } = useSession();
   const sessionUser = session?.user as { role?: string; permissions?: string[] } | undefined;
-  const currentRole = sessionUser?.role?.trim().toLowerCase();
-  const isSuperAdmin =
-    currentRole === "super_admin" ||
-    (Array.isArray(sessionUser?.permissions) && sessionUser.permissions.includes("admins:manage"));
-  const canManageAdmins = isSuperAdmin;
-  const canReadAdmins =
-    isSuperAdmin ||
-    currentRole === "admin" ||
-    (Array.isArray(sessionUser?.permissions) && sessionUser.permissions.includes("admins:read"));
+  const companyContext = useCompanyContext(sessionUser?.role, sessionStatus === "authenticated");
+  const {
+    canRead: canReadAdmins,
+    canManage: canManageAdmins,
+    needsCompanySelection,
+  } = getRolesPageAccess(sessionUser?.role, sessionUser?.permissions, companyContext.hasCompanyContext);
 
   const router = useRouter();
 
@@ -182,7 +181,7 @@ export default function RoleManagementPage() {
   const handleSaveRolePermissions = async () => {
     if (!configuringRole) return;
     if (!canManageAdmins) {
-      notify.error("Access Denied: Only Super Administrators can customize role permissions.");
+      notify.error("Access Denied: Only a Company Owner or Super Administrator can customize role permissions.");
       return;
     }
 
@@ -206,7 +205,7 @@ export default function RoleManagementPage() {
 
   const handleResetRoleDefaults = async (roleKey: string) => {
     if (!canManageAdmins) {
-      notify.error("Access Denied: Only Super Administrators can restore role defaults.");
+      notify.error("Access Denied: Only a Company Owner or Super Administrator can restore role defaults.");
       return;
     }
     const confirmed = window.confirm(
@@ -231,7 +230,7 @@ export default function RoleManagementPage() {
 
   const handleDeleteRole = async (roleKey: string, roleName: string) => {
     if (!canManageAdmins) {
-      notify.error("Access Denied: Only Super Administrators can delete custom roles.");
+      notify.error("Access Denied: Only a Company Owner or Super Administrator can delete custom roles.");
       return;
     }
     const confirmed = window.confirm(
@@ -253,7 +252,7 @@ export default function RoleManagementPage() {
   const handleCreateRole = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageAdmins) {
-      notify.error("Access Denied: Only Super Administrators can create roles.");
+      notify.error("Access Denied: Only a Company Owner or Super Administrator can create roles.");
       return;
     }
 
@@ -348,6 +347,19 @@ export default function RoleManagementPage() {
         }
       />
 
+      {companyContext.ready && needsCompanySelection && (
+        <div className="bg-amber-50/80 border border-amber-200/80 rounded-xl p-4 flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="text-xs font-bold text-amber-900 uppercase tracking-wider">No company selected</div>
+            <p className="text-xs text-amber-800 leading-relaxed">
+              Roles belong to a company. Select a company to create, configure, reset or delete its roles. Until then
+              you are viewing the system role templates read-only, with no company accounts counted.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Role Overview Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 lg:gap-5 w-full">
         {loadingRoles ? (
@@ -377,7 +389,7 @@ export default function RoleManagementPage() {
                       <div
                         className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                           isSuper
-                            ? "bg-rose-50 text-rose-700 border border-rose-100"
+                            ? "bg-[var(--color-admin-primary-soft)] text-[var(--color-admin-primary-foreground)] border border-[var(--color-admin-primary-border)]"
                             : isAdmin
                             ? "bg-blue-50 text-blue-700 border border-blue-100"
                             : isDealer
@@ -485,6 +497,7 @@ export default function RoleManagementPage() {
                             size="sm"
                             className="text-xs text-neutral-500 hover:text-amber-700 px-2 h-8.5"
                             onClick={() => handleResetRoleDefaults(r.key)}
+                            disabled={!canManageAdmins}
                             title="Reset to system defaults"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
@@ -497,6 +510,7 @@ export default function RoleManagementPage() {
                             size="sm"
                             className="text-xs text-neutral-500 hover:text-rose-600 hover:bg-rose-50 px-2 h-8.5"
                             onClick={() => handleDeleteRole(r.key, r.name)}
+                            disabled={!canManageAdmins}
                             title="Delete custom role"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -649,6 +663,7 @@ export default function RoleManagementPage() {
                   className="text-xs h-7 text-amber-800 border-amber-300 hover:bg-amber-100"
                   onClick={() => handleResetRoleDefaults(configuringRole.key)}
                   loading={resettingRole}
+                  disabled={!canManageAdmins}
                   leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
                 >
                   Restore System Defaults
@@ -754,7 +769,7 @@ export default function RoleManagementPage() {
                                   </span>
                                 )}
                                 {isExclusive && (
-                                  <span className="text-[10px] font-bold bg-rose-50 text-rose-700 px-1.5 py-0.2 rounded border border-rose-200 flex items-center gap-0.5 whitespace-nowrap">
+                                  <span className="text-[10px] font-bold bg-[var(--color-admin-primary-soft)] text-[var(--color-admin-primary-foreground)] px-1.5 py-0.2 rounded border border-[var(--color-admin-primary-border)] flex items-center gap-0.5 whitespace-nowrap">
                                     <Lock className="w-2.5 h-2.5" /> Super Admin Only
                                   </span>
                                 )}
@@ -800,6 +815,8 @@ export default function RoleManagementPage() {
                 size="md"
                 onClick={handleSaveRolePermissions}
                 loading={savingRolePermissions}
+                disabled={!canManageAdmins}
+                title={canManageAdmins ? undefined : "Read-only: you cannot change role permissions in this context."}
                 leftIcon={<Check className="w-4 h-4" />}
               >
                 Save Role Configuration
@@ -991,13 +1008,13 @@ export default function RoleManagementPage() {
       >
         {inspectingRole && (
           <div className="space-y-5">
-            <div className="bg-rose-50/70 border border-rose-200/80 rounded-xl p-4 flex items-start gap-3">
-              <ShieldCheck className="w-5 h-5 text-rose-700 shrink-0 mt-0.5" />
+            <div className="bg-[var(--color-admin-primary-soft)]/70 border border-[var(--color-admin-primary-border)]/80 rounded-xl p-4 flex items-start gap-3">
+              <ShieldCheck className="w-5 h-5 text-[var(--color-admin-primary)] shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <div className="text-sm font-bold text-rose-900">
+                <div className="text-sm font-bold text-neutral-900">
                   Protected System Role (Immutable)
                 </div>
-                <p className="text-xs text-rose-800 leading-relaxed">
+                <p className="text-xs text-[var(--color-admin-primary-foreground)] leading-relaxed">
                   {inspectingRole.name} is the platform owner role. It possesses all 23 system capabilities unconditionally to guarantee system recovery and administrative continuity.
                 </p>
               </div>

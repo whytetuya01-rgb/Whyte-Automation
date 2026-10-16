@@ -1,5 +1,14 @@
 import type { AdminRole } from "@/types";
 
+export {
+  CANONICAL_ROLES,
+  CANONICAL_ROLE_LABELS,
+  isCanonicalRole,
+  normalizeRole,
+  getRoleLabel,
+  type CanonicalRole,
+} from "./roleNormalization";
+
 /**
  * Central Permission Registry for Whyte Quotation Platform.
  *
@@ -32,16 +41,18 @@ export const ALL_PERMISSIONS = [
   "quotations:edit_all",
   "quotations:delete",
   "quotations:assign_dealer",
+  "quotations:assign_sales",
   "quotations:transition",
 
   // Company Profile & Settings
   "company:read",
   "company:edit",
 
-  // System Oversight & User Administration (Super Admin exclusive)
-  "activity:view",      // View audit trail / activity log
-  "admins:read",        // View administrative user accounts
-  "admins:manage",      // Create, update, deactivate administrative accounts & assign permissions
+  // System Oversight & User Administration
+  "activity:view",      // Super Admin exclusive: View platform audit trail / activity log
+  "admins:read",        // View administrative and team accounts within authorized scope
+  "users:manage",       // Company-scoped: Create, edit, and deactivate accounts within assigned company
+  "admins:manage",      // Super Admin exclusive: Manage platform administrator accounts & system security
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
@@ -50,7 +61,7 @@ const PERMISSION_SET = new Set<string>(ALL_PERMISSIONS);
 
 /**
  * Super Admin-exclusive permissions that must never be assigned or granted
- * to regular `admin`, `configurable_admin`, or `dealer` accounts.
+ * to regular `admin`, `sales_executive`, `dealer`, or `configurable_admin` accounts.
  */
 export const SUPER_ADMIN_EXCLUSIVE_PERMISSIONS = new Set<Permission>([
   "spaces:hard_delete",
@@ -59,12 +70,11 @@ export const SUPER_ADMIN_EXCLUSIVE_PERMISSIONS = new Set<Permission>([
 ]);
 
 /**
- * Exact, explicit permission set for the legacy `admin` role.
+ * Exact, explicit permission set for the company-scoped `admin` role.
  *
  * Preserves 100% of the existing Admin capabilities across catalog, dealers,
  * quotations, and company settings, while explicitly excluding Super Admin-only
- * operations. An explicit set is used instead of a wildcard to guarantee no
- * accidental privilege escalation for future sensitive features.
+ * operations. Includes `users:manage` for company-scoped user administration.
  */
 export const ADMIN_PERMISSIONS = new Set<Permission>([
   "catalog:read",
@@ -83,13 +93,28 @@ export const ADMIN_PERMISSIONS = new Set<Permission>([
   "quotations:edit_all",
   "quotations:delete",
   "quotations:assign_dealer",
+  "quotations:assign_sales",
   "quotations:transition",
   "company:read",
   "company:edit",
   "admins:read",
+  "users:manage",
 ]);
 
 export const ADMIN_DEFAULT_PERMISSIONS = ADMIN_PERMISSIONS;
+
+/**
+ * Default permission set for the canonical `sales_executive` role.
+ * Scoped to assigned customers and quotations. Cannot manage spaces,
+ * dealers, or users, and internal costs and margins are hidden.
+ */
+export const SALES_EXECUTIVE_DEFAULT_PERMISSIONS = new Set<Permission>([
+  "quotations:create",
+  "catalog:read",
+  "categories:read",
+  "spaces:read",
+  "company:read",
+]);
 
 /**
  * Default permission set for the `dealer` role before any custom customization.
@@ -107,18 +132,45 @@ export const DEALER_DEFAULT_PERMISSIONS = new Set<Permission>([
  */
 export const SUPER_ADMIN_PERMISSIONS = new Set<Permission>(ALL_PERMISSIONS);
 
-/** Validates if an unknown value is a known, valid Permission literal. */
-export function isValidPermission(value: unknown): value is Permission {
-  return typeof value === "string" && PERMISSION_SET.has(value);
+/**
+ * `company_owner`: retained for backward compatibility during migration.
+ */
+export const COMPANY_OWNER_PERMISSIONS = new Set<Permission>(ADMIN_PERMISSIONS);
+
+/**
+ * Canonical aliases for backward compatibility and semantic parity.
+ * Transparently maps shorthand/alternative action identifiers to existing canonical keys.
+ */
+export const PERMISSION_ALIASES: Readonly<Record<string, Permission>> = {
+  "quotations:read": "quotations:read_all",
+  "quotations:update": "quotations:edit_all",
+  "quotations:approve": "quotations:transition",
+  "catalog:update": "catalog:edit",
+  "company:update": "company:edit",
+};
+
+/** Resolves a canonical permission key, including known compatibility aliases. */
+export function resolvePermission(permission: string): Permission | null {
+  if (permission in PERMISSION_ALIASES) return PERMISSION_ALIASES[permission];
+  if (PERMISSION_SET.has(permission)) return permission as Permission;
+  return null;
 }
 
-/** Filters an array of unknown values into a deduplicated list of strictly valid permissions. */
+/** Validates if an unknown value is a known, valid Permission literal (or recognized alias). */
+export function isValidPermission(value: unknown): value is Permission {
+  return typeof value === "string" && (PERMISSION_SET.has(value) || value in PERMISSION_ALIASES);
+}
+
+/** Filters an array of unknown values into a deduplicated list of strictly valid canonical permissions. */
 export function sanitizePermissions(values: unknown[]): Permission[] {
   if (!Array.isArray(values)) return [];
   const result = new Set<Permission>();
   for (const v of values) {
-    if (isValidPermission(v)) {
-      result.add(v);
+    if (typeof v === "string") {
+      const resolved = resolvePermission(v);
+      if (resolved) {
+        result.add(resolved);
+      }
     }
   }
   return Array.from(result);
@@ -139,33 +191,54 @@ export function sanitizePermissions(values: unknown[]): Permission[] {
 export function hasPermission(
   role: AdminRole | string | null | undefined,
   assignedPermissions: string[] | null | undefined,
-  requiredPermission: Permission
+  requiredPermission: Permission | string
 ): boolean {
   if (!role) return false;
   const normRole = role.trim().toLowerCase();
   if (normRole === "sales") return false;
 
+  const target = typeof requiredPermission === "string" ? resolvePermission(requiredPermission) : null;
+  if (!target) return false;
+
   if (normRole === "super_admin") {
-    return SUPER_ADMIN_PERMISSIONS.has(requiredPermission);
+    return SUPER_ADMIN_PERMISSIONS.has(target);
   }
 
   // Super Admin-exclusive permissions can NEVER be granted to any non-super-admin role
-  if (SUPER_ADMIN_EXCLUSIVE_PERMISSIONS.has(requiredPermission)) {
+  if (SUPER_ADMIN_EXCLUSIVE_PERMISSIONS.has(target)) {
     return false;
+  }
+
+  // company_owner is immutable, same as super_admin's own check above — it is
+  // never driven by `assignedPermissions`/a RoleDefinition row, so this must
+  // come before that generic branch, not fall into its fallback-only path.
+  if (normRole === "company_owner") {
+    return COMPANY_OWNER_PERMISSIONS.has(target);
   }
 
   // If explicit permissions are provided (e.g. from session actor or DB role definition):
   if (Array.isArray(assignedPermissions) && assignedPermissions.length > 0) {
-    return assignedPermissions.includes(requiredPermission);
+    if (assignedPermissions.includes(target)) return true;
+    if (typeof requiredPermission === "string" && assignedPermissions.includes(requiredPermission)) return true;
+    for (const p of assignedPermissions) {
+      if (typeof p === "string" && resolvePermission(p) === target) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Fallback defaults for legacy callers, tests, or unpopulated user permissions:
   if (normRole === "admin") {
-    return ADMIN_PERMISSIONS.has(requiredPermission);
+    return ADMIN_PERMISSIONS.has(target);
+  }
+
+  if (normRole === "sales_executive") {
+    return SALES_EXECUTIVE_DEFAULT_PERMISSIONS.has(target);
   }
 
   if (normRole === "dealer") {
-    return DEALER_DEFAULT_PERMISSIONS.has(requiredPermission);
+    return DEALER_DEFAULT_PERMISSIONS.has(target);
   }
 
   return false;
@@ -186,17 +259,25 @@ export function getEffectivePermissions(
     return Array.from(SUPER_ADMIN_PERMISSIONS);
   }
 
+  if (normRole === "company_owner") {
+    return Array.from(COMPANY_OWNER_PERMISSIONS);
+  }
+
   if (Array.isArray(assignedPermissions) && assignedPermissions.length > 0) {
     return assignedPermissions.filter(
       (p): p is Permission => isValidPermission(p) && !SUPER_ADMIN_EXCLUSIVE_PERMISSIONS.has(p)
     );
   }
 
-  if (role === "admin") {
+  if (normRole === "admin") {
     return Array.from(ADMIN_PERMISSIONS);
   }
 
-  if (role === "dealer") {
+  if (normRole === "sales_executive") {
+    return Array.from(SALES_EXECUTIVE_DEFAULT_PERMISSIONS);
+  }
+
+  if (normRole === "dealer") {
     return Array.from(DEALER_DEFAULT_PERMISSIONS);
   }
 
@@ -393,6 +474,15 @@ export const PERMISSION_METADATA: Record<Permission, PermissionMeta> = {
     isSuperAdminExclusive: false,
     isIncludedInAdmin: true,
   },
+  "quotations:assign_sales": {
+    key: "quotations:assign_sales",
+    label: "Assign Sales Executive",
+    description: "Assign or reassign quotation ownership to company sales executives.",
+    module: "Quotation Management",
+    action: "manage",
+    isSuperAdminExclusive: false,
+    isIncludedInAdmin: true,
+  },
   "quotations:transition": {
     key: "quotations:transition",
     label: "Approve & Reject Proposals",
@@ -439,6 +529,15 @@ export const PERMISSION_METADATA: Record<Permission, PermissionMeta> = {
     description: "Browse administrative user accounts, roles, and assigned permission profiles.",
     module: "System Oversight",
     action: "view",
+    isSuperAdminExclusive: false,
+    isIncludedInAdmin: true,
+  },
+  "users:manage": {
+    key: "users:manage",
+    label: "Manage Company Users",
+    description: "Create, edit, deactivate company users and assign permitted roles within company scope.",
+    module: "System Oversight",
+    action: "manage",
     isSuperAdminExclusive: false,
     isIncludedInAdmin: true,
   },
@@ -502,6 +601,7 @@ export const PERMISSION_MODULE_GROUPS: PermissionModuleGroup[] = [
       PERMISSION_METADATA["quotations:edit_all"],
       PERMISSION_METADATA["quotations:delete"],
       PERMISSION_METADATA["quotations:assign_dealer"],
+      PERMISSION_METADATA["quotations:assign_sales"],
       PERMISSION_METADATA["quotations:transition"],
     ],
   },
@@ -521,6 +621,7 @@ export const PERMISSION_MODULE_GROUPS: PermissionModuleGroup[] = [
     permissions: [
       PERMISSION_METADATA["activity:view"],
       PERMISSION_METADATA["admins:read"],
+      PERMISSION_METADATA["users:manage"],
       PERMISSION_METADATA["admins:manage"],
     ],
   },
@@ -562,12 +663,19 @@ export const PERMISSION_PRESETS: {
       "quotations:create",
       "quotations:edit_all",
       "quotations:assign_dealer",
+      "quotations:assign_sales",
       "quotations:transition",
       "dealers:read",
       "dealers:manage",
       "catalog:read",
       "pricing:view_cost",
     ],
+  },
+  {
+    id: "sales_rep",
+    name: "Sales Executive (Field Representative)",
+    description: "View products, architectural spaces, and create proposals for assigned clients.",
+    permissions: Array.from(SALES_EXECUTIVE_DEFAULT_PERMISSIONS),
   },
   {
     id: "view_only",

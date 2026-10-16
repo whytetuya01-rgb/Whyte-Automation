@@ -101,6 +101,7 @@ export const createQuotationSchema = strictObject({
   discountValue: discountValueField,
   customerDiscountPercent: z.number().min(0).max(100).optional().nullable(),
   dealerId: numericIdSchema.optional().nullable(),
+  assignedSalesId: numericIdSchema.optional().nullable(),
   terms: optionalText(2000),
   validUntil: validUntilField,
   defaultTier: optionalText(120),
@@ -120,6 +121,8 @@ export const updateQuotationSchema = strictObject({
   discountType: discountTypeEnum.optional().nullable(),
   discountValue: discountValueField,
   customerDiscountPercent: z.number().min(0).max(100).optional().nullable(),
+  dealerId: numericIdSchema.optional().nullable(),
+  assignedSalesId: numericIdSchema.optional().nullable(),
   terms: optionalText(2000),
   validUntil: validUntilField,
   defaultTier: optionalText(120),
@@ -130,10 +133,23 @@ export const transitionQuotationSchema = strictObject({
   action: z.enum(["approve", "reject", "deliver"]),
 });
 
+export const spaceNameSchema = z
+  .string({ message: "Space name is required." })
+  .transform((val) => val.trim())
+  .pipe(
+    z
+      .string()
+      .min(1, "Space name cannot be empty.")
+      .max(120, "Space name must be 120 characters or fewer.")
+      .refine((val) => !/[\u0000-\u001f\u007f]/.test(val), {
+        message: "Space name cannot contain control characters.",
+      })
+  );
+
 /** Mirrors QuotationRoom: roomTypeId, customName, subArea, notes, sortOrder. */
 export const createQuotationRoomSchema = strictObject({
   roomTypeId: numericIdSchema.optional().nullable(),
-  customName: optionalText(120),
+  customName: z.union([spaceNameSchema, z.null()]).optional(),
   subArea: optionalText(120),
   notes: optionalText(1000),
   sortOrder: intField().transform((value) => value ?? 0),
@@ -141,7 +157,7 @@ export const createQuotationRoomSchema = strictObject({
 
 export const updateQuotationRoomSchema = strictObject({
   roomTypeId: numericIdSchema.optional().nullable(),
-  customName: optionalText(120),
+  customName: z.union([spaceNameSchema, z.null()]).optional(),
   subArea: optionalText(120),
   notes: optionalText(1000),
   sortOrder: intField(),
@@ -201,9 +217,24 @@ export const duplicateQuotationSchema = strictObject({
   dealerId: numericIdSchema.optional().nullable(),
 });
 
-/** Assignment body: `dealerId` null unassigns. */
+/** Assignment body: `dealerId` null unassigns dealer, `assignedSalesId` null unassigns salesperson. */
 export const assignQuotationSchema = strictObject({
-  dealerId: numericIdSchema.nullable(),
+  dealerId: numericIdSchema.optional().nullable(),
+  assignedSalesId: numericIdSchema.optional().nullable(),
+});
+
+export const massUpdateRoomItemSchema = strictObject({
+  itemId: numericIdSchema,
+  productId: numericIdSchema,
+  productVariantId: numericIdSchema.optional().nullable(),
+  variantConfig: z.record(z.string(), z.string()).optional().nullable(),
+  variantLabel: optionalText(200),
+  quantity: quantityField.optional(),
+  notes: optionalText(500),
+});
+
+export const massUpdateRoomItemsSchema = strictObject({
+  items: z.array(massUpdateRoomItemSchema).min(1, "At least one item must be updated."),
 });
 
 export type CreateQuotationInput = z.infer<typeof createQuotationSchema>;
@@ -212,5 +243,8 @@ export type CreateQuotationRoomInput = z.infer<typeof createQuotationRoomSchema>
 export type UpdateQuotationRoomInput = z.infer<typeof updateQuotationRoomSchema>;
 export type CreateQuotationItemInput = z.infer<typeof createQuotationItemSchema>;
 export type UpdateQuotationItemInput = z.infer<typeof updateQuotationItemSchema>;
+export type MassUpdateRoomItemInput = z.infer<typeof massUpdateRoomItemSchema>;
+export type MassUpdateRoomItemsInput = z.infer<typeof massUpdateRoomItemsSchema>;
 export type AssignQuotationInput = z.infer<typeof assignQuotationSchema>;
 export type DuplicateQuotationInput = z.infer<typeof duplicateQuotationSchema>;
+

@@ -84,8 +84,8 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
-      setError("House Type Name is required.");
-      notify.error("Validation Error", "Please enter a valid house type name.");
+      setError("Primices Type name is required");
+      notify.error("Validation Error", "Please enter a valid primices type name.");
       return;
     }
 
@@ -123,7 +123,7 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
       <div className="space-y-4">
         <div className="space-y-1.5">
           <label className="text-xs font-semibold text-neutral-800">
-            House Type Name <span className="text-pink-600">*</span>
+            Primices Type Name <span className="text-[var(--color-admin-primary,#D85B83)]">*</span>
           </label>
           <Input
             value={name}
@@ -133,7 +133,7 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
             }}
             placeholder="e.g. 3 BHK, 4 BHK Villa, Duplex Penthouse"
             error={error || undefined}
-            className="font-medium focus:ring-pink-500/20 focus:border-neutral-900"
+            className="font-medium focus:ring-[var(--color-admin-primary)]/20 focus:border-neutral-900"
           />
         </div>
 
@@ -153,7 +153,7 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
       <div className="space-y-2.5 pt-2 border-t border-neutral-100">
         <div className="flex items-center justify-between">
           <label className="text-xs font-bold uppercase tracking-wider text-neutral-700 flex items-center gap-1.5">
-            <Layers className="h-3.5 w-3.5 text-pink-600" />
+            <Layers className="h-3.5 w-3.5 text-[var(--color-admin-primary,#D85B83)]" />
             Default Space Template Configuration
           </label>
           <span className="text-[11px] font-semibold text-neutral-500 font-mono">
@@ -190,7 +190,7 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
                         selected ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-500"
                       }`}
                     >
-                      <RoomIcon className={`h-4 w-4 ${selected ? "text-pink-400" : ""}`} />
+                      <RoomIcon className={`h-4 w-4 ${selected ? "text-[var(--color-admin-primary,#D85B83)]" : ""}`} />
                     </div>
                     <span className="text-xs font-bold text-neutral-900 truncate">
                       {rt.name}
@@ -233,7 +233,7 @@ function HouseTypeFormModal({ houseType, roomTypes, onSuccess }: HouseTypeFormPr
           disabled={saving}
           className="w-full bg-neutral-900 hover:bg-neutral-800 text-white font-semibold text-xs h-10 rounded-xl"
         >
-          {saving ? "Saving..." : houseType ? "Update House Type" : "Create House Type"}
+          {saving ? "Saving..." : houseType ? "Update Primices Type" : "Create Primices Type"}
         </Button>
       </div>
     </form>
@@ -259,11 +259,11 @@ export default function HouseTypesPage() {
       impactUrl: `/api/house-types/${ht.id}/deletion-impact`,
       recordLabel: ht.name,
       entityName: "house type",
-      confirmText: "Delete House Type",
+      confirmText: "Delete Primices Type",
       onConfirmedDelete: async () => {
         try {
           await apiJson.delete(`/api/house-types/${ht.id}`);
-          notify.success("House type deleted", `"${ht.name}" has been removed.`);
+          notify.success("Primices type deleted", `"${ht.name}" has been removed.`);
           mutateHouseTypes();
         } catch (err: unknown) {
           notifyApiError(err, "Unable to delete house type", "Please try again.");
@@ -335,7 +335,7 @@ export default function HouseTypesPage() {
             }}
             className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-neutral-900 text-white rounded-xl text-xs font-semibold hover:bg-neutral-800 active:scale-[0.98] transition-all shadow-xs shrink-0"
           >
-            <Plus size={14} /> Add House Type
+            <Plus size={14} /> Add Primices Type
           </button>
         }
       />
@@ -477,7 +477,7 @@ export default function HouseTypesPage() {
                             setShowForm(true);
                           }}
                           className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-neutral-600 hover:text-neutral-900 hover:bg-neutral-100 transition-colors flex items-center gap-1.5"
-                          title="Edit House Type"
+                          title="Edit Primices Type"
                         >
                           <Pencil size={13} className="text-neutral-500" />
                           <span>Edit</span>
@@ -487,7 +487,7 @@ export default function HouseTypesPage() {
                             type="button"
                             onClick={() => handleDelete(ht)}
                             className="p-1.5 rounded-lg text-neutral-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                            title="Delete House Type"
+                            title="Delete Primices Type"
                           >
                             <Trash2 size={14} />
                           </button>
@@ -524,9 +524,9 @@ export default function HouseTypesPage() {
 
                     {/* Metrics Row */}
                     <div className="flex items-center justify-between pt-1 border-t border-neutral-100 text-xs">
-                      {/* Spaces Count with Whyte Pink subtle accent */}
+                      {/* Spaces Count with theme subtle accent */}
                       <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold font-mono text-pink-600 bg-pink-50 border border-pink-200/60 px-2 py-0.5 rounded-md">
+                        <span className="text-xs font-bold font-mono text-[var(--color-admin-primary-foreground,#B83E68)] bg-[var(--color-admin-primary-soft,#FCEAF0)] border border-[var(--color-admin-primary-border,#F1B8C8)] px-2 py-0.5 rounded-md">
                           {totalSpaces}
                         </span>
                         <span className="font-semibold text-neutral-800">Spaces</span>
@@ -561,7 +561,7 @@ export default function HouseTypesPage() {
                             setEditTarget(ht);
                             setShowForm(true);
                           }}
-                          className="text-xs font-semibold text-pink-600 hover:text-pink-700 underline underline-offset-2 inline-flex items-center gap-1"
+                          className="text-xs font-semibold text-[var(--color-admin-primary,#D85B83)] hover:text-[var(--color-admin-primary-foreground,#B83E68)] underline underline-offset-2 inline-flex items-center gap-1"
                         >
                           Configure template →
                         </button>
@@ -578,7 +578,7 @@ export default function HouseTypesPage() {
                             >
                               <div className="flex items-center gap-2.5 min-w-0">
                                 <div className="h-7 w-7 rounded-lg bg-neutral-900 text-white flex items-center justify-center shrink-0">
-                                  <RoomIcon className="h-3.5 w-3.5 text-pink-400" />
+                                  <RoomIcon className="h-3.5 w-3.5 text-[var(--color-admin-primary,#D85B83)]" />
                                 </div>
                                 <span className="text-xs font-bold text-neutral-900 truncate">
                                   {roomName}
@@ -607,7 +607,7 @@ export default function HouseTypesPage() {
           setShowForm(false);
           setEditTarget(null);
         }}
-        title={editTarget ? `Edit Template: ${editTarget.name}` : "Add House Type Template"}
+        title={editTarget ? `Edit Template: ${editTarget.name}` : "Add Primices Type Template"}
         size="lg"
       >
         <HouseTypeFormModal

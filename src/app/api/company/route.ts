@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Company } from "@/models";
 import { getNextSequence } from "@/lib/counter";
-import { requirePermission, requireSession } from "@/lib/api-auth";
+import { withPermission, withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { updateCompanySchema } from "@/lib/validation/catalog";
 
@@ -14,12 +14,16 @@ export const dynamic = "force-dynamic";
  */
 export async function GET() {
   try {
-    await requireSession();
-
-    await connectMongoDB();
-    const company = await Company.findOne().lean();
-    // GET responses stay unwrapped for existing consumers.
-    return NextResponse.json(company ?? null);
+    return await withSession(async (actor) => {
+      await connectMongoDB();
+      if (!actor.companyId) {
+        // Super Admin with no active act-as session has no company context
+        return NextResponse.json(null);
+      }
+      const company = await Company.findById(actor.companyId).lean();
+      // GET responses stay unwrapped for existing consumers.
+      return NextResponse.json(company ?? null);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/company" });
   }
@@ -28,37 +32,40 @@ export async function GET() {
 export async function PATCH(req: Request) {
   try {
     // Company settings writes are restricted to Super Admin, Admin, and Configurable Admins with company:edit
-    await requirePermission("company:edit");
-    await connectMongoDB();
+    return await withPermission("company:edit", async (actor) => {
+      await connectMongoDB();
 
-    // Explicit allowlist: a client can never write `_id` or `updatedAt`.
-    const data = updateCompanySchema.parse(await readJsonBody(req));
-    if (Object.keys(data).length === 0) {
-      throw new ApiError("VALIDATION_ERROR", "No editable fields were supplied.");
-    }
-
-    // `name`, `phone` and `address` are required by the model, so a partial
-    // update must still satisfy them.
-    const existing = await Company.findOne().lean();
-    const merged = { ...(existing ?? {}), ...data };
-    for (const requiredField of ["name", "phone", "address"] as const) {
-      if (merged[requiredField] === null || merged[requiredField] === undefined || merged[requiredField] === "") {
-        throw new ApiError("REQUIRED_FIELD", `${requiredField} is required.`, {
-          field: requiredField,
-        });
+      if (!actor.companyId) {
+        throw new ApiError("FORBIDDEN", "An active company context is required to modify company settings.");
       }
-    }
 
-    const update = { ...data, updatedAt: new Date() };
-    let company;
-    if (existing) {
-      company = await Company.findByIdAndUpdate(existing._id, { $set: update }, { new: true });
-    } else {
-      const nextId = await getNextSequence("company", Company);
-      company = await Company.create({ _id: nextId, ...update });
-    }
+      // Explicit allowlist: a client can never write `_id` or `updatedAt`.
+      const data = updateCompanySchema.parse(await readJsonBody(req));
+      if (Object.keys(data).length === 0) {
+        throw new ApiError("VALIDATION_ERROR", "No editable fields were supplied.");
+      }
 
-    return apiSuccess(company);
+      // `name`, `phone` and `address` are required by the model, so a partial
+      // update must still satisfy them.
+      const existing = await Company.findById(actor.companyId).lean();
+      if (!existing) {
+        throw new ApiError("NOT_FOUND", "Company record not found.", { field: "companyId" });
+      }
+
+      const merged = { ...existing, ...data };
+      for (const requiredField of ["name", "phone", "address"] as const) {
+        if (merged[requiredField] === null || merged[requiredField] === undefined || merged[requiredField] === "") {
+          throw new ApiError("REQUIRED_FIELD", `${requiredField} is required.`, {
+            field: requiredField,
+          });
+        }
+      }
+
+      const update = { ...data, updatedAt: new Date() };
+      const company = await Company.findByIdAndUpdate(actor.companyId, { $set: update }, { new: true });
+
+      return apiSuccess(company);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/company" });
   }

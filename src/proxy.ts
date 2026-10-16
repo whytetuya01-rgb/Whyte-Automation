@@ -31,7 +31,7 @@ const PUBLIC_PAGES = ["/login", "/register", "/admin/login", "/admin/register"];
 const PUBLIC_API_PREFIX = "/api/auth";
 const PUBLIC_REGISTRATION_API = "/api/admin/register";
 const DEALER_LANDING_PAGE = "/dealer/access";
-const ADMIN_ROLES = new Set(["super_admin", "admin", "configurable_admin"]);
+const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
 
 function isPublicPage(pathname: string): boolean {
   return PUBLIC_PAGES.some((path) => pathname === path || pathname.startsWith(`${path}/`));
@@ -98,7 +98,27 @@ export async function proxy(request: NextRequest) {
     return redirectTo(request, "/login");
   }
 
-  if (role && (ADMIN_ROLES.has(role) || (role !== "dealer" && role !== "sales"))) {
+  if (role === "sales_executive") {
+    if (pathname.startsWith("/api/admin")) {
+      return NextResponse.json(
+        { success: false, error: { code: "FORBIDDEN", message: "You do not have permission to access this resource." } },
+        { status: 403 }
+      );
+    }
+    if (!isApiRequest(pathname)) {
+      if (
+        isAdminPage(pathname) ||
+        pathname === "/dealers" ||
+        pathname.startsWith("/dealers/") ||
+        pathname === "/dealer/access"
+      ) {
+        return redirectTo(request, "/");
+      }
+    }
+    return NextResponse.next();
+  }
+
+  if (role && ADMIN_ROLES.has(role)) {
     if (!isApiRequest(pathname) && !isAdminPage(pathname) && !isPublicPage(pathname) && !pathname.startsWith("/quotation/")) {
       return redirectTo(request, "/admin/dashboard");
     }

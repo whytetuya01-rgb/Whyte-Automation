@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, Suspense } from "react";
-import { signIn } from "next-auth/react";
+import { signIn, getSession } from "next-auth/react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -74,9 +74,20 @@ function LoginForm() {
       });
 
       if (result?.error) {
-        setAuthError("This account is not authorized for the Admin Portal, or the credentials are incorrect.");
-        notify.error("Unable to sign in", "Use an Admin or Super Admin account for this portal.");
+        let message = "Invalid email/username or password. Please check your credentials.";
+        if (result.error === "DEALER_IN_ADMIN_PORTAL") {
+          message = "Dealer accounts cannot sign in to the Admin Portal. Please use the Dealer login at /login.";
+        }
+        setAuthError(message);
+        notify.error("Unable to sign in", message);
       } else {
+        const session = await getSession();
+        const role = (session?.user as { role?: string } | undefined)?.role;
+        if (role === "dealer") {
+          setAuthError("Dealer accounts cannot access the Admin Portal. Please use /login.");
+          notify.error("Access Denied", "Dealer accounts must use /login.");
+          return;
+        }
         notify.success("Welcome back", "You have successfully signed in.");
         router.push(callbackUrl);
         router.refresh();
@@ -226,9 +237,9 @@ export default function LoginPage() {
 
         {/* Top brand header */}
         <div className="relative z-10">
-          <div className="inline-flex items-center rounded-xl bg-white px-3 py-1.5 shadow-xs">
+          <div className="inline-flex items-center">
             <WhyteLogo
-              theme="light"
+              theme="dark"
               alt="Whyte logo"
               size="login"
               preload

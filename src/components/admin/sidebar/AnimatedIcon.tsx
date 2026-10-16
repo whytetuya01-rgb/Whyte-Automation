@@ -32,6 +32,7 @@ export const NAV_ICON_ANIMATION_BY_HREF: Record<string, NavIconAnimation> = {
   "/admin/users": "generic",
   "/admin/roles": "generic",
   "/admin/company": "company",
+  "/admin/theme": "generic",
 };
 
 interface AnimatedIconProps {

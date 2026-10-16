@@ -3,11 +3,13 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Building, MapPin, User, Phone, Mail, FileText } from "lucide-react";
+import { ArrowLeft, ArrowRight, Building, User, Mail, FileText } from "lucide-react";
 import { HouseType, Quotation } from "@/types";
 import { Select, SelectOption } from "@/components/ui/Select";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { RadioGroup } from "@/components/ui/Radio";
+import CityAutocomplete from "@/components/ui/CityAutocomplete";
+import IndiaPhoneInput, { extractNationalDigits } from "@/components/ui/IndiaPhoneInput";
 import { emailError, gstinError, phoneError } from "@/lib/validation/fields";
 
 interface Props {
@@ -32,9 +34,19 @@ export interface ProjectFormData {
    * the admin). `undefined` for every other role, which never sends an assignment.
    */
   dealerId?: number | null;
+  /**
+   * Super Admin / Admin only: sales executive assigned to this quotation.
+   */
+  assignedSalesId?: number | null;
 }
 
 interface DealerOption {
+  id: number;
+  name: string;
+  email?: string;
+}
+
+interface SalesExecutiveOption {
   id: number;
   name: string;
   email?: string;
@@ -63,31 +75,68 @@ export default function StepProjectDetails({
     clientGstNumber: initialData?.clientGstNumber ?? "",
     notes: cleanNotes,
     dealerId: initialData?.dealerId ?? null,
+    assignedSalesId: initialData?.assignedSalesId ?? null,
   });
 
   const { data: session } = useSession();
-  const role = (session?.user as { role?: string } | undefined)?.role;
-  const canChooseOwner = role === "super_admin" || role === "admin";
+  const sessionUser = session?.user as { role?: string; permissions?: string[] } | undefined;
+  const role = sessionUser?.role;
+  const userPermissions = sessionUser?.permissions;
+
+  const canAssignDealer =
+    role === "super_admin" ||
+    role === "admin" ||
+    role === "company_owner" ||
+    (role === "configurable_admin" && (userPermissions?.includes("quotations:assign_dealer") ?? false));
+
+  const canAssignSales =
+    role === "super_admin" ||
+    role === "admin" ||
+    role === "company_owner" ||
+    (role === "configurable_admin" && (userPermissions?.includes("quotations:assign_sales") ?? false));
+
+  const canChooseOwner = canAssignDealer || canAssignSales;
   const [ownerMode, setOwnerMode] = useState<"self" | "dealer">(initialData?.dealerId ? "dealer" : "self");
   const [dealers, setDealers] = useState<DealerOption[]>([]);
+  const [salesExecutives, setSalesExecutives] = useState<SalesExecutiveOption[]>([]);
 
   useEffect(() => {
-    if (!canChooseOwner) return;
     let cancelled = false;
-    fetch("/api/admin/dealers?status=active&pageSize=100")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        const list = Array.isArray(data) ? data : Array.isArray(data.data) ? data.data : [];
-        setDealers(
-          list.map((d: any) => ({ id: Number(d.id ?? d._id), name: d.name, email: d.email }))
-        );
-      })
-      .catch(() => {});
+
+    if (canAssignDealer) {
+      fetch("/api/admin/dealers?status=active&pageSize=100")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (cancelled || !data) return;
+          const list = Array.isArray(data) ? data : Array.isArray(data.data) ? data.data : [];
+          setDealers(
+            list.map((d: any) => ({ id: Number(d.id ?? d._id), name: d.name, email: d.email }))
+          );
+        })
+        .catch(() => {});
+    }
+
+    if (canAssignSales) {
+      fetch("/api/admin/users?role=sales_executive&status=active&pageSize=100")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (cancelled || !data) return;
+          const list = Array.isArray(data) ? data : Array.isArray(data.data) ? data.data : [];
+          setSalesExecutives(
+            list.map((u: any) => ({
+              id: Number(u.id ?? u._id),
+              name: u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email,
+              email: u.email,
+            }))
+          );
+        })
+        .catch(() => {});
+    }
+
     return () => {
       cancelled = true;
     };
-  }, [canChooseOwner]);
+  }, [canAssignDealer, canAssignSales]);
 
   // The assigned dealer may be inactive now; keep it selectable so the form shows it.
   const dealerOptions: SelectOption[] = [
@@ -103,6 +152,19 @@ export default function StepProjectDetails({
       : []),
   ];
 
+  const salesOptions: SelectOption[] = [
+    { value: "", label: "— No sales executive assigned —" },
+    ...salesExecutives.map((s) => ({
+      value: String(s.id),
+      label: s.email ? `${s.name} (${s.email})` : s.name,
+    })),
+    ...(initialData?.assignedSalesId &&
+    (initialData as any).assignedSales?.name &&
+    !salesExecutives.some((s) => s.id === initialData.assignedSalesId)
+      ? [{ value: String(initialData.assignedSalesId), label: (initialData as any).assignedSales.name }]
+      : []),
+  ];
+
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validate = () => {
@@ -113,13 +175,20 @@ export default function StepProjectDetails({
     if (!form.location.trim()) {
       errs.location = "City / Project Location is required";
     }
-    const phoneErr = phoneError(form.clientPhone);
-    if (phoneErr) errs.clientPhone = phoneErr;
+    if (form.clientPhone.trim()) {
+      const nationalDigits = extractNationalDigits(form.clientPhone);
+      if (nationalDigits.length > 0 && nationalDigits.length < 10) {
+        errs.clientPhone = "Please enter a valid 10-digit mobile number";
+      } else {
+        const phoneErr = phoneError(form.clientPhone);
+        if (phoneErr) errs.clientPhone = phoneErr;
+      }
+    }
     const emailErr = emailError(form.clientEmail);
     if (emailErr) errs.clientEmail = emailErr;
     const gstErr = gstinError(form.clientGstNumber);
     if (gstErr) errs.clientGstNumber = gstErr;
-    if (canChooseOwner && ownerMode === "dealer" && !form.dealerId) {
+    if (canAssignDealer && ownerMode === "dealer" && !form.dealerId) {
       errs.dealerId = "Select the dealer this quotation is assigned to";
     }
     setErrors(errs);
@@ -132,7 +201,8 @@ export default function StepProjectDetails({
     // "Myself" always clears the dealer, whatever was picked before switching.
     await onSaveAndContinue({
       ...form,
-      dealerId: canChooseOwner ? (ownerMode === "dealer" ? form.dealerId : null) : undefined,
+      dealerId: canAssignDealer ? (ownerMode === "dealer" ? form.dealerId : null) : undefined,
+      assignedSalesId: canAssignSales ? form.assignedSalesId : undefined,
     });
   };
 
@@ -225,7 +295,7 @@ export default function StepProjectDetails({
                   {/* Project Type */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-800 mb-1.5">
-                      Project Type / House Type
+                      Project Type / Premices
                     </label>
                     <Select
                       value={form.houseTypeId ? String(form.houseTypeId) : (form.projectType || "")}
@@ -257,30 +327,22 @@ export default function StepProjectDetails({
                     <label className="block text-xs font-semibold text-gray-800 mb-1.5">
                       City / Location <span className="text-red-500">*</span>
                     </label>
-                    <div className="relative">
-                      <MapPin size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        value={form.location}
-                        onChange={(e) => {
-                          setForm({ ...form, location: e.target.value });
-                          if (errors.location) setErrors({ ...errors, location: "" });
-                        }}
-                        placeholder="e.g. Ahmedabad, Gujarat"
-                        className={`w-full h-11 pl-10 pr-3.5 border rounded-xl text-sm focus:outline-none focus:ring-2 transition bg-white text-gray-900 ${
-                          errors.location
-                            ? "border-red-400 focus:ring-red-500/20"
-                            : "border-gray-200 focus:border-accent focus:ring-accent/20"
-                        }`}
-                      />
-                    </div>
+                    <CityAutocomplete
+                      value={form.location}
+                      onChange={(val) => {
+                        setForm({ ...form, location: val });
+                        if (errors.location) setErrors({ ...errors, location: "" });
+                      }}
+                      placeholder="e.g. Ahmedabad, Gujarat"
+                      error={errors.location}
+                    />
                     {errors.location && (
                       <p className="text-xs text-red-500 mt-1 font-medium">{errors.location}</p>
                     )}
                   </div>
 
-                  {/* Quotation Owner (Super Admin / Admin only) */}
-                  {canChooseOwner && (
+                  {/* Quotation Owner - Dealer Assignment */}
+                  {canAssignDealer && (
                     <div className="sm:col-span-2">
                       <RadioGroup
                         label="Quotation Owner"
@@ -324,6 +386,26 @@ export default function StepProjectDetails({
                       )}
                     </div>
                   )}
+
+                  {/* Quotation Owner - Sales Executive Assignment */}
+                  {canAssignSales && (
+                    <div className="sm:col-span-2">
+                      <SearchableSelect
+                        label="Assign Sales Executive (Optional)"
+                        value={form.assignedSalesId ? String(form.assignedSalesId) : ""}
+                        onChange={(e) => {
+                          setForm({ ...form, assignedSalesId: e.target.value ? Number(e.target.value) : null });
+                        }}
+                        ariaLabel="Sales Executive"
+                        options={salesOptions}
+                        placeholder="— No sales executive assigned —"
+                        searchPlaceholder="Search sales executives by name or email..."
+                        emptyText="No active sales executives found"
+                        helperText="Grant this sales executive access to view and manage this quotation."
+                        triggerClassName="h-11 rounded-xl text-sm"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -340,25 +422,24 @@ export default function StepProjectDetails({
                     <label className="block text-xs font-semibold text-gray-800 mb-1.5">
                       Contact Phone Number
                     </label>
-                    <div className="relative">
-                      <Phone size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="tel"
-                        value={form.clientPhone}
-                        onChange={(e) => {
-                          setForm({ ...form, clientPhone: e.target.value });
-                          if (errors.clientPhone) setErrors({ ...errors, clientPhone: "" });
-                        }}
-                        onBlur={() => setErrors((prev) => ({ ...prev, clientPhone: phoneError(form.clientPhone) ?? "" }))}
-                        placeholder="+91 98765 43210"
-                        inputMode="tel"
-                        autoComplete="tel"
-                        aria-invalid={Boolean(errors.clientPhone)}
-                        className={`w-full h-11 pl-10 pr-3.5 border rounded-xl text-sm focus:outline-none focus:ring-2 transition bg-white text-gray-900 ${
-                          errors.clientPhone ? "border-red-400 focus:ring-red-500/20" : "border-gray-200 focus:border-accent focus:ring-accent/20"
-                        }`}
-                      />
-                    </div>
+                    <IndiaPhoneInput
+                      value={form.clientPhone}
+                      onChange={(val) => {
+                        setForm({ ...form, clientPhone: val });
+                        if (errors.clientPhone) setErrors({ ...errors, clientPhone: "" });
+                      }}
+                      onBlur={() => {
+                        if (!form.clientPhone.trim()) return;
+                        const nationalDigits = extractNationalDigits(form.clientPhone);
+                        if (nationalDigits.length > 0 && nationalDigits.length < 10) {
+                          setErrors((prev) => ({ ...prev, clientPhone: "Please enter a valid 10-digit mobile number" }));
+                        } else {
+                          setErrors((prev) => ({ ...prev, clientPhone: phoneError(form.clientPhone) ?? "" }));
+                        }
+                      }}
+                      placeholder="98765 43210"
+                      error={errors.clientPhone}
+                    />
                     {errors.clientPhone && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientPhone}</p>}
                   </div>
 

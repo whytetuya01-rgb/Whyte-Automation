@@ -8,6 +8,8 @@ import { Label } from "./Label";
 export interface SelectOption {
   value: string | number;
   label: string;
+  subLabel?: string;
+  searchTerms?: string[];
   disabled?: boolean;
   icon?: React.ReactNode;
   badge?: string;

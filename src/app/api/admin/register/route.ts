@@ -4,7 +4,9 @@ import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { getNextSequence } from "@/lib/counter";
 import { ApiError, handleApiError, readJsonBody } from "@/lib/api-response";
-import { AdminUser } from "@/models";
+import { AdminUser, Company } from "@/models";
+import { runUnscoped } from "@/lib/tenant/context";
+import { DEFAULT_COMPANY_SLUG } from "@/lib/tenant/constants";
 import { emailSchema, mobileSchema, gstinSchema } from "@/lib/validation/fields";
 import { checkRateLimit, clientIpFromRequest } from "@/lib/rateLimit";
 import { sendEmail } from "@/lib/email/service";
@@ -49,28 +51,47 @@ export async function POST(request: Request) {
     await connectMongoDB();
     const { firstName, lastName, email, password, companyName, gstNumber, contactNumber, address } = parsed.data;
 
-    if (await AdminUser.exists({ email })) {
-      throw new ApiError("DUPLICATE_RECORD", "An account with this email already exists.", { field: "email" });
-    }
-
-    const passwordHash = await bcrypt.hash(password, 12);
-    const id = await getNextSequence("adminUser", AdminUser);
+    // This route has no session, so no tenant context exists yet. A dealer
+    // self-registering has no way to pick a company (no slug/invite-token
+    // flow in Phase 1 — see AGENTS.md roadmap), so every new dealer is
+    // assigned to the single default company created by the Phase 1
+    // migration ("Whyte Automations", slug "whyte-automations"). AdminUser.email stays
+    // globally unique by design, so the duplicate-email check must also run
+    // unscoped — it would otherwise only see this one company's accounts.
     const name = `${firstName} ${lastName}`;
-    const account = new AdminUser({
-      _id: id,
-      name,
-      firstName,
-      lastName,
-      email,
-      passwordHash,
-      companyName,
-      gstNumber,
-      contactNumber,
-      address,
-      role: "dealer",
-      isActive: true,
+    const account = await runUnscoped("public-registration", async () => {
+      const defaultCompany = await Company.findOne({ slug: DEFAULT_COMPANY_SLUG }).select("_id status").lean();
+      if (!defaultCompany) {
+        throw new ApiError("INTERNAL_SERVER_ERROR", "Registration is temporarily unavailable. Please try again later.");
+      }
+      if (defaultCompany.status !== "active") {
+        throw new ApiError("FORBIDDEN", "Registration is currently closed.");
+      }
+
+      if (await AdminUser.exists({ email })) {
+        throw new ApiError("DUPLICATE_RECORD", "An account with this email already exists.", { field: "email" });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 12);
+      const id = await getNextSequence("adminUser", AdminUser);
+      const newAccount = new AdminUser({
+        _id: id,
+        companyId: defaultCompany._id,
+        name,
+        firstName,
+        lastName,
+        email,
+        passwordHash,
+        companyName,
+        gstNumber,
+        contactNumber,
+        address,
+        role: "dealer",
+        isActive: true,
+      });
+      await newAccount.save();
+      return newAccount;
     });
-    await account.save();
 
     // Fire only after the account is durably saved. Failures here must never
     // fail registration itself — email delivery is a side effect, not a
@@ -102,9 +123,11 @@ export async function POST(request: Request) {
     // above or the registration response. The raw `password` only ever
     // exists in-memory for this request and is never logged.
     try {
-      const superAdmins = await AdminUser.find({ role: "super_admin", isActive: true })
-        .select("email")
-        .lean<{ email: string }[]>();
+      const superAdmins = await runUnscoped("public-registration", async () =>
+        await AdminUser.find({ role: "super_admin", isActive: true })
+          .select("email")
+          .lean<{ email: string }[]>()
+      );
       if (superAdmins.length === 0) {
         console.warn("POST /api/admin/register: no active super_admin found to notify of new dealer registration");
       } else {

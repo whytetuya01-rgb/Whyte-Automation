@@ -1,8 +1,15 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import type { AdminRole } from "@/types";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
-export const ACTIVE_ADMIN_ROLES = ["super_admin", "admin", "dealer", "configurable_admin"] as const satisfies readonly AdminRole[];
-export const ALL_ADMIN_USER_ROLES = ["super_admin", "admin", "dealer", "sales", "configurable_admin"] as const;
+export const CANONICAL_ADMIN_ROLES = ["super_admin", "admin", "sales_executive", "dealer"] as const satisfies readonly AdminRole[];
+export const ACTIVE_ADMIN_ROLES = ["super_admin", "admin", "sales_executive", "dealer", "configurable_admin"] as const satisfies readonly AdminRole[];
+export const ALL_ADMIN_USER_ROLES = ["super_admin", "admin", "sales_executive", "dealer", "sales", "configurable_admin"] as const;
+
+/** The one role exempt from needing a companyId — the platform owner, not a company's own user. */
+function isPlatformSuperAdmin(doc: unknown): boolean {
+  return (doc as { role?: string } | null)?.role === "super_admin";
+}
 
 export interface IDiscountAllocationHistory {
   allocatedPercent: number;
@@ -15,6 +22,12 @@ export interface IDiscountAllocationHistory {
 export interface IAdminUser {
   _id: number;
   id?: number;
+  /**
+   * `null` only for `role: "super_admin"` (the platform owner — see
+   * `isPlatformSuperAdmin` below). Every other account, including `dealer`,
+   * belongs to exactly one company.
+   */
+  companyId: number | null;
   email: string;
   passwordHash: string;
   name: string | null;
@@ -56,6 +69,12 @@ const DiscountAllocationHistorySchema = new Schema<IDiscountAllocationHistory>(
 const AdminUserSchema = new Schema<IAdminUserDocument>(
   {
     _id: { type: Number, required: true },
+    // Phase 1 decision: email stays GLOBALLY unique across every company,
+    // rather than becoming a compound { companyId, email } unique index. The
+    // login form has no company slug/subdomain field today and this keeps
+    // every existing login working unchanged with zero risk — the simpler,
+    // safer option per the Phase 1 brief. Revisit only if/when the product
+    // needs the same email to be able to register against two companies.
     email: {
       type: String,
       required: true,
@@ -121,8 +140,10 @@ AdminUserSchema.virtual("assignedSales", {
   justOne: true,
 });
 
-AdminUserSchema.index({ role: 1, isActive: 1 });
+AdminUserSchema.index({ companyId: 1, role: 1, isActive: 1 });
 AdminUserSchema.index({ assignedSalesId: 1 });
+
+tenantScopePlugin(AdminUserSchema, { isExempt: isPlatformSuperAdmin });
 
 const existingAdminUserModel = mongoose.models.AdminUser as Model<IAdminUserDocument> | undefined;
 
@@ -139,6 +160,12 @@ if (existingAdminUserModel) {
   if (rolePath) {
     rolePath.enumValues = [];
     rolePath.enum({ values: [...ALL_ADMIN_USER_ROLES] });
+  }
+
+  if (!existingAdminUserModel.schema.path("companyId")) {
+    existingAdminUserModel.schema.add({
+      companyId: { type: Number, ref: "Company", default: null, index: true },
+    });
   }
 
   if (!existingAdminUserModel.schema.path("companyName")) {

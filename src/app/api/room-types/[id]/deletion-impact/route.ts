@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { RoomType } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { getRoomTypeDeletionImpact } from "@/lib/deletionImpact";
 
@@ -10,16 +10,17 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, context: RouteContext) {
   try {
     // Matches DELETE /api/room-types/[id], which is super_admin-only.
-    await requirePermission("spaces:hard_delete");
-    await connectMongoDB();
-    const roomTypeId = parseNumericId((await context.params).id, "room type id");
+    return await withPermission("spaces:hard_delete", async () => {
+      await connectMongoDB();
+      const roomTypeId = parseNumericId((await context.params).id, "room type id");
 
-    const roomType = await RoomType.findById(roomTypeId).select("_id").lean();
-    if (!roomType) {
-      throw new ApiError("NOT_FOUND", "Room type not found.", { field: "id" });
-    }
+      const roomType = await RoomType.findById(roomTypeId).select("_id").lean();
+      if (!roomType) {
+        throw new ApiError("NOT_FOUND", "Room type not found.", { field: "id" });
+      }
 
-    return apiSuccess(await getRoomTypeDeletionImpact(roomTypeId));
+      return apiSuccess(await getRoomTypeDeletionImpact(roomTypeId));
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/room-types/[id]/deletion-impact" });
   }

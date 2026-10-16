@@ -2,10 +2,12 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 import { createDecimalField } from "./helpers";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export interface IProductVariant extends SoftDeleteFields {
   _id: number;
   id?: number;
+  companyId: number;
   productId: number;
   variantCode?: string | null;
   name?: string | null;
@@ -124,11 +126,12 @@ ProductVariantSchema.virtual("quotationItems", {
 });
 
 // Compound index for querying variants of a product
-ProductVariantSchema.index({ productId: 1, isActive: 1, sortOrder: 1 });
-ProductVariantSchema.index({ code: 1 }, { sparse: true });
-ProductVariantSchema.index({ variantCode: 1 }, { sparse: true });
+ProductVariantSchema.index({ companyId: 1, productId: 1, isActive: 1, sortOrder: 1 });
+ProductVariantSchema.index({ companyId: 1, code: 1 }, { sparse: true });
+ProductVariantSchema.index({ companyId: 1, variantCode: 1 }, { sparse: true });
 
 softDeletePlugin(ProductVariantSchema, { blockHardDelete: true });
+tenantScopePlugin(ProductVariantSchema);
 
 const existingProductVariantModel = mongoose.models.ProductVariant as Model<IProductVariantDocument> | undefined;
 

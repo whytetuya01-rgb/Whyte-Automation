@@ -33,6 +33,26 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // `./internal` is the tenant-scope system's own escape hatch (the
+  // write-authorisation option that lets the migration script set
+  // `companyId`). Only the tenant module itself may import it.
+  {
+    files: ["**/*.{ts,tsx}"],
+    ignores: ["src/lib/tenant/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["**/tenant/internal", "**/lib/tenant/internal"],
+              message: "Tenant-scope internals are restricted to src/lib/tenant/**. Use context.ts (runUnscoped) instead.",
+            },
+          ],
+        },
+      ],
+    },
+  },
   // `DeletionActor` is a branded type: only `actorFromSession()` may produce
   // one. Forbid casting anything into it from outside the soft-delete module.
   {

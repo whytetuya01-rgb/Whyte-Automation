@@ -119,12 +119,12 @@ export default function NewQuotationForm({ initialHouseTypes }: NewQuotationForm
           />
 
           <Select
-            label="House Type"
+            label="Premices"
             value={form.houseTypeId}
             onChange={(e) => setForm({ ...form, houseTypeId: e.target.value })}
             helperText="Rooms will be auto-populated based on house type"
             options={[
-              { value: "", label: "- Select House Type (optional) -" },
+              { value: "", label: "- Select Premices (optional) -" },
               ...houseTypes.map((ht) => ({
                 value: String(ht.id),
                 label: `${ht.name}${ht.description ? ` - ${ht.description}` : ""}`,

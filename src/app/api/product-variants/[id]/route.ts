@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { ProductVariant } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -23,20 +23,19 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
-    const session = await requirePermission("catalog:read");
-    const role = (session.user as { role?: string }).role;
+    return await withPermission("catalog:read", async ({ role, permissions }) => {
+      await connectMongoDB();
+      const variantId = parseNumericId(id, "id");
 
-    await connectMongoDB();
-    const variantId = parseNumericId(id, "id");
+      const variant = await ProductVariant.findById(variantId).populate("product");
+      if (!variant) {
+        throw new ApiError("NOT_FOUND", "Variant not found.");
+      }
 
-    const variant = await ProductVariant.findById(variantId).populate("product");
-    if (!variant) {
-      throw new ApiError("NOT_FOUND", "Variant not found.");
-    }
-
-    return NextResponse.json(
-      redactVariantForRole(serializeVariant(variant.toObject()), role, session.permissions)
-    );
+      return NextResponse.json(
+        redactVariantForRole(serializeVariant(variant.toObject()), role, permissions)
+      );
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/product-variants/[id]" });
   }
@@ -51,8 +50,7 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requirePermission("catalog:edit");
-
+    return await withPermission("catalog:edit", async () => {
     await connectMongoDB();
     const variantId = parseNumericId((await context.params).id, "variant id");
 
@@ -154,6 +152,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     return apiSuccess(serializeVariant(updated.toObject()));
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/product-variants/[id]" });
   }
@@ -167,24 +166,25 @@ export async function PATCH(req: Request, context: RouteContext) {
  */
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    const authSession = await requirePermission("catalog:delete");
-    const actor = actorFromSession(authSession);
-    await connectMongoDB();
-    const variantId = parseNumericId((await context.params).id, "variant id");
+    return await withPermission("catalog:delete", async ({ session }) => {
+      const actor = actorFromSession(session);
+      await connectMongoDB();
+      const variantId = parseNumericId((await context.params).id, "variant id");
 
-    const result = await softDeleteVariant({
-      variantId,
-      actor,
-      deletedBy: authSession.user?.email ?? null,
-    });
+      const result = await softDeleteVariant({
+        variantId,
+        actor,
+        deletedBy: session.user?.email ?? null,
+      });
 
-    await syncProductPriceFromVariants(result.productId);
+      await syncProductPriceFromVariants(result.productId);
 
-    return apiSuccess({
-      message: `Variant '${result.variantLabel}' deleted successfully.`,
-      variantId: result.variantId,
-      productId: result.productId,
-      remainingVariants: result.remainingVariants,
+      return apiSuccess({
+        message: `Variant '${result.variantLabel}' deleted successfully.`,
+        variantId: result.variantId,
+        productId: result.productId,
+        remainingVariants: result.remainingVariants,
+      });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/product-variants/[id]" });

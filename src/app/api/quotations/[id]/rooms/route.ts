@@ -2,7 +2,7 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
 import { isBathroomLikeRoomName } from "@/lib/utils";
-import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationRoomSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
@@ -13,13 +13,12 @@ type RouteContext = { params: Promise<{ id: string }> };
 /** Session required: adding rooms to a quotation is a business operation. */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const { role, userId, permissions } = await getAuthenticatedActor();
-
+    return await withSession(async ({ role, userId, permissions }) => {
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
 
     await connectMongoDB();
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId createdBy").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status dealerId assignedSalesId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
@@ -71,6 +70,7 @@ export async function POST(req: Request, context: RouteContext) {
     // `.toObject()` first or its internal bookkeeping leaks into the response.
     const plainRoom = populatedRoom?.toObject ? populatedRoom.toObject() : populatedRoom;
     return apiSuccess(normalizeQuotationRoom(plainRoom), { status: 201 });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/rooms" });
   }

@@ -20,33 +20,35 @@ try {
   server = await startIsolatedServer(
     "sd-clone-avail",
     [
-      { _id: 1, email: "super_admin@example.com", role: "super_admin", name: "Super Admin" },
-      { _id: 2, email: "dealer_a@example.com", role: "dealer", name: "Dealer A", discountAllocationPercent: 20 },
+      { _id: 1, email: "owner_a@example.com", role: "company_owner", name: "Owner A", companyId: 1 },
+      { _id: 2, email: "dealer_a@example.com", role: "dealer", name: "Dealer A", discountAllocationPercent: 20, companyId: 1 },
     ],
     { production: true }
   );
   const { db, login, api } = server;
   const now = new Date();
 
-  await db.collection("categories").insertOne({ _id: 1, name: "Switches", level: 1, parentId: null, sortOrder: 1, isActive: true, variantTiers: [], variantFinishes: [] });
-  await db.collection("roomtypes").insertOne({ _id: 1, name: "Living Room", isActive: true, sortOrder: 1 });
-  await db.collection("housetypes").insertOne({ _id: 1, name: "2BHK", isActive: true, sortOrder: 1 });
-  await db.collection("housetyperoomtemplates").insertOne({ _id: 1, houseTypeId: 1, roomTypeId: 1, defaultCount: 1, sortOrder: 1 });
+  await db.collection("companies").insertOne({ _id: 1, name: "Company A", slug: "company-a", status: "active", phone: "1111111111", address: "A St", gstNumber: null, email: null, logoUrl: null, tagline: null, createdAt: now, updatedAt: now });
+
+  await db.collection("categories").insertOne({ _id: 1, companyId: 1, name: "Switches", level: 1, parentId: null, sortOrder: 1, isActive: true, variantTiers: [], variantFinishes: [] });
+  await db.collection("roomtypes").insertOne({ _id: 1, companyId: 1, name: "Living Room", isActive: true, sortOrder: 1 });
+  await db.collection("housetypes").insertOne({ _id: 1, companyId: 1, name: "2BHK", isActive: true, sortOrder: 1 });
+  await db.collection("housetyperoomtemplates").insertOne({ _id: 1, companyId: 1, houseTypeId: 1, roomTypeId: 1, defaultCount: 1, sortOrder: 1 });
   await db.collection("products").insertMany([
-    { _id: 1, name: "Keeper Switch", code: "KEEP-1", type: "switch_board", categoryId: 1, unit: "pcs", isActive: true, sortOrder: 1, isMatrix: false, matrixDimensions: null, createdAt: now, updatedAt: now },
-    { _id: 2, name: "Doomed Product", code: "DOOM-P", type: "switch_board", categoryId: 1, unit: "pcs", isActive: true, sortOrder: 2, isMatrix: false, matrixDimensions: null, createdAt: now, updatedAt: now },
-    { _id: 3, name: "Doomed Variant Host", code: "DOOM-V", type: "switch_board", categoryId: 1, unit: "pcs", isActive: true, sortOrder: 3, isMatrix: false, matrixDimensions: null, createdAt: now, updatedAt: now },
+    { _id: 1, companyId: 1, name: "Keeper Switch", code: "KEEP-1", type: "switch_board", categoryId: 1, unit: "pcs", isActive: true, sortOrder: 1, isMatrix: false, matrixDimensions: null, createdAt: now, updatedAt: now },
+    { _id: 2, companyId: 1, name: "Doomed Product", code: "DOOM-P", type: "switch_board", categoryId: 1, unit: "pcs", isActive: true, sortOrder: 2, isMatrix: false, matrixDimensions: null, createdAt: now, updatedAt: now },
+    { _id: 3, companyId: 1, name: "Doomed Variant Host", code: "DOOM-V", type: "switch_board", categoryId: 1, unit: "pcs", isActive: true, sortOrder: 3, isMatrix: false, matrixDimensions: null, createdAt: now, updatedAt: now },
   ]);
   // taxPercent 0 + priceWithoutTax === price avoids GST-rounding drift.
   await db.collection("productvariants").insertMany([
-    { _id: 1, productId: 1, variantCode: "KEEP-1-A", config: {}, price: Decimal128.fromString("1000.00"), priceWithoutTax: Decimal128.fromString("1000.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 1 },
-    { _id: 2, productId: 2, variantCode: "DOOM-P-A", config: {}, price: Decimal128.fromString("2000.00"), priceWithoutTax: Decimal128.fromString("2000.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 1 },
-    { _id: 3, productId: 3, variantCode: "DOOM-V-A", config: {}, price: Decimal128.fromString("500.00"), priceWithoutTax: Decimal128.fromString("500.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 1 },
+    { _id: 1, companyId: 1, productId: 1, variantCode: "KEEP-1-A", config: {}, price: Decimal128.fromString("1000.00"), priceWithoutTax: Decimal128.fromString("1000.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 1 },
+    { _id: 2, companyId: 1, productId: 2, variantCode: "DOOM-P-A", config: {}, price: Decimal128.fromString("2000.00"), priceWithoutTax: Decimal128.fromString("2000.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 1 },
+    { _id: 3, companyId: 1, productId: 3, variantCode: "DOOM-V-A", config: {}, price: Decimal128.fromString("500.00"), priceWithoutTax: Decimal128.fromString("500.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 1 },
     // A second, surviving variant so product #3 never trips MINIMUM_VARIANT when variant #3 is deleted.
-    { _id: 4, productId: 3, variantCode: "DOOM-V-B", config: {}, price: Decimal128.fromString("500.00"), priceWithoutTax: Decimal128.fromString("500.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 2 },
+    { _id: 4, companyId: 1, productId: 3, variantCode: "DOOM-V-B", config: {}, price: Decimal128.fromString("500.00"), priceWithoutTax: Decimal128.fromString("500.00"), taxPercent: Decimal128.fromString("0.00"), isActive: true, sortOrder: 2 },
   ]);
 
-  const superCookie = await login("super_admin@example.com", "admin");
+  const superCookie = await login("owner_a@example.com", "admin");
   const dealerA = await login("dealer_a@example.com", "user");
 
   async function buildQuotation(clientName) {

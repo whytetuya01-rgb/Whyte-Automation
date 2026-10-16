@@ -3,8 +3,8 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Product, ProductVariant, ProductVariantHistory, Category } from "@/models";
 import { withTransaction } from "@/lib/transaction";
 import { getNextSequence } from "@/lib/counter";
-import { requirePermission, requireSession } from "@/lib/api-auth";
-import { getSessionActor } from "@/lib/sessionGuard";
+import { withPermission, withSession } from "@/lib/api-auth";
+import { assertProductImageAllowed } from "@/lib/imageOwnership";
 import {
   ApiError,
   apiSuccess,
@@ -23,32 +23,29 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
-    const session = await requireSession();
-    const role = (session.user as { role?: string }).role;
-    const userId = Number((session.user as { id?: string }).id);
-    const actor = await getSessionActor(userId, role!);
+    return await withSession(async ({ role, permissions }) => {
+      await connectMongoDB();
+      const productId = parseNumericId(id, "product id");
 
-    await connectMongoDB();
-    const productId = parseNumericId(id, "product id");
+      const product = await Product.findById(productId)
+        .populate({
+          path: "category",
+          populate: {
+            path: "parent",
+            populate: { path: "parent" },
+          },
+        })
+        .populate({
+          path: "variants",
+          options: { sort: { sortOrder: 1 } },
+        });
 
-    const product = await Product.findById(productId)
-      .populate({
-        path: "category",
-        populate: {
-          path: "parent",
-          populate: { path: "parent" },
-        },
-      })
-      .populate({
-        path: "variants",
-        options: { sort: { sortOrder: 1 } },
-      });
-
-    if (!product) {
-      throw new ApiError("NOT_FOUND", "Product not found.");
-    }
-    const normalized = normalizeProduct(product.toObject ? product.toObject() : product);
-    return NextResponse.json(redactProductForRole(normalized, role, actor?.permissions));
+      if (!product) {
+        throw new ApiError("NOT_FOUND", "Product not found.");
+      }
+      const normalized = normalizeProduct(product.toObject ? product.toObject() : product);
+      return NextResponse.json(redactProductForRole(normalized, role, permissions));
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products/[id]" });
   }
@@ -64,8 +61,7 @@ export async function GET(_req: Request, context: RouteContext) {
 export async function PATCH(req: Request, context: RouteContext) {
   try {
     // Catalog writes are restricted via catalog:edit capability.
-    await requirePermission("catalog:edit");
-
+    return await withPermission("catalog:edit", async ({ companyId }) => {
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
 
@@ -104,6 +100,15 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     if (Object.keys(data).length === 0) {
       throw new ApiError("VALIDATION_ERROR", "No fields were provided to update.");
+    }
+
+    // Replacing the image may only point at an asset this company owns; an
+    // unchanged value (including a legacy asset already on the product) is fine.
+    if (data.imagePublicId !== undefined) {
+      if (companyId === null) {
+        throw new ApiError("FORBIDDEN", "A company context is required to change a product image.");
+      }
+      await assertProductImageAllowed(data.imagePublicId as string | null, companyId, existingProduct.imagePublicId);
     }
 
     // Category change must point at an existing, active category. Tier/finish on
@@ -166,6 +171,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     return apiSuccess(
       normalizeProduct(updatedProduct?.toObject ? updatedProduct.toObject() : updatedProduct)
     );
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/products/[id]" });
   }
@@ -192,8 +198,8 @@ export async function PATCH(req: Request, context: RouteContext) {
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
     // Soft-deleting products is guarded by catalog:delete capability.
-    const authSession = await requirePermission("catalog:delete");
-    const actor = actorFromSession(authSession);
+    return await withPermission("catalog:delete", async ({ session }) => {
+    const actor = actorFromSession(session);
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
 
@@ -202,7 +208,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
       throw new ApiError("NOT_FOUND", "Product not found.", { field: "id" });
     }
 
-    const deletedBy = authSession.user?.email ?? null;
+    const deletedBy = session.user?.email ?? null;
     const deletedAt = new Date();
 
     const variants = await ProductVariant.find({ productId }).lean();
@@ -244,6 +250,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
     return apiSuccess({
       productId,
       deletedVariants: variants.length,
+    });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/products/[id]" });

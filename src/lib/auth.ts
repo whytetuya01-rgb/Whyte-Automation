@@ -1,9 +1,11 @@
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { connectMongoDB } from "@/lib/mongodb";
-import { AdminUser } from "@/models";
+import { AdminUser, Company } from "@/models";
+import { runUnscoped } from "@/lib/tenant/context";
+import { resolveAccountCompany } from "@/lib/tenant/accountCompany";
 
-const ADMIN_PORTAL_ROLES = new Set(["super_admin", "admin", "configurable_admin"]);
+const ADMIN_PORTAL_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
 const USER_PORTAL_ROLES = new Set(["dealer"]);
 
 export const authOptions = {
@@ -21,27 +23,56 @@ export const authOptions = {
         await connectMongoDB();
         const email = credentials.email.toLowerCase().trim();
 
-        const user = await AdminUser.findOne({ email }).lean();
+        // No tenant context exists yet — resolving WHICH company a login
+        // belongs to is the entire point of this lookup, so it must run
+        // unscoped (this is "auth-lookup", the one reason the tenant-scope
+        // plugin's own docs name for exactly this chicken-and-egg case).
+        // Must be an async callback that AWAITS internally, not a bare arrow
+        // returning the un-awaited query: Mongoose queries are lazy
+        // thenables that only actually execute (and fire the tenant-scope
+        // plugin's hooks) when something calls `.then()`/awaits them. If
+        // that happened outside `runUnscoped`'s callback, the query would
+        // run with no tenant context at all and the plugin would throw.
+        const user = await runUnscoped("auth-lookup", async () => await AdminUser.findOne({ email }).lean());
 
-        if (!user || !user.isActive) return null;
+        if (!user || user.isActive === false) return null;
 
         const isValid = await bcrypt.compare(credentials.password, user.passwordHash);
         if (!isValid) return null;
 
-        // The screen may state which portal it is signing into, but the role is
-        // always loaded from the verified database user. A portal mismatch must
-        // not create a session that can be used to cross the access boundary.
+        // Strict portal separation:
+        // - /admin/login only accepts admin and super_admin accounts
+        // - /login only accepts dealer accounts
         const portal = credentials.portal;
-        const permitted =
-          (portal === "admin" && ADMIN_PORTAL_ROLES.has(user.role)) ||
-          (portal === "user" && USER_PORTAL_ROLES.has(user.role));
-        if (!permitted) return null;
+        if (portal === "admin") {
+          if (!ADMIN_PORTAL_ROLES.has(user.role)) {
+            throw new Error("DEALER_IN_ADMIN_PORTAL");
+          }
+        } else if (portal === "user") {
+          if (!USER_PORTAL_ROLES.has(user.role)) {
+            throw new Error("ADMIN_IN_USER_PORTAL");
+          }
+        } else {
+          return null;
+        }
+
+        // The platform Super Admin has no company. Every other role must carry an
+        // explicit, existing company: a missing companyId is NEVER assumed to be
+        // Company 1 (refuse the login instead). Block only a suspended company.
+        const account = resolveAccountCompany(user.role, (user as { companyId?: unknown }).companyId);
+        if (!account.ok) return null;
+        const resolvedCompanyId = account.companyId;
+        if (resolvedCompanyId !== null) {
+          const company = await Company.findById(resolvedCompanyId).select("status").lean();
+          if (!company || company.status === "suspended") return null;
+        }
 
         return {
           id: String((user as any).id || user._id),
           email: user.email,
           name: user.name ?? user.email,
           role: user.role,
+          companyId: resolvedCompanyId,
           permissions: (user as any).permissions ?? [],
         };
       },
@@ -55,6 +86,7 @@ export const authOptions = {
       if (user) {
         token.role = (user as any).role;
         token.id = user.id;
+        token.companyId = (user as any).companyId ?? null;
         token.permissions = (user as any).permissions ?? [];
       }
       return token;
@@ -63,6 +95,7 @@ export const authOptions = {
       if (session.user) {
         (session.user as any).role = token.role;
         (session.user as any).id = token.id;
+        (session.user as any).companyId = token.companyId ?? null;
         (session.user as any).permissions = token.permissions ?? [];
       }
       return session;

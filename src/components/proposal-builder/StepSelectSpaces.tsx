@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Plus,
   Check,
@@ -11,6 +11,7 @@ import {
   Search,
   X,
   Building,
+  Pencil,
 } from "lucide-react";
 import Image from "next/image";
 import { RoomType, HouseType, Quotation, QuotationRoom } from "@/types";
@@ -62,6 +63,12 @@ export default function StepSelectSpaces({
   // Drag & Drop State for Tab 2
   const [draggingRoomId, setDraggingRoomId] = useState<number | null>(null);
   const [dragOverFloor, setDragOverFloor] = useState<string | null>(null);
+
+  // Rename Space Modal State
+  const [renamingRoomId, setRenamingRoomId] = useState<number | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [isSavingRename, setIsSavingRename] = useState(false);
 
   // Add Room Modal State for Tab 2
   const [addRoomModalFloor, setAddRoomModalFloor] = useState<string | null>(null);
@@ -116,6 +123,73 @@ export default function StepSelectSpaces({
   }, [selectedHouseType, initialRoomTypes]);
 
   const hasHouseTypeContext = Boolean(quotation.houseTypeId && selectedHouseType);
+
+  // Helper to determine if a room is part of the recommended configuration
+  const isRecommendedRoom = useCallback(
+    (room: QuotationRoom): boolean => {
+      if (!hasHouseTypeContext) return false;
+      const rRoomTypeId = room.roomTypeId !== undefined && room.roomTypeId !== null ? Number(room.roomTypeId) : null;
+      return recommendedPresets.some((p) => {
+        if (p.roomTypeId && rRoomTypeId !== null && Number(p.roomTypeId) === rRoomTypeId) return true;
+        if (!rRoomTypeId && room.customName && p.name && room.customName.trim().toLowerCase() === p.name.trim().toLowerCase()) return true;
+        return false;
+      });
+    },
+    [hasHouseTypeContext, recommendedPresets]
+  );
+
+  // Section 2: Selected Other Spaces (selected rooms that are NOT recommended)
+  const selectedOtherRooms = useMemo(() => {
+    return existingRooms.filter((r) => !isRecommendedRoom(r));
+  }, [existingRooms, isRecommendedRoom]);
+
+  // Section 3: Available Space Presets (only unselected presets, excluding every selected space)
+  const availableSpacePresets = useMemo(() => {
+    const candidatePresets = hasHouseTypeContext ? otherPresets : allPresets;
+
+    // Track all selected room types and names (from all existing rooms)
+    const selectedRoomTypeIds = new Set<number>();
+    const selectedNames = new Set<string>();
+
+    existingRooms.forEach((r) => {
+      if (r.roomTypeId !== undefined && r.roomTypeId !== null) {
+        selectedRoomTypeIds.add(Number(r.roomTypeId));
+      }
+      if (r.roomType?.name) {
+        selectedNames.add(r.roomType.name.trim().toLowerCase());
+      }
+      if (r.customName) {
+        selectedNames.add(r.customName.trim().toLowerCase());
+      }
+    });
+
+    // If house type context is active, also exclude any preset that is recommended
+    // (since recommended spaces are exclusively managed in the Recommended Spaces section)
+    if (hasHouseTypeContext) {
+      recommendedPresets.forEach((p) => {
+        if (p.roomTypeId) selectedRoomTypeIds.add(Number(p.roomTypeId));
+        if (p.name) selectedNames.add(p.name.trim().toLowerCase());
+      });
+    }
+
+    const seenNames = new Set<string>();
+    const unselected: ResolvedRoomPreset[] = [];
+
+    candidatePresets.forEach((p) => {
+      const nameKey = p.name.trim().toLowerCase();
+      if (seenNames.has(nameKey)) return;
+
+      const isSelectedById = p.roomTypeId !== undefined && selectedRoomTypeIds.has(Number(p.roomTypeId));
+      const isSelectedByName = selectedNames.has(nameKey);
+
+      if (!isSelectedById && !isSelectedByName) {
+        seenNames.add(nameKey);
+        unselected.push(p);
+      }
+    });
+
+    return unselected;
+  }, [hasHouseTypeContext, otherPresets, allPresets, recommendedPresets, existingRooms]);
 
   // Handlers
   const handleAddPreset = async (preset: ResolvedRoomPreset, targetFloor?: string) => {
@@ -192,6 +266,55 @@ export default function StepSelectSpaces({
     }
   };
 
+  const handleStartRename = (room: QuotationRoom, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    const roomId = Number(room.id ?? (room as any)._id);
+    setRenamingRoomId(roomId);
+    setRenameValue(room.customName ?? getRoomDisplayName(room, existingRooms));
+    setRenameError(null);
+  };
+
+  const handleCancelRename = (e?: React.MouseEvent | React.KeyboardEvent) => {
+    e?.stopPropagation();
+    setRenamingRoomId(null);
+    setRenameValue("");
+    setRenameError(null);
+  };
+
+  const handleSaveRename = async (roomId: number, e?: React.FormEvent | React.MouseEvent) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setRenameError("Space name cannot be empty.");
+      return;
+    }
+    if (trimmed.length > 120) {
+      setRenameError("Space name must be 120 characters or fewer.");
+      return;
+    }
+    if (/[\u0000-\u001f\u007f]/.test(trimmed)) {
+      setRenameError("Space name cannot contain control characters.");
+      return;
+    }
+
+    if (onUpdateRoom) {
+      setIsSavingRename(true);
+      try {
+        await onUpdateRoom(roomId, { customName: trimmed });
+        notify.success(`Renamed space to "${trimmed}"`);
+        setRenamingRoomId(null);
+        setRenameValue("");
+        setRenameError(null);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to rename space";
+        setRenameError(msg);
+      } finally {
+        setIsSavingRename(false);
+      }
+    }
+  };
+
   // Render room card for Tab 1 (Select Rooms) - Clean UI, NO floor dropdown or labels
   const renderTab1SelectedRoomCard = (room: QuotationRoom) => {
     const roomId = Number(room.id ?? (room as any)._id);
@@ -212,18 +335,34 @@ export default function StepSelectSpaces({
       >
         <RoomBackdrop name={room.customName ?? room.roomType?.name ?? displayName} />
         <div className="relative flex h-full min-h-[120px] flex-col justify-between p-4">
-        {/* Top Bar: Icon + Room Name on Left, Check + Cancel on Right (ONE SINGLE ROW) */}
+        {/* Top Bar: Icon + Room Name on Left, Rename + Check + Cancel on Right (ONE SINGLE ROW) */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-black/40 text-accent ring-1 ring-white/15">
               <IconComponent size={18} />
             </div>
-            <p className="font-bold text-sm sm:text-base leading-snug truncate text-white min-w-0 flex-1">
-              {displayName}
-            </p>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-sm sm:text-base leading-snug truncate text-white">
+                {displayName}
+              </p>
+              {room.customName && room.roomType?.name && (
+                <p className="text-[10px] text-gray-400 font-normal truncate leading-tight">
+                  Type: {room.roomType.name}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={(e) => handleStartRename(room, e)}
+              className="w-6 h-6 rounded-lg bg-black/45 ring-1 ring-white/20 hover:bg-white/20 text-white flex items-center justify-center transition text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              title="Rename space for this quotation"
+              aria-label={`Rename ${displayName}`}
+            >
+              <Pencil size={11} />
+            </button>
             <span className="w-5 h-5 rounded-full bg-accent text-white flex items-center justify-center text-xs font-black shadow-2xs">
               <Check size={12} strokeWidth={3} />
             </span>
@@ -334,7 +473,7 @@ export default function StepSelectSpaces({
       >
         <RoomBackdrop name={room.customName ?? room.roomType?.name ?? displayName} />
         <div className="relative flex h-full min-h-[125px] flex-col justify-between p-4">
-        {/* Top Bar: Grip Icon + Room Icon + Room Name on Left, Cancel button on Right (ONE SINGLE ROW) */}
+        {/* Top Bar: Grip Icon + Room Icon + Room Name on Left, Rename + Cancel on Right (ONE SINGLE ROW) */}
         <div className="flex items-center justify-between gap-2 min-w-0">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <span title="Drag to change floor">
@@ -346,23 +485,41 @@ export default function StepSelectSpaces({
             <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 bg-black/40 text-accent ring-1 ring-white/15">
               <IconComponent size={16} />
             </div>
-            <p className="font-bold text-sm leading-snug truncate text-white min-w-0 flex-1">
-              {displayName}
-            </p>
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-sm leading-snug truncate text-white">
+                {displayName}
+              </p>
+              {room.customName && room.roomType?.name && (
+                <p className="text-[10px] text-gray-400 font-normal truncate leading-tight">
+                  Type: {room.roomType.name}
+                </p>
+              )}
+            </div>
           </div>
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleRemovePreset(room);
-            }}
-            className="w-5 h-5 rounded-full bg-black/45 ring-1 ring-white/20 hover:bg-red-500/40 text-white hover:text-red-100 flex items-center justify-center transition shrink-0 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            title="Remove space"
-            aria-label={`Remove ${displayName}`}
-          >
-            ×
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={(e) => handleStartRename(room, e)}
+              className="w-6 h-6 rounded-lg bg-black/45 ring-1 ring-white/20 hover:bg-white/20 text-white flex items-center justify-center transition text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              title="Rename space for this quotation"
+              aria-label={`Rename ${displayName}`}
+            >
+              <Pencil size={11} />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRemovePreset(room);
+              }}
+              className="w-5 h-5 rounded-full bg-black/45 ring-1 ring-white/20 hover:bg-red-500/40 text-white hover:text-red-100 flex items-center justify-center transition shrink-0 text-xs font-bold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              title="Remove space"
+              aria-label={`Remove ${displayName}`}
+            >
+              ×
+            </button>
+          </div>
         </div>
 
         {/* Middle Section: FLOOR / LOCATION Dropdown (EXACTLY ONCE, NO DUPLICATES) */}
@@ -488,22 +645,25 @@ export default function StepSelectSpaces({
 
         {existingRooms.length > 0 && (
           <div className="flex flex-wrap gap-1.5 max-w-2xl">
-            {existingRooms.map((r) => (
-              <span
-                key={r.id ?? (r as any)._id}
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gray-50 border border-gray-200 text-gray-800 text-xs font-semibold"
-              >
-                {getRoomDisplayName(r, existingRooms)}
-                <button
-                  type="button"
-                  onClick={() => handleRemovePreset(r)}
-                  className="hover:text-red-600 p-0.5 text-xs font-bold leading-none text-gray-400"
-                  title="Remove space"
+            {existingRooms.map((r) => {
+              const rDisplayName = getRoomDisplayName(r, existingRooms);
+              return (
+                <span
+                  key={r.id ?? (r as any)._id}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gray-50 border border-gray-200 text-gray-800 text-xs font-semibold"
                 >
-                  ×
-                </button>
-              </span>
-            ))}
+                  <span className="truncate max-w-[140px] sm:max-w-[200px]">{rDisplayName}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemovePreset(r)}
+                    className="hover:text-red-600 p-0.5 text-xs font-bold leading-none text-gray-400"
+                    title="Remove space"
+                  >
+                    ×
+                  </button>
+                </span>
+              );
+            })}
           </div>
         )}
       </div>
@@ -588,33 +748,46 @@ export default function StepSelectSpaces({
             </div>
           )}
 
-          {/* Additional / Available Space Presets */}
-          {((hasHouseTypeContext && otherPresets.length > 0) ||
-            (!hasHouseTypeContext && allPresets.length > 0)) && (
+          {/* Section 2: Selected Other Spaces (Only when dealer selects at least 1 non-recommended space) */}
+          {selectedOtherRooms.length > 0 && (
             <div className="space-y-3 pt-2">
               <div className="flex items-center justify-between px-1">
-                <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold">
-                  {hasHouseTypeContext ? "Additional Space Presets" : "Available Space Presets"}
-                </h3>
-                <span className="text-xs text-gray-400 hidden sm:inline">
-                  Click a card to add space
-                </span>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold">
+                    Selected Other Spaces
+                  </h3>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                    {selectedOtherRooms.length} {selectedOtherRooms.length === 1 ? "space" : "spaces"}
+                  </span>
+                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3.5 sm:gap-4">
-                {(hasHouseTypeContext ? otherPresets : allPresets).map((preset) => {
-                  const matchingRooms = existingRooms.filter((r) => {
-                    const rRoomTypeId = r.roomTypeId !== undefined && r.roomTypeId !== null ? Number(r.roomTypeId) : null;
-                    if (preset.roomTypeId && rRoomTypeId === Number(preset.roomTypeId)) return true;
-                    if (!rRoomTypeId && r.customName && preset.name && r.customName.trim().toLowerCase() === preset.name.trim().toLowerCase()) return true;
-                    return false;
-                  });
+                {selectedOtherRooms.map((room) => renderTab1SelectedRoomCard(room))}
+              </div>
+            </div>
+          )}
 
-                  if (matchingRooms.length > 0) {
-                    return matchingRooms.map((room) => renderTab1SelectedRoomCard(room));
-                  }
-                  return renderTab1PresetCard(preset);
-                })}
+          {/* Section 3: Available Space Presets (Shows only currently unselected spaces available to add + Add Custom Room) */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold">
+                  Available Space Presets
+                </h3>
+                {availableSpacePresets.length > 0 && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                    {availableSpacePresets.length} available
+                  </span>
+                )}
+              </div>
+              <span className="text-xs text-gray-400 hidden sm:inline">
+                Click a card to add space
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3.5 sm:gap-4">
+              {availableSpacePresets.map((preset) => renderTab1PresetCard(preset))}
 
                 {/* + Add Custom Room Card */}
                 <div
@@ -675,7 +848,6 @@ export default function StepSelectSpaces({
                 </div>
               </div>
             </div>
-          )}
         </div>
       )}
 
@@ -974,6 +1146,145 @@ export default function StepSelectSpaces({
           </button>
         )}
       </div>
+
+      {/* RENAME SPACE MODAL */}
+      {renamingRoomId !== null && (() => {
+        const targetRoom = existingRooms.find((r) => Number(r.id ?? (r as any)._id) === renamingRoomId);
+        if (!targetRoom) return null;
+        const originalTypeName = targetRoom.roomType?.name || null;
+
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-fadeIn"
+            onClick={handleCancelRename}
+          >
+            <div
+              className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-gray-200 space-y-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-gray-950 text-white flex items-center justify-center font-bold text-xs">
+                    <Pencil size={15} className="text-accent" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-gray-950">
+                      Rename Space
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      Quotation-specific display name override
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleCancelRename}
+                  className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center text-sm font-bold transition"
+                  aria-label="Close dialog"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              {/* Master Room Type Reference Context */}
+              {originalTypeName && (
+                <div className="rounded-xl bg-gray-50 border border-gray-200 px-3.5 py-2 flex items-center justify-between text-xs">
+                  <span className="text-gray-500 font-medium">Master Room Type:</span>
+                  <span className="font-semibold text-gray-900">{originalTypeName}</span>
+                </div>
+              )}
+
+              {/* Rename Form */}
+              <form
+                onSubmit={(e) => handleSaveRename(renamingRoomId, e)}
+                className="space-y-4"
+              >
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="custom-space-name-input" className="block text-xs font-bold text-gray-900">
+                      Space Display Name
+                    </label>
+                    <span className="text-[11px] font-mono text-gray-400">
+                      {renameValue.length}/120
+                    </span>
+                  </div>
+
+                  <input
+                    id="custom-space-name-input"
+                    type="text"
+                    autoFocus
+                    value={renameValue}
+                    onChange={(e) => {
+                      setRenameValue(e.target.value);
+                      if (renameError) setRenameError(null);
+                    }}
+                    maxLength={120}
+                    placeholder="e.g. Person A Room, Master Suite, Studio"
+                    className={`w-full h-10 px-3 bg-white border rounded-xl text-xs font-semibold focus:outline-none transition ${
+                      renameError
+                        ? "border-red-500 focus:ring-2 focus:ring-red-500/20"
+                        : "border-gray-300 focus:border-gray-950 focus:ring-2 focus:ring-gray-950/10"
+                    }`}
+                  />
+
+                  {renameError && (
+                    <p className="text-xs text-red-600 font-medium pt-0.5">
+                      {renameError}
+                    </p>
+                  )}
+
+                  <p className="text-[11px] text-gray-400 leading-relaxed pt-1">
+                    This custom name will be shown on this quotation only (Review, Product Summary, and exported PDF). Master room types remain unchanged.
+                  </p>
+                </div>
+
+                {/* Reset to Default Action if customName is set */}
+                {targetRoom.customName && originalTypeName && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRenameValue(originalTypeName);
+                        if (renameError) setRenameError(null);
+                      }}
+                      className="text-xs text-accent hover:underline font-semibold"
+                    >
+                      Revert to default name ({originalTypeName})
+                    </button>
+                  </div>
+                )}
+
+                {/* Modal Actions */}
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                  <button
+                    type="button"
+                    onClick={handleCancelRename}
+                    className="px-4 py-2 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingRename || !renameValue.trim()}
+                    className="px-5 py-2 bg-gray-950 hover:bg-gray-800 text-white text-xs font-bold rounded-xl transition shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    {isSavingRename ? (
+                      <span>Saving...</span>
+                    ) : (
+                      <>
+                        <Check size={14} strokeWidth={2.5} />
+                        <span>Save Name</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Delete confirmation is raised through the global ConfirmProvider portal. */}
     </div>

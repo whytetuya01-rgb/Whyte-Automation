@@ -1,8 +1,10 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export interface IHouseTypeRoomTemplate {
   _id: number;
   id?: number;
+  companyId: number;
   houseTypeId: number;
   roomTypeId: number;
   defaultCount: number;
@@ -66,8 +68,10 @@ HouseTypeRoomTemplateSchema.virtual("roomType", {
 });
 
 // Compound index for querying room templates by house type
-HouseTypeRoomTemplateSchema.index({ houseTypeId: 1, roomTypeId: 1 });
-HouseTypeRoomTemplateSchema.index({ houseTypeId: 1, sortOrder: 1 });
+HouseTypeRoomTemplateSchema.index({ companyId: 1, houseTypeId: 1, roomTypeId: 1 });
+HouseTypeRoomTemplateSchema.index({ companyId: 1, houseTypeId: 1, sortOrder: 1 });
+
+tenantScopePlugin(HouseTypeRoomTemplateSchema);
 
 export const HouseTypeRoomTemplate: Model<IHouseTypeRoomTemplateDocument> =
   mongoose.models.HouseTypeRoomTemplate ||

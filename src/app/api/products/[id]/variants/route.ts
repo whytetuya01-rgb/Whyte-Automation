@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Product, ProductVariant } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -24,23 +24,22 @@ type RouteContext = { params: Promise<{ id: string }> };
 export async function GET(_req: Request, context: RouteContext) {
   const { id } = await context.params;
   try {
-    const session = await requirePermission("catalog:read");
-    const role = (session.user as { role?: string }).role;
+    return await withPermission("catalog:read", async ({ role, permissions }) => {
+      await connectMongoDB();
+      const productId = parseNumericId(id, "id");
 
-    await connectMongoDB();
-    const productId = parseNumericId(id, "id");
+      const product = await Product.findById(productId);
+      if (!product) {
+        throw new ApiError("NOT_FOUND", "Product not found.");
+      }
 
-    const product = await Product.findById(productId);
-    if (!product) {
-      throw new ApiError("NOT_FOUND", "Product not found.");
-    }
-
-    const variants = await ProductVariant.find({ productId }).sort({ sortOrder: 1, _id: 1 });
-    return NextResponse.json(
-      variants.map((v) =>
-        redactVariantForRole(serializeVariant(v.toObject()), role, session.permissions)
-      )
-    );
+      const variants = await ProductVariant.find({ productId }).sort({ sortOrder: 1, _id: 1 });
+      return NextResponse.json(
+        variants.map((v) =>
+          redactVariantForRole(serializeVariant(v.toObject()), role, permissions)
+        )
+      );
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products/[id]/variants" });
   }
@@ -61,46 +60,46 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    await requirePermission("catalog:edit");
+    return await withPermission("catalog:edit", async () => {
+      await connectMongoDB();
+      const productId = parseNumericId((await context.params).id, "product id");
 
-    await connectMongoDB();
-    const productId = parseNumericId((await context.params).id, "product id");
+      const parsed = addVariantSchema.safeParse(await readJsonBody(req));
+      if (!parsed.success) throw parsed.error;
 
-    const parsed = addVariantSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) throw parsed.error;
+      const {
+        automationTier,
+        surfaceFinish,
+        variantCode,
+        name,
+        price,
+        priceWithoutTax,
+        taxPercent,
+        cost,
+        purchaseTaxPercent,
+      } = parsed.data;
 
-    const {
-      automationTier,
-      surfaceFinish,
-      variantCode,
-      name,
-      price,
-      priceWithoutTax,
-      taxPercent,
-      cost,
-      purchaseTaxPercent,
-    } = parsed.data;
+      const created = await addVariantToProduct({
+        productId,
+        automationTier,
+        surfaceFinish,
+        variantCode,
+        name,
+        price,
+        priceWithoutTax,
+        taxPercent,
+        cost,
+        purchaseTaxPercent,
+      });
 
-    const created = await addVariantToProduct({
-      productId,
-      automationTier,
-      surfaceFinish,
-      variantCode,
-      name,
-      price,
-      priceWithoutTax,
-      taxPercent,
-      cost,
-      purchaseTaxPercent,
+      return apiSuccess(
+        {
+          message: `Variant "${variantCode}" added.`,
+          variant: serializeVariant(created.toObject()),
+        },
+        { status: 201 }
+      );
     });
-
-    return apiSuccess(
-      {
-        message: `Variant "${variantCode}" added.`,
-        variant: serializeVariant(created.toObject()),
-      },
-      { status: 201 }
-    );
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/products/[id]/variants" });
   }
@@ -118,8 +117,7 @@ export async function POST(req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requirePermission("catalog:edit");
-
+    return await withPermission("catalog:edit", async () => {
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
 
@@ -222,6 +220,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     return apiSuccess({
       message: `Updated ${incoming.length} variant${incoming.length === 1 ? "" : "s"} successfully.`,
       variants: updatedVariants.map((v) => serializeVariant(v.toObject())),
+    });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/products/[id]/variants" });

@@ -93,10 +93,11 @@ export default function QuotationOwnership({ quotation }: { quotation: Quotation
 
   const creatorName = quotation.createdByUser?.name ?? null;
   const dealerName = quotation.dealer?.name ?? null;
+  const salesName = (quotation as any).assignedSales?.name ?? null;
   const createdOn = mounted ? formatDateTime(quotation.createdAt) : "";
   const assignedOn = mounted ? formatDateTime(quotation.assignedOn) : "";
 
-  if (!quotation.id || (!creatorName && !dealerName)) return null;
+  if (!quotation.id || (!creatorName && !dealerName && !salesName)) return null;
 
   return (
     <div className="bg-white border border-gray-200 rounded-2xl px-4 py-3">
@@ -113,10 +114,18 @@ export default function QuotationOwnership({ quotation }: { quotation: Quotation
           )}
           {dealerName && (
             <div>
-              <dt className="text-gray-400 font-semibold uppercase tracking-wider text-[10px]">Assigned to</dt>
+              <dt className="text-gray-400 font-semibold uppercase tracking-wider text-[10px]">Assigned to Dealer</dt>
               <dd className="text-gray-900 font-medium">
                 {dealerName}
                 {assignedOn && <span className="text-gray-400 font-normal"> · {assignedOn}</span>}
+              </dd>
+            </div>
+          )}
+          {salesName && (
+            <div>
+              <dt className="text-gray-400 font-semibold uppercase tracking-wider text-[10px]">Sales Executive</dt>
+              <dd className="text-gray-900 font-medium">
+                {salesName}
               </dd>
             </div>
           )}

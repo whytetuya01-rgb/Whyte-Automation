@@ -3,11 +3,12 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation, QuotationRoom, QuotationItem } from "@/models";
 import type { QuotationAuditAction } from "@/models";
 import { withTransaction } from "@/lib/transaction";
-import { requirePermission } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
+import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { assignQuotationSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { calculateDealerEarning, customerDiscountError, resolveCustomerDiscountPercent } from "@/lib/dealerEarnings";
-import { requireActiveDealer } from "@/lib/quotationOwnership";
+import { requireActiveDealer, requireActiveSalesExecutive } from "@/lib/quotationOwnership";
 import { dealerSnapshot, recordQuotationEvent } from "@/lib/quotationAudit";
 
 export const dynamic = "force-dynamic";
@@ -15,10 +16,11 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ id: string }> };
 
 /**
- * POST /api/quotations/[id]/assign   { dealerId: number | null }
+ * POST /api/quotations/[id]/assign   { dealerId?: number | null, assignedSalesId?: number | null }
  *
- * Assigns, reassigns or (dealerId = null) unassigns a quotation.
- * Requires quotations:assign_dealer permission.
+ * Assigns, reassigns or unassigns quotation ownership to a dealer and/or sales executive.
+ * - Changing dealerId requires quotations:assign_dealer permission.
+ * - Changing assignedSalesId requires quotations:assign_sales permission.
  *
  * `createdBy` / `createdAt` are never touched. `assignedBy` and `assignedOn` come
  * from the session and the server clock, never from the request body.
@@ -29,35 +31,69 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const session = await requirePermission("quotations:assign_dealer");
-    const userId = Number((session.user as { id?: string }).id);
+    return await withSession(async ({ userId, role, permissions }) => {
+      const { id } = await context.params;
+      const quotationId = parseQuotationId(id);
+      const { dealerId, assignedSalesId } = assignQuotationSchema.parse(await readJsonBody(req));
 
-    const { id } = await context.params;
-    const quotationId = parseQuotationId(id);
-    const { dealerId } = assignQuotationSchema.parse(await readJsonBody(req));
+      if (dealerId === undefined && assignedSalesId === undefined) {
+        throw new ApiError("VALIDATION_ERROR", "At least one of dealerId or assignedSalesId must be provided.");
+      }
 
-    await connectMongoDB();
+      if (dealerId !== undefined) {
+        if (!hasPermission(role, permissions, "quotations:assign_dealer")) {
+          throw new ApiError("FORBIDDEN", "You do not have permission to assign dealers.", { field: "dealerId" });
+        }
+      }
 
-    const existing = await Quotation.findById(quotationId);
-    if (!existing) {
-      throw new ApiError("NOT_FOUND", "Quotation not found.");
-    }
+      if (assignedSalesId !== undefined) {
+        if (!hasPermission(role, permissions, "quotations:assign_sales")) {
+          throw new ApiError("FORBIDDEN", "You do not have permission to assign sales executives.", {
+            field: "assignedSalesId",
+          });
+        }
+      }
 
-    if (existing.status === "approved" || existing.status === "delivered") {
-      throw new ApiError(
-        "FORBIDDEN",
-        `Quotation is ${existing.status} and cannot be reassigned. Earnings for approved quotations are final.`
-      );
-    }
+      await connectMongoDB();
 
-    const previousDealerId = existing.dealerId ?? null;
-    const nextDealer = dealerId === null ? null : await requireActiveDealer(dealerId);
-    const nextDealerId = nextDealer ? nextDealer._id : null;
+      const existing = await Quotation.findById(quotationId);
+      if (!existing) {
+        throw new ApiError("NOT_FOUND", "Quotation not found.");
+      }
 
-    if (previousDealerId === nextDealerId) {
+      if (existing.status === "approved" || existing.status === "delivered") {
+        throw new ApiError(
+          "FORBIDDEN",
+          `Quotation is ${existing.status} and cannot be reassigned. Earnings for approved quotations are final.`
+        );
+      }
+
+      const previousDealerId = existing.dealerId ?? null;
+      const nextDealer =
+        dealerId === undefined
+          ? previousDealerId
+            ? await AdminUser.findById(previousDealerId).lean()
+            : null
+          : dealerId === null
+            ? null
+            : await requireActiveDealer(dealerId, existing.companyId);
+      const nextDealerId = nextDealer ? nextDealer._id : null;
+
+      let nextSalesId = existing.assignedSalesId ?? null;
+      if (assignedSalesId !== undefined) {
+        if (assignedSalesId === null) {
+          nextSalesId = null;
+        } else {
+          const validatedSales = await requireActiveSalesExecutive(assignedSalesId, existing.companyId);
+          nextSalesId = validatedSales._id;
+        }
+      }
+
+    if (previousDealerId === nextDealerId && existing.assignedSalesId === nextSalesId) {
       return apiSuccess({
         id: quotationId,
         dealerId: previousDealerId,
+        assignedSalesId: existing.assignedSalesId ?? null,
         assignedBy: existing.assignedBy ?? null,
         assignedOn: existing.assignedOn ?? null,
         changed: false,
@@ -110,8 +146,9 @@ export async function POST(req: Request, context: RouteContext) {
         {
           $set: {
             dealerId: nextDealerId,
-            assignedBy: nextDealerId === null ? null : userId,
-            assignedOn: nextDealerId === null ? null : assignedOn,
+            assignedSalesId: nextSalesId,
+            assignedBy: nextDealerId === null && nextSalesId === null ? null : userId,
+            assignedOn: nextDealerId === null && nextSalesId === null ? null : assignedOn,
             allocatedDiscountPercent: nextAllocated,
             estimatedEarningPercent: earningPercent,
             estimatedEarningAmount: mongoose.Types.Decimal128.fromString(earningAmount.toFixed(2)),
@@ -142,11 +179,13 @@ export async function POST(req: Request, context: RouteContext) {
     return apiSuccess({
       id: quotationId,
       dealerId: updated.dealerId ?? null,
+      assignedSalesId: updated.assignedSalesId ?? null,
       assignedBy: updated.assignedBy ?? null,
       assignedOn: updated.assignedOn ?? null,
       allocatedDiscountPercent: updated.allocatedDiscountPercent,
       estimatedEarningPercent: updated.estimatedEarningPercent,
       changed: true,
+    });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/assign" });

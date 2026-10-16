@@ -79,7 +79,13 @@ export const SearchableSelect = React.forwardRef<HTMLDivElement, SearchableSelec
     const filteredOptions = useMemo(() => {
       const needle = query.trim().toLowerCase();
       if (!needle) return options;
-      return options.filter((opt) => opt.label.toLowerCase().includes(needle));
+      return options.filter((opt) => {
+        if (opt.label && opt.label.toLowerCase().includes(needle)) return true;
+        if (opt.subLabel && opt.subLabel.toLowerCase().includes(needle)) return true;
+        if (opt.badge && opt.badge.toLowerCase().includes(needle)) return true;
+        if (opt.searchTerms && opt.searchTerms.some((term) => term && term.toLowerCase().includes(needle))) return true;
+        return false;
+      });
     }, [options, query]);
 
     // Determine popover direction
@@ -218,10 +224,21 @@ export const SearchableSelect = React.forwardRef<HTMLDivElement, SearchableSelec
               triggerClassName
             )}
           >
-            <div className="flex items-center gap-2 truncate">
+            <div className="flex items-center gap-2 truncate min-w-0 flex-1">
               {icon && <span className="text-neutral-400 shrink-0">{icon}</span>}
               <span className={cn("truncate", !selectedOption && "text-neutral-400")}>
-                {selectedOption ? selectedOption.label : placeholder}
+                {selectedOption ? (
+                  <span className="flex items-center gap-1.5 truncate">
+                    <span className="truncate">{selectedOption.label}</span>
+                    {selectedOption.subLabel && (
+                      <span className="font-mono text-[11px] text-neutral-400 shrink-0">
+                        ({selectedOption.subLabel})
+                      </span>
+                    )}
+                  </span>
+                ) : (
+                  placeholder
+                )}
               </span>
             </div>
             <ChevronDown
@@ -304,11 +321,18 @@ export const SearchableSelect = React.forwardRef<HTMLDivElement, SearchableSelec
                                 : "text-neutral-700 hover:bg-neutral-50 cursor-pointer"
                         )}
                       >
-                        <div className="flex items-center gap-2 truncate">
+                        <div className="flex items-center gap-2 truncate min-w-0 flex-1">
                           {opt.icon && (
                             <span className={cn("shrink-0", isSelected ? "text-accent" : "text-neutral-400")}>{opt.icon}</span>
                           )}
-                          <span className="truncate">{opt.label}</span>
+                          <div className="flex flex-col min-w-0 text-left">
+                            <span className="truncate leading-tight font-medium">{opt.label}</span>
+                            {opt.subLabel && (
+                              <span className="font-mono text-[10px] text-neutral-400 mt-0.5 truncate">
+                                {opt.subLabel}
+                              </span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-1.5 shrink-0">
                           {opt.badge && (

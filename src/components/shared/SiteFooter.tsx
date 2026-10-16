@@ -1,6 +1,7 @@
 import { Mail, Phone } from "lucide-react";
 import type { FooterCompany } from "@/lib/footerCompany";
 import { cn } from "@/lib/utils";
+import SocialLinks from "@/components/shared/SocialLinks";
 
 interface SiteFooterProps {
   company: FooterCompany;
@@ -15,7 +16,7 @@ function ContactLinks({ company, className }: { company: FooterCompany; classNam
       {company.phone && (
         <a
           href={`tel:${company.phone.replace(/[^\d+]/g, "")}`}
-          className="inline-flex items-center gap-1.5 transition-colors hover:text-[#D85B83]"
+          className="inline-flex items-center gap-1.5 transition-colors hover:text-[var(--color-admin-primary,#D85B83)]"
         >
           <Phone size={12} aria-hidden="true" />
           <span>{company.phone}</span>
@@ -24,7 +25,7 @@ function ContactLinks({ company, className }: { company: FooterCompany; classNam
       {company.email && (
         <a
           href={`mailto:${company.email}`}
-          className="inline-flex min-w-0 items-center gap-1.5 transition-colors hover:text-[#D85B83]"
+          className="inline-flex min-w-0 items-center gap-1.5 transition-colors hover:text-[var(--color-admin-primary,#D85B83)]"
         >
           <Mail size={12} aria-hidden="true" />
           <span className="truncate">{company.email}</span>
@@ -40,11 +41,15 @@ export default function SiteFooter({ company, variant }: SiteFooterProps) {
   if (variant === "admin") {
     return (
       <footer className="mt-auto border-t border-neutral-200/80 px-3.5 py-3 text-[11px] text-neutral-500 sm:px-5 md:px-6 xl:px-8">
-        <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p>
             © {year} {company.name}. All rights reserved.
           </p>
-          <ContactLinks company={company} />
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <ContactLinks company={company} />
+            <span className="hidden sm:inline text-neutral-300">|</span>
+            <SocialLinks variant="footer" iconClassName="w-3 h-3" />
+          </div>
         </div>
       </footer>
     );
@@ -64,7 +69,11 @@ export default function SiteFooter({ company, variant }: SiteFooterProps) {
             </>
           )}
         </div>
-        <ContactLinks company={company} className="text-gray-500" />
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <ContactLinks company={company} className="text-gray-500" />
+          <span className="hidden sm:inline text-gray-200">|</span>
+          <SocialLinks variant="footer" iconClassName="w-3.5 h-3.5" />
+        </div>
       </div>
     </footer>
   );

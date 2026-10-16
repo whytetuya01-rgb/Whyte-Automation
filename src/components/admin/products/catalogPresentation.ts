@@ -135,6 +135,9 @@ export type CatalogStatTone = CatalogStatCard["tone"];
 export const STAT_TONE_CLASSES: Record<CatalogStatTone, { icon: string; value: string }> = {
   neutral: { icon: "bg-neutral-100 text-neutral-600", value: "text-neutral-900" },
   success: { icon: "bg-emerald-50 text-emerald-600", value: "text-emerald-700" },
-  accent: { icon: "bg-pink-50 text-pink-600", value: "text-pink-700" },
+  accent: {
+    icon: "bg-[var(--color-admin-primary-soft,#FCEAF0)] text-[var(--color-admin-primary,#D85B83)]",
+    value: "text-[var(--color-admin-primary-foreground,#B83E68)]",
+  },
   info: { icon: "bg-violet-50 text-violet-600", value: "text-violet-700" },
 };

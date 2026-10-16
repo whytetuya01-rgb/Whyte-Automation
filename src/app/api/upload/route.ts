@@ -1,5 +1,7 @@
 import type { NextResponse } from "next/server";
-import { requireAnyPermission } from "@/lib/api-auth";
+import { withAnyPermission } from "@/lib/api-auth";
+import { assertImageManageable } from "@/lib/imageOwnership";
+import { companyProductFolder } from "@/lib/uploadPaths";
 import {
   CloudinaryAuthError,
   CloudinaryConfigError,
@@ -98,64 +100,70 @@ function detectImageSignature(buffer: Buffer): string | null {
 
 export async function POST(req: Request) {
   try {
-    // Only administrators with catalog permissions may upload product images
-    await requireAnyPermission("catalog:create", "catalog:edit");
+    // Only administrators with catalog permissions may upload product images.
+    return await withAnyPermission(["catalog:create", "catalog:edit"], async ({ companyId }) => {
+      // Every upload lands in the caller's own company folder; the company is
+      // taken from the session, never from the request.
+      if (companyId === null) {
+        throw new ApiError("FORBIDDEN", "A company context is required to upload images.");
+      }
 
-    let formData: FormData;
-    try {
-      formData = await req.formData();
-    } catch {
-      throw new ApiError("VALIDATION_ERROR", "Expected a multipart/form-data upload.");
-    }
+      let formData: FormData;
+      try {
+        formData = await req.formData();
+      } catch {
+        throw new ApiError("VALIDATION_ERROR", "Expected a multipart/form-data upload.");
+      }
 
-    const file = formData.get("file");
-    if (!(file instanceof File) || file.size === 0) {
-      throw new ApiError("FILE_REQUIRED", "An image file is required.", { field: "file" });
-    }
-    if (file.size > MAX_UPLOAD_SIZE) {
-      throw new ApiError(
-        "FILE_TOO_LARGE",
-        `File size must be ${Math.floor(MAX_UPLOAD_SIZE / (1024 * 1024))}MB or less.`,
-        { field: "file", details: { maxBytes: MAX_UPLOAD_SIZE, receivedBytes: file.size } }
-      );
-    }
-    if (!(ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(file.type)) {
-      throw new ApiError(
-        "INVALID_FILE_TYPE",
-        "Only JPEG, PNG and WEBP images are allowed.",
-        {
+      const file = formData.get("file");
+      if (!(file instanceof File) || file.size === 0) {
+        throw new ApiError("FILE_REQUIRED", "An image file is required.", { field: "file" });
+      }
+      if (file.size > MAX_UPLOAD_SIZE) {
+        throw new ApiError(
+          "FILE_TOO_LARGE",
+          `File size must be ${Math.floor(MAX_UPLOAD_SIZE / (1024 * 1024))}MB or less.`,
+          { field: "file", details: { maxBytes: MAX_UPLOAD_SIZE, receivedBytes: file.size } }
+        );
+      }
+      if (!(ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(file.type)) {
+        throw new ApiError(
+          "INVALID_FILE_TYPE",
+          "Only JPEG, PNG and WEBP images are allowed.",
+          {
+            field: "file",
+            details: { allowed: ALLOWED_IMAGE_MIME_TYPES, received: file.type },
+          }
+        );
+      }
+
+      const buffer = Buffer.from(await file.arrayBuffer());
+
+      // The client-supplied Content-Type is only a claim; confirm the bytes.
+      // An *unrecognised* signature is rejected as well — otherwise anything that
+      // is not one of the three allowed formats (a renamed .exe, a GIF, an SVG)
+      // would slip past this allowlist and only be refused upstream, where the
+      // failure surfaces as an opaque 500 instead of a 415.
+      const detected = detectImageSignature(buffer);
+      if (detected === null || detected !== file.type) {
+        throw new ApiError("INVALID_FILE_TYPE", "The file contents do not match its declared type.", {
           field: "file",
-          details: { allowed: ALLOWED_IMAGE_MIME_TYPES, received: file.type },
-        }
-      );
-    }
+          details: detected === null ? { declared: file.type } : { declared: file.type, detected },
+        });
+      }
 
-    const buffer = Buffer.from(await file.arrayBuffer());
+      // Request is valid — now confirm the upload service can actually run.
+      assertCloudinaryConfigured("POST /api/upload");
 
-    // The client-supplied Content-Type is only a claim; confirm the bytes.
-    // An *unrecognised* signature is rejected as well — otherwise anything that
-    // is not one of the three allowed formats (a renamed .exe, a GIF, an SVG)
-    // would slip past this allowlist and only be refused upstream, where the
-    // failure surfaces as an opaque 500 instead of a 415.
-    const detected = detectImageSignature(buffer);
-    if (detected === null || detected !== file.type) {
-      throw new ApiError("INVALID_FILE_TYPE", "The file contents do not match its declared type.", {
-        field: "file",
-        details: detected === null ? { declared: file.type } : { declared: file.type, detected },
-      });
-    }
+      let uploaded;
+      try {
+        uploaded = await uploadImage(buffer, companyProductFolder(companyId));
+      } catch (error) {
+        return handleCloudinaryError(error, "POST /api/upload");
+      }
 
-    // Request is valid — now confirm the upload service can actually run.
-    assertCloudinaryConfigured("POST /api/upload");
-
-    let uploaded;
-    try {
-      uploaded = await uploadImage(buffer, "whyte/products");
-    } catch (error) {
-      return handleCloudinaryError(error, "POST /api/upload");
-    }
-
-    return apiSuccess(uploaded);
+      return apiSuccess(uploaded);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/upload" });
   }
@@ -163,26 +171,29 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   try {
-    await requireAnyPermission("catalog:edit", "catalog:delete");
+    return await withAnyPermission(["catalog:edit", "catalog:delete"], async ({ companyId }) => {
+      if (companyId === null) {
+        throw new ApiError("FORBIDDEN", "A company context is required to delete images.");
+      }
 
-    const { publicId } = deleteUploadSchema.parse(await readJsonBody(req));
-    // A publicId is caller-controlled: keep deletes inside the folder this
-    // endpoint is allowed to manage so it cannot be used to remove other assets.
-    if (!publicId.startsWith("whyte/products/")) {
-      throw new ApiError("VALIDATION_ERROR", "That image does not belong to this upload folder.", {
-        field: "publicId",
-      });
-    }
+      const { publicId } = deleteUploadSchema.parse(await readJsonBody(req));
+      // A publicId is caller-controlled. A company may only delete assets it
+      // owns: its own upload folder, or — for the default company only — the
+      // legacy `whyte/products/` assets that predate companies. Another
+      // company's asset, a path outside the product folders and malformed or
+      // traversal paths are all refused, before Cloudinary is contacted.
+      await assertImageManageable(publicId, companyId);
 
-    assertCloudinaryConfigured("DELETE /api/upload");
+      assertCloudinaryConfigured("DELETE /api/upload");
 
-    try {
-      await deleteImage(publicId);
-    } catch (error) {
-      return handleCloudinaryError(error, "DELETE /api/upload");
-    }
+      try {
+        await deleteImage(publicId);
+      } catch (error) {
+        return handleCloudinaryError(error, "DELETE /api/upload");
+      }
 
-    return apiSuccess({ publicId, deleted: true });
+      return apiSuccess({ publicId, deleted: true });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/upload" });
   }

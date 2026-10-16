@@ -24,7 +24,7 @@ export default function DashboardCard({ title, description, action, className, f
         {action && (
           <Link
             href={action.href}
-            className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-[#5F5F68] hover:text-[#B83E68] transition-colors"
+            className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-[#5F5F68] hover:text-[var(--color-admin-primary-foreground,#B83E68)] transition-colors"
           >
             {action.label}
             <ArrowRight size={13} aria-hidden="true" />

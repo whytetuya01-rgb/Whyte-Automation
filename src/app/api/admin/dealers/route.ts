@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { ApiError, handleApiError } from "@/lib/api-response";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { parseSearchQueryParam, parseStringQueryParam, parseIntQueryParam } from "@/lib/validation/common";
@@ -15,8 +15,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   try {
-    await requirePermission("dealers:read");
-
+    return await withPermission("dealers:read", async () => {
     await connectMongoDB();
 
     const { searchParams } = new URL(req.url);
@@ -115,6 +114,7 @@ export async function GET(req: Request) {
         pageSize: pagination.pageSize,
       })
     );
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/admin/dealers" });
   }

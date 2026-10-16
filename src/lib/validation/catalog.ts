@@ -124,16 +124,18 @@ export const updateRoomTypeSchema = strictObject({
 /**
  * Company is a single-row collection (SINGLETON_COMPANY_ID) with exactly these
  * persisted columns. The PATCH body is an explicit allowlist so a client can
- * never write `_id` or `updatedAt`.
+ * never write `_id` or `updatedAt`. Unknown metadata keys (e.g. `_id`, `slug`,
+ * `status`, `createdAt`, `updatedAt`) are stripped rather than erroring.
  */
-export const updateCompanySchema = strictObject({
+export const updateCompanySchema = z.object({
   name: nameField(160, "Company name is required.").optional(),
   gstNumber: optionalGstinSchema,
-  phone: phoneSchema,
+  phone: phoneSchema.optional(),
   email: optionalEmailSchema,
-  address: requiredText(500, "Address is required."),
+  address: requiredText(500, "Address is required.").optional(),
   logoUrl: optionalText(1000),
   tagline: optionalText(300),
+  theme: z.enum(["whyte-rose", "champagne-bronze", "emerald-haven"]).optional(),
 });
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;

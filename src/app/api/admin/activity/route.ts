@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation, QuotationAuditEvent, QUOTATION_AUDIT_ACTIONS } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { apiSuccess, handleApiError } from "@/lib/api-response";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { parseSearchQueryParam, parseStringQueryParam } from "@/lib/validation/common";
@@ -26,8 +26,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   try {
-    await requirePermission("activity:view");
-
+    return await withPermission("activity:view", async () => {
     const { searchParams } = new URL(req.url);
     const { skip, take, page, pageSize } = parsePaginationParams(searchParams, {
       defaultPageSize: 25,
@@ -177,6 +176,7 @@ export async function GET(req: Request) {
         role: u.role,
         isActive: u.isActive,
       })),
+    });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/admin/activity" });

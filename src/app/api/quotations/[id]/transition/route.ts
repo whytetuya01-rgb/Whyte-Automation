@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { calculateDealerEarning, resolveCustomerDiscountPercent, toPlainNumber } from "@/lib/dealerEarnings";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
@@ -22,9 +22,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const session = await requirePermission("quotations:transition");
-    const userId = Number((session.user as any).id);
-
+    return await withPermission("quotations:transition", async ({ userId }) => {
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
 
@@ -103,6 +101,7 @@ export async function POST(req: Request, context: RouteContext) {
       rejectedBy: quotation.rejectedBy,
       deliveredAt: quotation.deliveredAt,
       deliveredBy: quotation.deliveredBy,
+    });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/transition" });

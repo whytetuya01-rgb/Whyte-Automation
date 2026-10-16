@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation } from "@/models";
-import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, handleApiError, parseNumericId } from "@/lib/api-response";
 import {
@@ -26,8 +26,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: Request) {
   try {
-    const { session, role, userId: callerId, permissions } = await getAuthenticatedActor();
-
+    return await withSession(async ({ role, userId: callerId, permissions }) => {
     const { searchParams } = new URL(req.url);
     const paramDealerId = searchParams.get("dealerId");
 
@@ -275,6 +274,7 @@ export async function GET(req: Request) {
         total: totalFiltered,
         totalPages,
       },
+    });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/dealer/earnings" });

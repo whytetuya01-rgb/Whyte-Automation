@@ -2,10 +2,12 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 import type { ProductType } from "@/types";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export interface IProduct extends SoftDeleteFields {
   _id: number;
   id?: number;
+  companyId: number;
   name: string;
   code: string | null;
   description: string | null;
@@ -111,14 +113,16 @@ ProductSchema.pre("save", function (this: IProductDocument) {
   this.updatedAt = new Date();
 });
 
-// Query optimization indexes
-ProductSchema.index({ createdAt: -1, _id: -1 });
-ProductSchema.index({ categoryId: 1, automationTier: 1, surfaceFinish: 1 });
-ProductSchema.index({ categoryId: 1, isActive: 1, sortOrder: 1 });
-ProductSchema.index({ code: 1 }, { sparse: true });
-ProductSchema.index({ type: 1, isActive: 1 });
+// Query optimization indexes — companyId first on every hot path, so the
+// tenant-scope filter the plugin injects is always the leading index key.
+ProductSchema.index({ companyId: 1, createdAt: -1, _id: -1 });
+ProductSchema.index({ companyId: 1, categoryId: 1, automationTier: 1, surfaceFinish: 1 });
+ProductSchema.index({ companyId: 1, categoryId: 1, isActive: 1, sortOrder: 1 });
+ProductSchema.index({ companyId: 1, code: 1 }, { sparse: true });
+ProductSchema.index({ companyId: 1, type: 1, isActive: 1 });
 
 softDeletePlugin(ProductSchema, { blockHardDelete: true });
+tenantScopePlugin(ProductSchema);
 
 export const Product: Model<IProductDocument> =
   mongoose.models.Product || mongoose.model<IProductDocument>("Product", ProductSchema);

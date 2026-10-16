@@ -1,5 +1,5 @@
 import { connectMongoDB } from "@/lib/mongodb";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { softDeleteVariant, syncProductPriceFromVariants } from "@/lib/variantDeletion";
 import { actorFromSession } from "@/lib/softDelete/actor";
@@ -26,28 +26,29 @@ type RouteContext = { params: Promise<{ id: string; variantId: string }> };
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
     // Variant deletion is guarded by catalog:delete capability.
-    const authSession = await requirePermission("catalog:delete");
-    const actor = actorFromSession(authSession);
-    await connectMongoDB();
+    return await withPermission("catalog:delete", async ({ session }) => {
+      const actor = actorFromSession(session);
+      await connectMongoDB();
 
-    const { id, variantId } = await context.params;
-    const productId = parseNumericId(id, "product id");
-    const varId = parseNumericId(variantId, "variant id");
+      const { id, variantId } = await context.params;
+      const productId = parseNumericId(id, "product id");
+      const varId = parseNumericId(variantId, "variant id");
 
-    const result = await softDeleteVariant({
-      variantId: varId,
-      productId,
-      actor,
-      deletedBy: authSession.user?.email ?? null,
-    });
+      const result = await softDeleteVariant({
+        variantId: varId,
+        productId,
+        actor,
+        deletedBy: session.user?.email ?? null,
+      });
 
-    await syncProductPriceFromVariants(result.productId);
+      await syncProductPriceFromVariants(result.productId);
 
-    return apiSuccess({
-      message: `Variant '${result.variantLabel}' deleted successfully.`,
-      variantId: result.variantId,
-      productId: result.productId,
-      remainingVariants: result.remainingVariants,
+      return apiSuccess({
+        message: `Variant '${result.variantLabel}' deleted successfully.`,
+        variantId: result.variantId,
+        productId: result.productId,
+        remainingVariants: result.remainingVariants,
+      });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/products/[id]/variants/[variantId]" });

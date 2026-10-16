@@ -32,8 +32,16 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${raleway.variable} ${poppins.variable}`}
+      data-theme="whyte-rose"
       suppressHydrationWarning
     >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem('whyte_site_theme')||'whyte-rose';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className={`${raleway.className} font-sans`} suppressHydrationWarning>
         <Providers>
           {children}

@@ -102,7 +102,7 @@ export default function ProductCatalogToolbar({
                 </button>
               ) : null
             }
-            className="h-9 rounded-xl border-neutral-200 bg-white pl-9 pr-9 text-xs focus:ring-pink-500/20 focus:border-neutral-900 transition-colors"
+            className="h-9 rounded-xl border-neutral-200 bg-white pl-9 pr-9 text-xs focus:ring-[var(--color-admin-primary)]/20 focus:border-neutral-900 transition-colors"
           />
         </div>
 
@@ -167,7 +167,7 @@ export default function ProductCatalogToolbar({
                   className={cn(
                     "rounded-lg px-3 py-1 text-xs transition-all",
                     isSelected
-                      ? "bg-white text-pink-600 font-bold shadow-2xs border border-pink-200/60"
+                      ? "bg-white text-[var(--color-admin-primary,#D85B83)] font-bold shadow-2xs border border-[var(--color-admin-primary-border,#F1B8C8)]"
                       : "text-neutral-600 hover:text-neutral-900 hover:bg-white/50 font-semibold"
                   )}
                 >

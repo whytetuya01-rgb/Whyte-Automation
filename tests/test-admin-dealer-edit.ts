@@ -34,7 +34,7 @@ async function run() {
   await connectMongoDB();
 
   console.log("1. Fetching current roles metadata...");
-  const initialRoles = await getAllRolesMetadata();
+  const initialRoles = await getAllRolesMetadata(null);
   const adminRole = initialRoles.find((r) => r.key === "admin");
   const dealerRole = initialRoles.find((r) => r.key === "dealer");
 
@@ -47,33 +47,35 @@ async function run() {
   console.log("\n2. Testing saving customized admin permissions...");
   // Customize admin to revoke catalog:delete
   const customAdminPerms = Array.from(ADMIN_DEFAULT_PERMISSIONS).filter((p) => p !== "catalog:delete");
-  const savedAdmin = await saveRolePermissions("admin", customAdminPerms);
+  const savedAdmin = await saveRolePermissions("admin", customAdminPerms, 1);
   console.log("Saved admin customized:", savedAdmin?.isCustomized, "perms count:", savedAdmin?.permissions.length);
   assert.equal(savedAdmin?.isCustomized, true);
   assert.equal(savedAdmin?.permissions.includes("catalog:delete" as any), false);
 
-  const effectiveAdminPerms = await getRolePermissions("admin");
+  // TODO(Phase 1 Step 4): this test predates company-scoped roles and needs a
+  // full rewrite once saveRolePermissions/getRolePermissions take a companyId.
+  const effectiveAdminPerms = await getRolePermissions("admin", null);
   assert.equal(effectiveAdminPerms.includes("catalog:delete" as any), false);
   console.log("Effective admin perms verify: catalog:delete is revoked");
 
   console.log("\n3. Testing saving customized dealer permissions...");
   // Customize dealer to add catalog:read
   const customDealerPerms = [...Array.from(DEALER_DEFAULT_PERMISSIONS), "catalog:read"];
-  const savedDealer = await saveRolePermissions("dealer", customDealerPerms);
+  const savedDealer = await saveRolePermissions("dealer", customDealerPerms, 1);
   console.log("Saved dealer customized:", savedDealer?.isCustomized, "perms count:", savedDealer?.permissions.length);
   assert.equal(savedDealer?.isCustomized, true);
   assert.equal(savedDealer?.permissions.includes("catalog:read" as any), true);
 
-  const effectiveDealerPerms = await getRolePermissions("dealer");
+  const effectiveDealerPerms = await getRolePermissions("dealer", null);
   assert.equal(effectiveDealerPerms.includes("catalog:read" as any), true);
   console.log("Effective dealer perms verify: catalog:read is granted");
 
   console.log("\n4. Resetting admin and dealer back to defaults...");
-  await resetRoleToDefaults("admin");
-  await resetRoleToDefaults("dealer");
+  await resetRoleToDefaults("admin", 1);
+  await resetRoleToDefaults("dealer", 1);
 
-  const resetAdmin = (await getAllRolesMetadata()).find((r) => r.key === "admin");
-  const resetDealer = (await getAllRolesMetadata()).find((r) => r.key === "dealer");
+  const resetAdmin = (await getAllRolesMetadata(1)).find((r) => r.key === "admin");
+  const resetDealer = (await getAllRolesMetadata(1)).find((r) => r.key === "dealer");
   assert.equal(resetAdmin?.isCustomized, false);
   assert.equal(resetDealer?.isCustomized, false);
   console.log("Successfully restored defaults.");

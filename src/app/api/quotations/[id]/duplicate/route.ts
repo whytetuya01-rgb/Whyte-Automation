@@ -1,8 +1,8 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem } from "@/models";
-import { getNextSequence, reserveSequenceBlock } from "@/lib/counter";
+import { getNextQuotationSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
-import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
 import { canViewQuotation } from "@/lib/quotationAccess";
@@ -10,6 +10,7 @@ import { resolveNewQuotationOwnership } from "@/lib/quotationOwnership";
 import { dealerSnapshot, recordQuotationEvents } from "@/lib/quotationAudit";
 import { duplicateQuotationSchema, parseQuotationId } from "@/lib/validation/quotation";
 import type { DuplicateQuotationInput } from "@/lib/validation/quotation";
+import { redactQuotationForRole } from "@/lib/variantRedaction";
 import {
   isItemUnavailable,
   isRoomUnavailable,
@@ -22,11 +23,9 @@ type RouteContext = { params: Promise<{ id: string }> };
 /** Session required: duplicating a quotation is a business operation. */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    const { role, userId, permissions } = await getAuthenticatedActor();
-    if (role === "configurable_admin") {
-      if (!hasPermission("configurable_admin", permissions, "quotations:create")) {
-        throw new ApiError("FORBIDDEN", "You do not have permission to create quotations.");
-      }
+    return await withSession(async ({ role, userId, permissions }) => {
+    if (!hasPermission(role, permissions, "quotations:create")) {
+      throw new ApiError("FORBIDDEN", "You do not have permission to create quotations.");
     }
 
     const { id } = await context.params;
@@ -78,15 +77,25 @@ export async function POST(req: Request, context: RouteContext) {
     // A clone is a brand-new quotation: the cloning user is its creator, the audit
     // history is NOT copied, and ownership is re-derived from the session.
     //  - dealer: owns the clone; naming another dealer is rejected.
+    //  - sales_executive: clone is strictly assigned to themselves.
     //  - admin / super admin: `dealerId` (a dealer id, or null for "keep for myself")
     //    chooses the owner; when omitted the original dealer is kept (previous behaviour).
+    const normRole = (role || "").trim().toLowerCase();
     const ownership = await (async () => {
-      if (role === "dealer" || overrides.dealerId !== undefined) {
+      if (normRole === "sales_executive") {
+        return resolveNewQuotationOwnership({ role, userId, requestedDealerId: null });
+      }
+      if (normRole === "dealer" || overrides.dealerId !== undefined) {
         return resolveNewQuotationOwnership({ role, userId, requestedDealerId: overrides.dealerId });
       }
       const inheritedDealerId = original.dealerId ?? null;
       try {
-        return await resolveNewQuotationOwnership({ role, userId, requestedDealerId: inheritedDealerId });
+        return await resolveNewQuotationOwnership({
+          role,
+          userId,
+          requestedDealerId: inheritedDealerId,
+          requestedSalesId: original.assignedSalesId ?? null,
+        });
       } catch (error) {
         // The original dealer may have been deactivated since; the clone then
         // simply stays with the admin instead of failing.
@@ -103,7 +112,7 @@ export async function POST(req: Request, context: RouteContext) {
     const duplicatedQuotation = await withTransaction(async (dbSession) => {
       // The sequence and every cloned row share one transaction, so a duplicate
       // can never consume a quotation number and then fail halfway through.
-      const seq = await getNextSequence(`quotationNumber_${year}`, undefined, dbSession);
+      const seq = await getNextQuotationSequence(year, dbSession);
       const quotationNumber = `QT-${year}-${String(seq).padStart(3, "0")}`;
       const newQuotationId = "q_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
 
@@ -114,6 +123,7 @@ export async function POST(req: Request, context: RouteContext) {
       };
 
       const targetDealerId = ownership.dealerId;
+      const targetSalesId = ownership.assignedSalesId;
       const currentAllocated = ownership.allocatedPercent;
 
       const newQuotation = new Quotation({
@@ -136,7 +146,7 @@ export async function POST(req: Request, context: RouteContext) {
         dealerId: targetDealerId,
         assignedBy: ownership.assignedBy,
         assignedOn: ownership.assignedOn,
-        assignedSalesId: null,
+        assignedSalesId: targetSalesId,
         terms: origDoc.terms ?? null,
         validUntil: origDoc.validUntil ?? null,
         defaultTier: origDoc.defaultTier ?? null,
@@ -273,11 +283,9 @@ export async function POST(req: Request, context: RouteContext) {
 
     const { newQuotation, skippedItems } = duplicatedQuotation;
     const quotationJson = typeof newQuotation.toJSON === "function" ? newQuotation.toJSON() : newQuotation;
-    // `skippedItems` rides along on the same response the client already
-    // reads `id`/`_id` from — no separate endpoint, no fake quotation item
-    // created just to carry this message. See `QuotationsListing.tsx`'s
-    // duplicate handler and `ProposalBuilder.tsx` for where it is surfaced.
-    return apiSuccess({ ...quotationJson, skippedItems }, { status: 201 });
+    const redactedQuotation = redactQuotationForRole(quotationJson as any, role, permissions);
+    return apiSuccess({ ...redactedQuotation, skippedItems }, { status: 201 });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/duplicate" });
   }

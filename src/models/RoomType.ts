@@ -1,10 +1,12 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export interface IRoomType extends SoftDeleteFields {
   _id: number;
   id?: number;
+  companyId: number;
   name: string;
   icon: string | null;
   isActive: boolean;
@@ -63,9 +65,10 @@ RoomTypeSchema.virtual("quotationRooms", {
   foreignField: "roomTypeId",
 });
 
-RoomTypeSchema.index({ isActive: 1, sortOrder: 1 });
+RoomTypeSchema.index({ companyId: 1, isActive: 1, sortOrder: 1 });
 
 softDeletePlugin(RoomTypeSchema, { blockHardDelete: true });
+tenantScopePlugin(RoomTypeSchema);
 
 export const RoomType: Model<IRoomTypeDocument> =
   mongoose.models.RoomType || mongoose.model<IRoomTypeDocument>("RoomType", RoomTypeSchema);

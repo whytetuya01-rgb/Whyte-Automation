@@ -36,7 +36,7 @@ export default function StatusSummary({ counts, total }: { counts: Record<Quotat
             <li key={status}>
               <Link
                 href={`/admin/quotations?status=${status}`}
-                className="flex items-center justify-between gap-3 py-2 text-sm hover:text-[#B83E68] transition-colors"
+                className="flex items-center justify-between gap-3 py-2 text-sm hover:text-[var(--color-admin-primary-foreground,#B83E68)] transition-colors"
               >
                 <span className="inline-flex items-center gap-2 text-[#111111]">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_STYLE[status].color }} aria-hidden="true" />

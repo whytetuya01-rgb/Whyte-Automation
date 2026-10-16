@@ -5,7 +5,7 @@ import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { ensureRoomTypesAndTemplatesSeeded } from "@/lib/seedRoomData";
-import { requirePermission, requireRole, requireSession } from "@/lib/api-auth";
+import { withPermission, withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createHouseTypeSchema } from "@/lib/validation/catalog";
 import type { CreateHouseTypeInput } from "@/lib/validation/catalog";
@@ -14,37 +14,37 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireSession();
+    return await withSession(async () => {
+      await connectMongoDB();
+      await ensureRoomTypesAndTemplatesSeeded();
+      const houseTypes = await HouseType.find()
+        .sort({ sortOrder: 1 })
+        .populate({
+          path: "roomTemplate",
+          options: { sort: { sortOrder: 1 } },
+          populate: {
+            path: "roomType",
+          },
+        });
 
-    await connectMongoDB();
-    await ensureRoomTypesAndTemplatesSeeded();
-    const houseTypes = await HouseType.find()
-      .sort({ sortOrder: 1 })
-      .populate({
-        path: "roomTemplate",
-        options: { sort: { sortOrder: 1 } },
-        populate: {
-          path: "roomType",
-        },
+      const cleaned = houseTypes.map((htDoc) => {
+        // `roomTemplate` is a Mongoose virtual, so it only exists on the JSON output.
+        const ht = (
+          typeof htDoc.toJSON === "function" ? htDoc.toJSON() : htDoc
+        ) as unknown as Record<string, unknown>;
+        const templates = Array.isArray(ht.roomTemplate) ? ht.roomTemplate : [];
+        return {
+          ...ht,
+          // Bathroom-like rooms are intentionally hidden from the proposal builder.
+          roomTemplate: templates.filter(
+            (t: { roomType?: { name?: string } | null }) => !isBathroomLikeRoomName(t.roomType?.name)
+          ),
+        };
       });
 
-    const cleaned = houseTypes.map((htDoc) => {
-      // `roomTemplate` is a Mongoose virtual, so it only exists on the JSON output.
-      const ht = (
-        typeof htDoc.toJSON === "function" ? htDoc.toJSON() : htDoc
-      ) as unknown as Record<string, unknown>;
-      const templates = Array.isArray(ht.roomTemplate) ? ht.roomTemplate : [];
-      return {
-        ...ht,
-        // Bathroom-like rooms are intentionally hidden from the proposal builder.
-        roomTemplate: templates.filter(
-          (t: { roomType?: { name?: string } | null }) => !isBathroomLikeRoomName(t.roomType?.name)
-        ),
-      };
+      // GET responses stay unwrapped: the proposal builder reads this array directly.
+      return NextResponse.json(cleaned);
     });
-
-    // GET responses stay unwrapped: the proposal builder reads this array directly.
-    return NextResponse.json(cleaned);
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/house-types" });
   }
@@ -71,7 +71,7 @@ async function resolveRoomTemplateIds(
 export async function POST(req: Request) {
   try {
     // Creating house types requires spaces:manage permission.
-    await requirePermission("spaces:manage");
+    return await withPermission("spaces:manage", async () => {
     await connectMongoDB();
 
     const input: CreateHouseTypeInput = createHouseTypeSchema.parse(await readJsonBody(req));
@@ -136,6 +136,7 @@ export async function POST(req: Request) {
     });
 
     return apiSuccess(createdHouseType, { status: 201 });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/house-types" });
   }

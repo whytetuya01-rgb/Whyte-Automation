@@ -6,8 +6,8 @@ import { getNextSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { getCategoryVariantMatrix } from "@/lib/categoryConfig";
-import { requirePermission, requireSession } from "@/lib/api-auth";
-import { getSessionActor } from "@/lib/sessionGuard";
+import { withPermission, withSession } from "@/lib/api-auth";
+import { assertProductImageAllowed } from "@/lib/imageOwnership";
 import { hasPermission } from "@/lib/permissions";
 import {
   ApiError,
@@ -55,43 +55,29 @@ async function getCategoryAndDescendantIds(catId: number): Promise<number[]> {
 }
 
 export async function GET(req: Request) {
-  // Every product read is business data, so the whole endpoint requires a
-  // session. `?all=true` requires catalog:read capability for configurable admins.
-  let callerRole: string | undefined;
-  let callerPermissions: string[] | undefined;
   try {
-    const session = await requireSession();
-    callerRole = (session.user as { role?: string }).role;
-    const userId = Number((session.user as { id?: string }).id);
-    const actor = await getSessionActor(userId, callerRole!);
-    callerPermissions = actor?.permissions;
-  } catch (error) {
-    return handleApiError(error, { logPrefix: "GET /api/products" });
-  }
+    // Every product read is business data, so the whole endpoint requires a
+    // session. `?all=true` requires catalog:read capability for configurable admins.
+    return await withSession(async ({ role: callerRole, permissions: callerPermissions }) => {
+      const { searchParams } = new URL(req.url);
+      const showAll = searchParams.get("all") === "true";
+      if (showAll && callerRole === "configurable_admin") {
+        if (!hasPermission("configurable_admin", callerPermissions, "catalog:read")) {
+          throw new ApiError("FORBIDDEN", "You do not have permission to view the full product catalog.");
+        }
+      }
+      const isPaginated = searchParams.has("page") || searchParams.has("pageSize");
 
-  const { searchParams } = new URL(req.url);
-  const showAll = searchParams.get("all") === "true";
-  if (showAll && callerRole === "configurable_admin") {
-    if (!hasPermission("configurable_admin", callerPermissions, "catalog:read")) {
-      return handleApiError(
-        new ApiError("FORBIDDEN", "You do not have permission to view the full product catalog."),
-        { logPrefix: "GET /api/products" }
-      );
-    }
-  }
-  const isPaginated = searchParams.has("page") || searchParams.has("pageSize");
+      const searchParam = searchParams.get("search")?.trim();
+      const typeParam = searchParams.get("type")?.trim();
+      const statusParam = searchParams.get("status")?.trim();
+      const categoryParam = searchParams.get("category")?.trim();
+      const automationTierParam = searchParams.get("automationTier")?.trim();
+      const surfaceFinishParam = searchParams.get("surfaceFinish")?.trim();
+      const sortParam = searchParams.get("sort")?.trim();
+      const sortByParam = searchParams.get("sortBy")?.trim();
+      const sortOrderParam = searchParams.get("sortOrder")?.trim();
 
-  const searchParam = searchParams.get("search")?.trim();
-  const typeParam = searchParams.get("type")?.trim();
-  const statusParam = searchParams.get("status")?.trim();
-  const categoryParam = searchParams.get("category")?.trim();
-  const automationTierParam = searchParams.get("automationTier")?.trim();
-  const surfaceFinishParam = searchParams.get("surfaceFinish")?.trim();
-  const sortParam = searchParams.get("sort")?.trim();
-  const sortByParam = searchParams.get("sortBy")?.trim();
-  const sortOrderParam = searchParams.get("sortOrder")?.trim();
-
-  try {
     await connectMongoDB();
 
     const andConditions: Array<Record<string, unknown>> = [];
@@ -298,9 +284,10 @@ export async function GET(req: Request) {
       .populate(populateOptions)
       .lean({ virtuals: true, getters: true });
 
-    const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole, callerPermissions);
+      const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole, callerPermissions);
 
-    return NextResponse.json(products);
+      return NextResponse.json(products);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/products" });
   }
@@ -323,8 +310,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     // Catalog writes are restricted via catalog:create capability.
-    await requirePermission("catalog:create");
-
+    return await withPermission("catalog:create", async ({ companyId }) => {
     await connectMongoDB();
 
     const rawBody = await readJsonBody(req);
@@ -333,6 +319,12 @@ export async function POST(req: Request) {
 
     const { variants: variantsInput, ...productData } = parsed.data;
     const categoryId = productData.categoryId;
+
+    // A new product may only point at an image this company owns.
+    if (companyId === null) {
+      throw new ApiError("FORBIDDEN", "A company context is required to create a product.");
+    }
+    await assertProductImageAllowed(productData.imagePublicId, companyId);
 
     // 1. Authoritative category validation
     const category = await Category.findById(categoryId);
@@ -492,6 +484,7 @@ export async function POST(req: Request) {
       normalizeProduct(createdProduct?.toObject ? createdProduct.toObject() : createdProduct),
       { status: 201 }
     );
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/products" });
   }

@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Category } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -15,8 +15,14 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requirePermission("categories:manage");
+    return await withPermission("categories:manage", () => patchCategory(req, context));
+  } catch (error) {
+    return handleApiError(error, { logPrefix: "PATCH /api/categories/[id]" });
+  }
+}
 
+async function patchCategory(req: Request, context: RouteContext) {
+  {
     await connectMongoDB();
     const catId = parseNumericId((await context.params).id, "category id");
 
@@ -67,14 +73,19 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     return apiSuccess(category);
-  } catch (error) {
-    return handleApiError(error, { logPrefix: "PATCH /api/categories/[id]" });
   }
 }
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    const session = await requirePermission("categories:manage");
+    return await withPermission("categories:manage", (actorCtx) => deleteCategory(context, actorCtx.session));
+  } catch (error) {
+    return handleApiError(error, { logPrefix: "DELETE /api/categories/[id]" });
+  }
+}
+
+async function deleteCategory(context: RouteContext, session: Parameters<typeof actorFromSession>[0]) {
+  {
     const actor = actorFromSession(session);
 
     await connectMongoDB();
@@ -99,7 +110,5 @@ export async function DELETE(_req: Request, context: RouteContext) {
     });
 
     return apiSuccess({ categoryId: catId });
-  } catch (error) {
-    return handleApiError(error, { logPrefix: "DELETE /api/categories/[id]" });
   }
 }

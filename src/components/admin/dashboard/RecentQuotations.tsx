@@ -17,7 +17,7 @@ export default function RecentQuotations({ rows }: { rows: RecentQuotationRow[] 
   if (rows.length === 0) {
     return (
       <div className="py-10 px-4 text-center">
-        <span className="w-9 h-9 rounded-xl bg-[#FFF6F8] text-[#D85B83] inline-flex items-center justify-center mb-2">
+        <span className="w-9 h-9 rounded-xl bg-[var(--color-admin-primary-subtle,#FFF6F8)] text-[var(--color-admin-primary,#D85B83)] inline-flex items-center justify-center mb-2">
           <FileText size={17} aria-hidden="true" />
         </span>
         <p className="text-sm font-medium text-[#111111]">No quotations created yet</p>
@@ -50,9 +50,9 @@ export default function RecentQuotations({ rows }: { rows: RecentQuotationRow[] 
           </thead>
           <tbody className="divide-y divide-[#F0F0F2] text-sm">
             {rows.map((row) => (
-              <tr key={row.id} className="hover:bg-[#FFF6F8]/70 transition-colors">
+              <tr key={row.id} className="hover:bg-[var(--color-admin-primary-subtle,#FFF6F8)]/70 transition-colors">
                 <td className="pl-5 pr-3 py-2.5 whitespace-nowrap">
-                  <Link href={`/quotation/${row.id}`} className="font-mono text-xs font-semibold text-[#111111] hover:text-[#B83E68] hover:underline underline-offset-2">
+                  <Link href={`/quotation/${row.id}`} className="font-mono text-xs font-semibold text-[#111111] hover:text-[var(--color-admin-primary-foreground,#B83E68)] hover:underline underline-offset-2">
                     {row.quotationNumber}
                   </Link>
                 </td>
@@ -63,7 +63,7 @@ export default function RecentQuotations({ rows }: { rows: RecentQuotationRow[] 
                   {row.ownerName ? (
                     <span className="block truncate text-[#5F5F68]">
                       {row.ownerName}
-                      {row.ownerIsDealer && <span className="ml-1.5 text-[10px] font-medium text-[#B83E68]">Dealer</span>}
+                      {row.ownerIsDealer && <span className="ml-1.5 text-[10px] font-medium text-[var(--color-admin-primary-foreground,#B83E68)]">Dealer</span>}
                     </span>
                   ) : (
                     <span className="text-[#C9C9D0]">—</span>
@@ -75,7 +75,7 @@ export default function RecentQuotations({ rows }: { rows: RecentQuotationRow[] 
                 <td className="px-3 py-2.5"><StatusPill status={row.status} /></td>
                 <td className="px-3 py-2.5 text-xs text-[#8A8A93] whitespace-nowrap">{formatDate(row.createdAt)}</td>
                 <td className="pr-5 pl-2 py-2.5">
-                  <Link href={`/quotation/${row.id}`} aria-label={`Open ${row.quotationNumber}`} className="text-[#8A8A93] hover:text-[#B83E68] transition-colors">
+                  <Link href={`/quotation/${row.id}`} aria-label={`Open ${row.quotationNumber}`} className="text-[#8A8A93] hover:text-[var(--color-admin-primary-foreground,#B83E68)] transition-colors">
                     <ArrowUpRight size={15} aria-hidden="true" />
                   </Link>
                 </td>
@@ -88,7 +88,7 @@ export default function RecentQuotations({ rows }: { rows: RecentQuotationRow[] 
       <ul className="md:hidden divide-y divide-[#F0F0F2] border-t border-[#F0F0F2]">
         {rows.map((row) => (
           <li key={row.id}>
-            <Link href={`/quotation/${row.id}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[#FFF6F8]/70 transition-colors">
+            <Link href={`/quotation/${row.id}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-[var(--color-admin-primary-subtle,#FFF6F8)]/70 transition-colors">
               <div className="min-w-0">
                 <p className="font-mono text-xs font-semibold text-[#111111]">{row.quotationNumber}</p>
                 <p className="text-sm text-[#111111] truncate">{row.clientName}</p>

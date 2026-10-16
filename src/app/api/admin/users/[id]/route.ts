@@ -1,7 +1,9 @@
 import bcrypt from "bcryptjs";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser } from "@/models";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission, withSession } from "@/lib/api-auth";
+import { getCompanyCustomRoleKeys } from "@/lib/roleService";
+import { canAssignRole, canModifyAccountWithRole, isUserManager } from "@/lib/userManagementRules";
 import { ApiError, apiSuccess, handleApiError, parseNumericId } from "@/lib/api-response";
 import { updateUserSchema } from "@/lib/validation/admin-user";
 import { invalidateSessionActor } from "@/lib/sessionGuard";
@@ -16,7 +18,7 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    await requirePermission("admins:read");
+    return await withPermission("admins:read", async () => {
     const { id: rawId } = await context.params;
     const userId = parseNumericId(rawId);
 
@@ -33,6 +35,7 @@ export async function GET(_req: Request, context: RouteContext) {
     }
 
     return apiSuccess(user);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/admin/users/[id]" });
   }
@@ -43,18 +46,26 @@ export async function GET(_req: Request, context: RouteContext) {
  * Updates an administrative user's details, role, permissions, or active state.
  *
  * Security Constraints:
- * 1. Only Super Admins may modify administrative users or assign permissions.
- * 2. Protects the last active Super Admin from accidental deactivation or demotion.
- * 3. Immediately invalidates the cached session actor upon update.
+ * 1. Who: a Company Owner (own company only) or a Super Admin acting as a
+ *    company — by role, not the Super Admin-exclusive `admins:manage`
+ *    permission. The target is looked up through the tenant-scope plugin, so
+ *    an account in another company (or a platform account) simply does not
+ *    exist here (404); no client-supplied `companyId` is ever read.
+ * 2. A Company Owner cannot modify `company_owner` or `super_admin` accounts
+ *    and can only assign roles `canAssignRole` allows (never super_admin).
+ * 3. Protects the last active Super Admin from accidental deactivation or demotion.
+ * 4. Immediately invalidates the cached session actor upon update.
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    const session = await requirePermission("admins:manage");
-    const callerRole = (session.user as { role?: string }).role;
-
-    if (callerRole !== "super_admin") {
-      throw new ApiError("FORBIDDEN", "Only Super Admins may modify administrative accounts or assign permissions.");
+    return await withSession(async ({ role: callerRole, companyId }) => {
+    if (!isUserManager(callerRole)) {
+      throw new ApiError("FORBIDDEN", "Only a Company Owner or Super Admin may modify accounts.");
     }
+    if (companyId === null) {
+      throw new ApiError("FORBIDDEN", "Select a company first: accounts can only be modified while acting as their company.");
+    }
+    const actor = { role: callerRole, hasCompanyContext: true };
 
     const { id: rawId } = await context.params;
     const targetUserId = parseNumericId(rawId);
@@ -67,6 +78,10 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     if (!existingUser) {
       throw new ApiError("NOT_FOUND", "Administrative user not found.");
+    }
+
+    if (!canModifyAccountWithRole(actor, existingUser.role)) {
+      throw new ApiError("FORBIDDEN", "You are not allowed to modify this account.");
     }
 
     const body = await req.json();
@@ -115,10 +130,17 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     if (newRole !== undefined) {
-      if (newRole === "dealer") {
+      const requestedRole = newRole.toLowerCase();
+      if (requestedRole === "dealer") {
         throw new ApiError("VALIDATION_ERROR", "Cannot reassign an administrative account to dealer role.");
       }
-      existingUser.role = newRole;
+      if (requestedRole !== existingUser.role) {
+        const customKeys = callerRole === "company_owner" ? await getCompanyCustomRoleKeys() : [];
+        if (!canAssignRole(actor, requestedRole, customKeys)) {
+          throw new ApiError("FORBIDDEN", "You are not allowed to assign this role.", { field: "role" });
+        }
+        existingUser.role = requestedRole;
+      }
     }
 
     if (isActive !== undefined) {
@@ -150,10 +172,11 @@ export async function PATCH(req: Request, context: RouteContext) {
     // Immediately bust in-memory actor session cache
     invalidateSessionActor(targetUserId);
 
-    const result = existingUser.toObject();
-    delete (result as any).passwordHash;
+    const result: Record<string, unknown> = { ...existingUser.toObject() };
+    delete result.passwordHash;
 
     return apiSuccess(result);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/admin/users/[id]" });
   }

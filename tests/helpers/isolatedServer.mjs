@@ -42,7 +42,15 @@ async function waitForServer(baseUrl, child, output) {
 
 export async function startIsolatedServer(label, users, options = {}) {
   const production = options.production === true;
-  const dbName = `whyte_quotation_${label}_test_${new Date().toISOString().slice(0, 10).replaceAll("-", "")}_${randomBytes(6).toString("hex")}`;
+  // `existingDatabase`: run the app against an ALREADY-POPULATED local rehearsal clone instead of a fresh throwaway
+  // database. Seeds nothing and never drops it. Only a loopback `whyte_rehearsal_*` clone is accepted; the restored
+  // `_work` / `_pristine` copies themselves are refused so a test can never write into them.
+  const existingDatabase = options.existingDatabase;
+  if (existingDatabase !== undefined) {
+    assert.match(existingDatabase, /^whyte_rehearsal_[a-z0-9_]+$/, "existingDatabase must be a whyte_rehearsal_* database");
+    assert.ok(!/_(work|pristine)$/.test(existingDatabase), "existingDatabase must be a clone, not the restored work/pristine copy");
+  }
+  const dbName = existingDatabase ?? `whyte_quotation_${label}_test_${new Date().toISOString().slice(0, 10).replaceAll("-", "")}_${randomBytes(6).toString("hex")}`;
   const mongoUri = `mongodb://127.0.0.1:27017/${dbName}?directConnection=true`;
   const parsed = new URL(mongoUri);
   assert.equal(parsed.hostname, "127.0.0.1", "test MongoDB host must be loopback");
@@ -106,7 +114,7 @@ export async function startIsolatedServer(label, users, options = {}) {
   const db = mongo.db(dbName);
   const now = new Date();
   const passwordHash = await bcrypt.hash("Password123!", 10);
-  await db.collection("adminusers").insertMany(
+  if (existingDatabase === undefined) await db.collection("adminusers").insertMany(
     users.map((u) => ({
       passwordHash,
       isActive: true,
@@ -168,7 +176,7 @@ export async function startIsolatedServer(label, users, options = {}) {
       }
     }
     try {
-      await mongo.db(dbName).dropDatabase();
+      if (existingDatabase === undefined) await mongo.db(dbName).dropDatabase();
       await mongo.close();
     } catch {
       /* ignore */

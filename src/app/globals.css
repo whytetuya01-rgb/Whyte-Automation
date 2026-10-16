@@ -4,21 +4,21 @@
   --color-whyte-blue: #1B3C73;
   --color-whyte-light: #2D6BE4;
   --color-whyte-dark: #0D1B2A;
-  --color-accent: #D46A8C;
-  --color-accent-hover: #C25678;
-  --color-accent-light: #FDF2F5;
-  --color-accent-muted: #F9E4EC;
-  --color-accent-border: #F1BDCE;
-  --color-accent-foreground: #8A2B4D;
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-light: var(--accent-light);
+  --color-accent-muted: var(--accent-muted);
+  --color-accent-border: var(--accent-border);
+  --color-accent-foreground: var(--accent-foreground);
 
-  /* Admin Semantic Tokens (Black + White + Grey + Rose/Pink) */
-  --color-admin-primary: #D85B83;
-  --color-admin-primary-hover: #B83E68;
-  --color-admin-primary-dark: #B83E68;
-  --color-admin-primary-soft: #FCEAF0;
-  --color-admin-primary-subtle: #FFF6F8;
-  --color-admin-primary-border: #F1B8C8;
-  --color-admin-primary-foreground: #B83E68;
+  /* Admin Semantic Tokens */
+  --color-admin-primary: var(--admin-primary);
+  --color-admin-primary-hover: var(--admin-primary-hover);
+  --color-admin-primary-dark: var(--admin-primary-dark);
+  --color-admin-primary-soft: var(--admin-primary-soft);
+  --color-admin-primary-subtle: var(--admin-primary-subtle);
+  --color-admin-primary-border: var(--admin-primary-border);
+  --color-admin-primary-foreground: var(--admin-primary-foreground);
   --color-admin-black: #111111;
   --color-admin-charcoal: #1E1E22;
   --color-admin-white: #FFFFFF;
@@ -35,21 +35,39 @@
   --font-poppins: var(--font-poppins), "Poppins", sans-serif;
 }
 
-:root {
-  --accent: #ef4370;
+:root,
+[data-theme="whyte-rose"] {
+  --accent: #D85B83;
   --accent-hover: #B83E68;
   --accent-light: #FCEAF0;
   --accent-muted: #FFF6F8;
   --accent-border: #F1B8C8;
-  --accent-foreground: #B83E68;
+  --accent-foreground: #8A2B4D;
 
-  --admin-primary: #ef4370;
+  --color-accent: #D85B83;
+  --color-accent-hover: #B83E68;
+  --color-accent-light: #FCEAF0;
+  --color-accent-muted: #FFF6F8;
+  --color-accent-border: #F1B8C8;
+  --color-accent-foreground: #8A2B4D;
+
+  --color-admin-primary: #D85B83;
+  --color-admin-primary-hover: #B83E68;
+  --color-admin-primary-dark: #B83E68;
+  --color-admin-primary-soft: #FCEAF0;
+  --color-admin-primary-subtle: #FFF6F8;
+  --color-admin-primary-border: #F1B8C8;
+  --color-admin-primary-foreground: #8A2B4D;
+
+  --admin-primary: #D85B83;
   --admin-primary-hover: #B83E68;
   --admin-primary-dark: #B83E68;
   --admin-primary-soft: #FCEAF0;
   --admin-primary-subtle: #FFF6F8;
   --admin-primary-border: #F1B8C8;
-  --admin-primary-foreground: #B83E68;
+  --admin-primary-foreground: #8A2B4D;
+  --admin-focus-ring: rgba(216, 91, 131, 0.2);
+
   --admin-black: #111111;
   --admin-charcoal: #1E1E22;
   --admin-white: #FFFFFF;
@@ -70,31 +88,91 @@
   --z-toast: 1000;
 }
 
+[data-theme="champagne-bronze"] {
+  --accent: #C4823F;
+  --accent-hover: #A06429;
+  --accent-light: #FDF6EE;
+  --accent-muted: #FFFAF4;
+  --accent-border: #F2D5B1;
+  --accent-foreground: #7A4B1A;
+
+  --color-accent: #C4823F;
+  --color-accent-hover: #A06429;
+  --color-accent-light: #FDF6EE;
+  --color-accent-muted: #FFFAF4;
+  --color-accent-border: #F2D5B1;
+  --color-accent-foreground: #7A4B1A;
+
+  --color-admin-primary: #C4823F;
+  --color-admin-primary-hover: #A06429;
+  --color-admin-primary-dark: #A06429;
+  --color-admin-primary-soft: #FDF6EE;
+  --color-admin-primary-subtle: #FFFAF4;
+  --color-admin-primary-border: #F2D5B1;
+  --color-admin-primary-foreground: #7A4B1A;
+
+  --admin-primary: #C4823F;
+  --admin-primary-hover: #A06429;
+  --admin-primary-dark: #A06429;
+  --admin-primary-soft: #FDF6EE;
+  --admin-primary-subtle: #FFFAF4;
+  --admin-primary-border: #F2D5B1;
+  --admin-primary-foreground: #7A4B1A;
+  --admin-focus-ring: rgba(196, 130, 63, 0.2);
+}
+
+[data-theme="emerald-haven"] {
+  --accent: #0D9488;
+  --accent-hover: #0F766E;
+  --accent-light: #F0FDFA;
+  --accent-muted: #F7FEFD;
+  --accent-border: #99F6E4;
+  --accent-foreground: #115E59;
+
+  --color-accent: #0D9488;
+  --color-accent-hover: #0F766E;
+  --color-accent-light: #F0FDFA;
+  --color-accent-muted: #F7FEFD;
+  --color-accent-border: #99F6E4;
+  --color-accent-foreground: #115E59;
+
+  --color-admin-primary: #0D9488;
+  --color-admin-primary-hover: #0F766E;
+  --color-admin-primary-dark: #0F766E;
+  --color-admin-primary-soft: #F0FDFA;
+  --color-admin-primary-subtle: #F7FEFD;
+  --color-admin-primary-border: #99F6E4;
+  --color-admin-primary-foreground: #115E59;
+
+  --admin-primary: #0D9488;
+  --admin-primary-hover: #0F766E;
+  --admin-primary-dark: #0F766E;
+  --admin-primary-soft: #F0FDFA;
+  --admin-primary-subtle: #F7FEFD;
+  --admin-primary-border: #99F6E4;
+  --admin-primary-foreground: #115E59;
+  --admin-focus-ring: rgba(13, 148, 136, 0.2);
+}
+
 .admin-theme {
-  --color-accent: #ef4370;
-  --color-accent-hover: #B83E68;
-  --color-accent-light: #FCEAF0;
-  --color-accent-muted: #FFF6F8;
-  --color-accent-border: #F1B8C8;
-  --color-accent-foreground: #B83E68;
-  --accent: #D85B83;
-  --accent-hover: #B83E68;
-  --accent-light: #FCEAF0;
-  --accent-muted: #FFF6F8;
-  --accent-border: #F1B8C8;
-  --accent-foreground: #B83E68;
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-light: var(--accent-light);
+  --color-accent-muted: var(--accent-muted);
+  --color-accent-border: var(--accent-border);
+  --color-accent-foreground: var(--accent-foreground);
 }
 
 .admin-theme input:focus,
 .admin-theme textarea:focus,
 .admin-theme select:focus {
-  border-color: #ef4370 !important;
-  box-shadow: 0 0 0 3px rgba(216, 91, 131, 0.15) !important;
+  border-color: var(--color-admin-primary, #D85B83) !important;
+  box-shadow: 0 0 0 3px var(--admin-focus-ring, rgba(216, 91, 131, 0.15)) !important;
   outline: none !important;
 }
 
 .admin-theme tbody tr:hover {
-  background-color: #FFF6F8 !important;
+  background-color: var(--color-admin-primary-subtle, #FFF6F8) !important;
 }
 
 /* Product catalog overrides the tinted admin row hover with neutral greys so a long
@@ -113,7 +191,7 @@
 
 .admin-theme tbody tr.selected,
 .admin-theme tbody tr[data-selected="true"] {
-  background-color: #FCEAF0 !important;
+  background-color: var(--color-admin-primary-soft, #FCEAF0) !important;
 }
 
 * {
@@ -434,6 +512,7 @@ table {
     opacity: 0;
     transform: scale(0.95) translateY(4px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -466,132 +545,274 @@ table {
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="dashboard"] rect {
   animation: navTileIn 260ms var(--motion-ease) both;
 }
-:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="dashboard"] rect:nth-child(2) { animation-delay: 40ms; }
-:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="dashboard"] rect:nth-child(3) { animation-delay: 80ms; }
-:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="dashboard"] rect:nth-child(4) { animation-delay: 120ms; }
+
+:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="dashboard"] rect:nth-child(2) {
+  animation-delay: 40ms;
+}
+
+:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="dashboard"] rect:nth-child(3) {
+  animation-delay: 80ms;
+}
+
+:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="dashboard"] rect:nth-child(4) {
+  animation-delay: 120ms;
+}
+
 @keyframes navTileIn {
-  from { transform: scale(0.85); }
-  to { transform: scale(1); }
+  from {
+    transform: scale(0.85);
+  }
+
+  to {
+    transform: scale(1);
+  }
 }
 
 /* Products (cube): rotate -8deg to 0 with a slight bounce. */
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="products"] svg {
   animation: navCube 380ms var(--motion-ease) both;
 }
+
 @keyframes navCube {
-  0% { transform: rotate(-8deg); }
-  65% { transform: rotate(2deg); }
-  100% { transform: rotate(0deg); }
+  0% {
+    transform: rotate(-8deg);
+  }
+
+  65% {
+    transform: rotate(2deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
+  }
 }
 
 /* Categories (tag): swings as if hanging from its top-left hole. */
-.nav-icon[data-icon="categories"] svg { transform-origin: 20% 20%; }
+.nav-icon[data-icon="categories"] svg {
+  transform-origin: 20% 20%;
+}
+
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="categories"] svg {
   animation: navTagSwing 400ms var(--motion-ease) both;
 }
+
 @keyframes navTagSwing {
-  0% { transform: rotate(0deg); }
-  35% { transform: rotate(10deg); }
-  70% { transform: rotate(-6deg); }
-  100% { transform: rotate(0deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  35% {
+    transform: rotate(10deg);
+  }
+
+  70% {
+    transform: rotate(-6deg);
+  }
+
+  100% {
+    transform: rotate(0deg);
+  }
 }
 
 /* House Types: lifts 1px; the doorway briefly glows pink. */
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="house-types"] svg {
   animation: navLift 360ms var(--motion-ease) both;
 }
+
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="house-types"] path:nth-child(1) {
   animation: navWindowGlow 400ms ease-in-out both;
 }
+
 @keyframes navLift {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-1px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-1px);
+  }
 }
+
 @keyframes navWindowGlow {
-  0%, 100% { stroke: currentColor; }
-  50% { stroke: #D85B83; }
+
+  0%,
+  100% {
+    stroke: currentColor;
+  }
+
+  50% {
+    stroke: var(--color-admin-primary, #D85B83);
+  }
 }
 
 /* Room Types (door): the door panel skews as if swinging open. */
-.nav-icon[data-icon="room-types"] path:nth-child(2) { transform-origin: left center; }
+.nav-icon[data-icon="room-types"] path:nth-child(2) {
+  transform-origin: left center;
+}
+
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="room-types"] path:nth-child(2) {
   animation: navDoor 380ms var(--motion-ease) both;
 }
+
 @keyframes navDoor {
-  0%, 100% { transform: skewY(0deg) scaleX(1); }
-  50% { transform: skewY(-8deg) scaleX(0.88); }
+
+  0%,
+  100% {
+    transform: skewY(0deg) scaleX(1);
+  }
+
+  50% {
+    transform: skewY(-8deg) scaleX(0.88);
+  }
 }
 
 /* Quotations (document): the three text lines redraw left to right. */
-.nav-icon[data-icon="quotations"] path:nth-child(n + 3) { stroke-dasharray: 8; }
+.nav-icon[data-icon="quotations"] path:nth-child(n + 3) {
+  stroke-dasharray: 8;
+}
+
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="quotations"] path:nth-child(n + 3) {
   animation: navDrawLine 300ms var(--motion-ease) both;
 }
-:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="quotations"] path:nth-child(4) { animation-delay: 50ms; }
-:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="quotations"] path:nth-child(5) { animation-delay: 100ms; }
+
+:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="quotations"] path:nth-child(4) {
+  animation-delay: 50ms;
+}
+
+:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="quotations"] path:nth-child(5) {
+  animation-delay: 100ms;
+}
+
 @keyframes navDrawLine {
+
   /* The lines are drawn right-to-left in the SVG ("M16 13H8"), so a negative offset reveals them left-to-right. */
-  from { stroke-dashoffset: -8; }
-  to { stroke-dashoffset: 0; }
+  from {
+    stroke-dashoffset: -8;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 /* Dealers (store): the awning bounces down 1px. */
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="dealers"] path:nth-child(2) {
   animation: navAwning 340ms var(--motion-ease) both;
 }
+
 @keyframes navAwning {
-  0%, 100% { transform: translateY(0); }
-  45% { transform: translateY(1px); }
-  75% { transform: translateY(-0.3px); }
+
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  45% {
+    transform: translateY(1px);
+  }
+
+  75% {
+    transform: translateY(-0.3px);
+  }
 }
 
 /* Activity Log (pulse): the ECG line draws itself. */
-.nav-icon[data-icon="activity"] path { stroke-dasharray: 60; }
+.nav-icon[data-icon="activity"] path {
+  stroke-dasharray: 60;
+}
+
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="activity"] path {
   animation: navEcg 400ms ease-out both;
 }
+
 @keyframes navEcg {
-  from { stroke-dashoffset: 60; }
-  to { stroke-dashoffset: 0; }
+  from {
+    stroke-dashoffset: 60;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 
 /* Company Profile (building): the two windows flicker on in sequence. */
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="company"] path:nth-child(-n + 2) {
   animation: navWindowFlicker 360ms ease-out both;
 }
-:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="company"] path:nth-child(1) { animation-delay: 90ms; }
+
+:is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="company"] path:nth-child(1) {
+  animation-delay: 90ms;
+}
+
 @keyframes navWindowFlicker {
-  0% { opacity: 0.15; }
-  40% { opacity: 1; }
-  60% { opacity: 0.45; }
-  100% { opacity: 1; }
+  0% {
+    opacity: 0.15;
+  }
+
+  40% {
+    opacity: 1;
+  }
+
+  60% {
+    opacity: 0.45;
+  }
+
+  100% {
+    opacity: 1;
+  }
 }
 
 /* Sign Out: the arrow slides 3px right and back. */
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon)[data-icon="sign-out"] path:nth-child(-n + 2) {
   animation: navSignOut 360ms var(--motion-ease) both;
 }
+
 @keyframes navSignOut {
-  0%, 100% { transform: translateX(0); }
-  50% { transform: translateX(3px); }
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  50% {
+    transform: translateX(3px);
+  }
 }
 
 /* Fallback for any icon without a bespoke animation. */
 :is(.nav-anim-trigger:hover .nav-icon, .nav-anim-trigger:focus-visible .nav-icon, .nav-icon.nav-icon-play)[data-icon="generic"] svg {
   animation: navGenericNudge 320ms var(--motion-ease) both;
 }
+
 @keyframes navGenericNudge {
-  from { transform: translateX(2px) rotate(-6deg); }
-  to { transform: translateX(0) rotate(0deg); }
+  from {
+    transform: translateX(2px) rotate(-6deg);
+  }
+
+  to {
+    transform: translateX(0) rotate(0deg);
+  }
 }
 
 /* ── Loop 1: header logo "smart LED" dot breathing ── */
 .logo-led-dot {
   animation: logoLedBreathe 2.8s ease-in-out infinite;
 }
+
 @keyframes logoLedBreathe {
-  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(255, 108, 154, 0); }
-  50% { transform: scale(1.25); box-shadow: 0 0 8px 1px rgba(255, 108, 154, 0.4); }
+
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(255, 108, 154, 0);
+  }
+
+  50% {
+    transform: scale(1.25);
+    box-shadow: 0 0 8px 1px rgba(255, 108, 154, 0.4);
+  }
 }
 
 /* ── Loop 2: active nav dot ping ring ── */
@@ -600,13 +821,22 @@ table {
   position: absolute;
   inset: 0;
   border-radius: 9999px;
-  border: 1px solid #D85B83;
+  border: 1px solid var(--color-admin-primary, #D85B83);
   animation: navPing 2.2s var(--motion-ease) infinite;
   pointer-events: none;
 }
+
 @keyframes navPing {
-  0% { transform: scale(1); opacity: 0.8; }
-  70%, 100% { transform: scale(2.2); opacity: 0; }
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+
+  70%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
 }
 
 /* ── Loop 3: role chip shimmer sweep (every 6s) ── */
@@ -614,6 +844,7 @@ table {
   position: relative;
   overflow: hidden;
 }
+
 .role-chip-shimmer::after {
   content: "";
   position: absolute;
@@ -623,15 +854,23 @@ table {
   animation: chipShimmer 6s var(--motion-ease) infinite;
   pointer-events: none;
 }
+
 @keyframes chipShimmer {
-  0% { transform: translateX(-120%); }
-  14%, 100% { transform: translateX(120%); }
+  0% {
+    transform: translateX(-120%);
+  }
+
+  14%,
+  100% {
+    transform: translateX(120%);
+  }
 }
 
 /* ── Profile card: pink-to-transparent border that flows while hovered ── */
 .profile-card-glow {
   position: relative;
 }
+
 .profile-card-glow::before {
   content: "";
   position: absolute;
@@ -647,13 +886,20 @@ table {
   transition: opacity var(--motion-base) var(--motion-ease);
   pointer-events: none;
 }
+
 .profile-card-glow:hover::before {
   opacity: 1;
   animation: profileBorderFlow 3s linear infinite;
 }
+
 @keyframes profileBorderFlow {
-  from { background-position: 100% 0; }
-  to { background-position: -150% 0; }
+  from {
+    background-position: 100% 0;
+  }
+
+  to {
+    background-position: -150% 0;
+  }
 }
 
 /* ── Reduced motion: no loops, no icon or transform animation; keep instant

@@ -7,7 +7,16 @@ export interface VariantOption {
 }
 export type QuotationStatus = "draft" | "sent" | "approved" | "rejected" | "delivered";
 export type DiscountType = "percentage" | "fixed" | "none";
-export type AdminRole = "super_admin" | "admin" | "dealer" | "configurable_admin" | (string & {});
+
+export type CanonicalRole = "super_admin" | "admin" | "sales_executive" | "dealer";
+export const CANONICAL_ROLES = ["super_admin", "admin", "sales_executive", "dealer"] as const;
+
+export type AdminRole =
+  | CanonicalRole
+  | "company_owner"
+  | "configurable_admin"
+  | "sales"
+  | (string & {});
 
 export interface Category {
   id: number;

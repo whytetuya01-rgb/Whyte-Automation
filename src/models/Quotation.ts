@@ -4,10 +4,12 @@ import type { QuotationStatus, DiscountType } from "@/types";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 import { historicalReferenceOptions } from "@/lib/softDelete/scope";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export interface IQuotation extends SoftDeleteFields {
   _id: string;
   id?: string;
+  companyId: number;
   quotationNumber: string;
   clientName: string;
   clientGstNumber: string | null;
@@ -61,7 +63,11 @@ export interface IQuotationDocument extends Omit<IQuotation, "id">, Document<str
 const QuotationSchema = new Schema<IQuotationDocument>(
   {
     _id: { type: String, required: true },
-    quotationNumber: { type: String, required: true, unique: true, index: true, trim: true },
+    // Not globally unique any more: two companies can each issue "QT-2026-001"
+    // independently (see the compound unique index below, and src/lib/counter.ts's
+    // per-company counter key). `index: true` alone (no `unique`) still speeds
+    // up plain quotationNumber lookups within a company.
+    quotationNumber: { type: String, required: true, index: true, trim: true },
     clientName: { type: String, required: true, trim: true },
     clientGstNumber: { type: String, default: null, trim: true },
     clientPhone: { type: String, default: null, trim: true },
@@ -175,13 +181,16 @@ QuotationSchema.pre("save", function (this: IQuotationDocument) {
 });
 
 // Listing and filtering optimization indexes
-QuotationSchema.index({ status: 1, createdAt: -1 });
-QuotationSchema.index({ createdAt: -1 });
-QuotationSchema.index({ dealerId: 1, createdAt: -1 });
-QuotationSchema.index({ createdBy: 1, createdAt: -1 });
-QuotationSchema.index({ assignedSalesId: 1, status: 1 });
+QuotationSchema.index({ companyId: 1, status: 1, createdAt: -1 });
+QuotationSchema.index({ companyId: 1, createdAt: -1 });
+QuotationSchema.index({ companyId: 1, dealerId: 1, createdAt: -1 });
+QuotationSchema.index({ companyId: 1, createdBy: 1, createdAt: -1 });
+QuotationSchema.index({ companyId: 1, assignedSalesId: 1, status: 1 });
+// Replaces the old global-unique quotationNumber index: unique per company instead.
+QuotationSchema.index({ companyId: 1, quotationNumber: 1 }, { unique: true });
 
 softDeletePlugin(QuotationSchema, { blockHardDelete: true });
+tenantScopePlugin(QuotationSchema);
 
 const existingQuotationModel = mongoose.models.Quotation as Model<IQuotationDocument> | undefined;
 

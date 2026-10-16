@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Category } from "@/models";
 import { getNextSequence } from "@/lib/counter";
-import { requirePermission, requireRole, requireSession } from "@/lib/api-auth";
+import { withPermission, withSession } from "@/lib/api-auth";
 import {
   ApiError,
   apiSuccess,
@@ -19,22 +19,22 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    await requireSession();
-
-    await connectMongoDB();
-    const categories = await Category.find({ level: 1 })
-      .sort({ sortOrder: 1 })
-      .populate({
-        path: "children",
-        options: { sort: { sortOrder: 1 } },
-        populate: {
+    return await withSession(async () => {
+      await connectMongoDB();
+      const categories = await Category.find({ level: 1 })
+        .sort({ sortOrder: 1 })
+        .populate({
           path: "children",
           options: { sort: { sortOrder: 1 } },
-        },
-      })
-      .lean({ virtuals: true });
+          populate: {
+            path: "children",
+            options: { sort: { sortOrder: 1 } },
+          },
+        })
+        .lean({ virtuals: true });
 
-    return NextResponse.json(normalizeCategories(categories));
+      return NextResponse.json(normalizeCategories(categories));
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/categories" });
   }
@@ -43,8 +43,14 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     // Catalog category writes require categories:manage permission.
-    await requirePermission("categories:manage");
+    return await withPermission("categories:manage", () => createCategory(req));
+  } catch (error) {
+    return handleApiError(error, { logPrefix: "POST /api/categories" });
+  }
+}
 
+async function createCategory(req: Request) {
+  {
     await connectMongoDB();
     const body = asObjectBody(await readJsonBody(req));
     const { name, level, parentId, sortOrder } = body;
@@ -128,7 +134,5 @@ export async function POST(req: Request) {
     });
 
     return apiSuccess(category, { status: 201 });
-  } catch (error) {
-    return handleApiError(error, { logPrefix: "POST /api/categories" });
   }
 }

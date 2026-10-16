@@ -51,6 +51,7 @@ import {
 } from "@/lib/productFiltering";
 import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
+import ChangeProductModal from "./ChangeProductModal";
 
 interface Props {
   quotation: Quotation;
@@ -66,6 +67,14 @@ interface Props {
   ) => Promise<void>;
   onUpdateItem: (itemId: number, data: any) => Promise<void>;
   onDeleteItem: (itemId: number) => Promise<void>;
+  onReplaceItem?: (
+    itemId: number,
+    productId: number,
+    productVariantId?: number,
+    variantConfig?: Record<string, string>,
+    unitPrice?: number,
+    variantLabel?: string
+  ) => Promise<void>;
   onUpdateRoom?: (roomId: number, data: Partial<QuotationRoom>) => Promise<void>;
   onUpdateRoomNotes: (roomId: number, notes: string) => Promise<void>;
   onContinue: () => void;
@@ -81,6 +90,7 @@ export default function StepProductConfig({
   onAddItem,
   onUpdateItem,
   onDeleteItem,
+  onReplaceItem,
   onUpdateRoomNotes,
   onContinue,
   onBack,
@@ -188,6 +198,7 @@ export default function StepProductConfig({
 
   // Variant Picker Modal State
   const [pickerProduct, setPickerProduct] = useState<EditorCatalogProduct | null>(null);
+  const [changeItemTarget, setChangeItemTarget] = useState<QuotationItem | null>(null);
 
   // Expanded Product Card Variants state
   const [expandedCardIds, setExpandedCardIds] = useState<Set<number>>(new Set());
@@ -357,7 +368,7 @@ export default function StepProductConfig({
     return filteredCatalog.map((r) => r.product);
   }, [filteredCatalog]);
 
-  // Add product handler - uses exact eligible variant or opens selection
+  // Add product handler - increments quantity if matching configuration is already in room, avoiding duplicates
   const handleAddProduct = async (catItem: FilteredProductResult) => {
     if (!currentRoom) return;
     const roomId = Number(currentRoom.id ?? (currentRoom as any)._id);
@@ -368,6 +379,21 @@ export default function StepProductConfig({
 
     if (exactVariant) {
       const varId = Number(exactVariant.id ?? (exactVariant as any)._id);
+
+      // Check if this specific variant is already in the room
+      const existing = (currentRoom.items || []).find((i) => {
+        const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+        const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
+        return pId === prodId && pvId === varId;
+      });
+
+      if (existing) {
+        const existingId = Number(existing.id ?? (existing as any)._id);
+        const curQty = Number(existing.quantity) || 1;
+        await onUpdateItem(existingId, { quantity: curQty + 1 });
+        return;
+      }
+
       const config: Record<string, string> = { ...(exactVariant.config || {}) };
       const vTier = getVariantTier(exactVariant);
       const vFinish = getVariantFinish(exactVariant);
@@ -388,17 +414,47 @@ export default function StepProductConfig({
       return;
     }
 
+    if (eligibleVariants.length === 1) {
+      return handleAddVariant(product, eligibleVariants[0]);
+    }
+
     // Flat product without variants
+    const existingFlat = (currentRoom.items || []).find((i) => {
+      const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+      return pId === prodId;
+    });
+
+    if (existingFlat) {
+      const existingId = Number(existingFlat.id ?? (existingFlat as any)._id);
+      const curQty = Number(existingFlat.quantity) || 1;
+      await onUpdateItem(existingId, { quantity: curQty + 1 });
+      return;
+    }
+
     await onAddItem(roomId, prodId);
   };
 
-  // Add specific variant directly
+  // Add specific variant directly (or increment quantity if already in room)
   const handleAddVariant = async (product: EditorCatalogProduct, variant: EditorCatalogVariant) => {
     if (!currentRoom) return;
     const roomId = Number(currentRoom.id ?? (currentRoom as any)._id);
     const prodId = Number(product.id ?? (product as any)._id);
     const varId = Number(variant.id ?? (variant as any)._id);
     if (!roomId || !prodId || !varId) return;
+
+    // Check if this specific variant is already in the room
+    const existing = (currentRoom.items || []).find((i) => {
+      const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+      const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
+      return pId === prodId && pvId === varId;
+    });
+
+    if (existing) {
+      const existingId = Number(existing.id ?? (existing as any)._id);
+      const curQty = Number(existing.quantity) || 1;
+      await onUpdateItem(existingId, { quantity: curQty + 1 });
+      return;
+    }
 
     const config: Record<string, string> = { ...(variant.config || {}) };
     const vTier = getVariantTier(variant);
@@ -414,20 +470,28 @@ export default function StepProductConfig({
     );
   };
 
-  // Remove one instance of product in current room (decrement quantity or delete)
-  const handleRemoveProductInstance = async (product: EditorCatalogProduct) => {
+  // Remove one instance of product/variant in current room (decrement quantity or delete)
+  const handleRemoveProductInstance = async (catItem: FilteredProductResult) => {
     if (!currentRoom) return;
+    const { product, exactVariant } = catItem;
     const prodId = Number(product.id ?? (product as any)._id);
-    const matchingItems = (currentRoom.items || []).filter((i) => {
+    const exactVarId = exactVariant ? Number(exactVariant.id ?? (exactVariant as any)._id) : null;
+
+    const matchingItem = (currentRoom.items || []).find((i) => {
       const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
-      return pId === prodId;
+      if (pId !== prodId) return false;
+      if (exactVarId !== null) {
+        const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
+        return pvId === exactVarId;
+      }
+      return true;
     });
-    if (matchingItems.length === 0) return;
-    const lastItem = matchingItems[matchingItems.length - 1];
-    const itemId = Number(lastItem.id ?? (lastItem as any)._id);
+
+    if (!matchingItem) return;
+    const itemId = Number(matchingItem.id ?? (matchingItem as any)._id);
     if (!itemId) return;
 
-    const currentQty = Number(lastItem.quantity) || 1;
+    const currentQty = Number(matchingItem.quantity) || 1;
     if (currentQty > 1) {
       await onUpdateItem(itemId, { quantity: currentQty - 1 });
     } else {
@@ -986,14 +1050,33 @@ export default function StepProductConfig({
                 {filteredCatalog.map((catItem) => {
                   const { product: prod, eligibleVariants, minPrice, exactVariant } = catItem;
                   const prodId = Number(prod.id ?? (prod as any)._id);
-                  const inRoomCount = currentRoom
-                    ? (currentRoom.items || [])
-                        .filter((i) => {
-                          const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
-                          return pId === prodId;
-                        })
-                        .reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)
-                    : 0;
+                  const exactVarId = exactVariant ? Number(exactVariant.id ?? (exactVariant as any)._id) : null;
+                  const roomItems = currentRoom ? (currentRoom.items || []) : [];
+
+                  const productTotalInRoom = roomItems
+                    .filter((i) => {
+                      const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+                      return pId === prodId;
+                    })
+                    .reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
+
+                  const inRoomCount = roomItems
+                    .filter((i) => {
+                      const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+                      if (pId !== prodId) return false;
+                      if (exactVarId !== null) {
+                        const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
+                        return pvId === exactVarId;
+                      }
+                      if (eligibleVariants.length > 0) {
+                        const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
+                        return eligibleVariants.some((v) => Number(v.id ?? (v as any)._id) === pvId);
+                      }
+                      return true;
+                    })
+                    .reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
+
+                  const otherVariantsInRoom = productTotalInRoom - inRoomCount;
 
                   return (
                     <div
@@ -1001,6 +1084,8 @@ export default function StepProductConfig({
                       className={`bg-white rounded-xl border p-3.5 transition-all duration-200 flex flex-col justify-between group shadow-none ${
                         inRoomCount > 0
                           ? "border-accent/40 ring-1 ring-accent/20 shadow-2xs"
+                          : otherVariantsInRoom > 0
+                          ? "border-amber-300/60 ring-1 ring-amber-200/40"
                           : "border-gray-200 hover:border-gray-300"
                       }`}
                     >
@@ -1028,12 +1113,19 @@ export default function StepProductConfig({
                           </span>
                         )}
 
-                        {inRoomCount > 0 && (
+                        {inRoomCount > 0 ? (
                           <span className="absolute top-2 left-2 text-[10px] font-semibold px-2 py-0.5 rounded bg-accent text-white shadow-xs flex items-center gap-1">
                             <Check size={10} strokeWidth={3} />
                             <span>{inRoomCount > 1 ? `${inRoomCount} in Room` : "In Room"}</span>
                           </span>
-                        )}
+                        ) : otherVariantsInRoom > 0 ? (
+                          <span
+                            className="absolute top-2 left-2 text-[10px] font-medium px-2 py-0.5 rounded bg-amber-500/90 text-white shadow-xs flex items-center gap-1"
+                            title={`${otherVariantsInRoom} unit(s) of a different variant are currently in this room`}
+                          >
+                            <span>{otherVariantsInRoom > 1 ? `${otherVariantsInRoom} other in Room` : "Other variant in Room"}</span>
+                          </span>
+                        ) : null}
                       </div>
 
                       {/* Content */}
@@ -1161,7 +1253,7 @@ export default function StepProductConfig({
                                               ? "bg-accent text-white hover:bg-accent-hover shadow-2xs"
                                               : "bg-gray-100 hover:bg-gray-200 text-gray-800"
                                           }`}
-                                          title={`Add ${vLabel} to ${currentRoom?.customName ?? "room"}`}
+                                          title={`Add ${vLabel} to ${getRoomDisplayName(currentRoom, rooms)}`}
                                         >
                                           <Plus size={10} strokeWidth={2.5} />
                                           <span>{vCount > 0 ? `+1 (${vCount})` : "Add"}</span>
@@ -1202,7 +1294,7 @@ export default function StepProductConfig({
                           <button
                             type="button"
                             disabled={inRoomCount === 0}
-                            onClick={() => handleRemoveProductInstance(prod)}
+                            onClick={() => handleRemoveProductInstance(catItem)}
                             className={`w-7 h-7 flex items-center justify-center transition active:scale-90 disabled:opacity-20 disabled:cursor-not-allowed ${
                               inRoomCount > 0
                                 ? "hover:bg-white/20 text-white"
@@ -1443,6 +1535,16 @@ export default function StepProductConfig({
                                   </span>
                                 </>
                               )}
+                              {onReplaceItem && !isLocked && (
+                                <button
+                                  type="button"
+                                  onClick={() => setChangeItemTarget(item)}
+                                  className="text-[10px] font-semibold text-accent hover:text-accent-hover hover:underline ml-1 cursor-pointer"
+                                  title="Change variant, finish, or product"
+                                >
+                                  Change
+                                </button>
+                              )}
                             </div>
 
                             {!isLocked && !currentRoom.isUnavailable && item.isUnavailable && (
@@ -1589,7 +1691,7 @@ export default function StepProductConfig({
                 return (
                   <div key={room.id} className="p-3 rounded-xl border border-gray-100 bg-gray-50">
                     <div className="flex justify-between font-bold text-xs text-gray-900">
-                      <span>{room.customName ?? room.roomType?.name}</span>
+                      <span>{getRoomDisplayName(room, rooms)}</span>
                       <span className="font-mono">{formatCurrency(sub)}</span>
                     </div>
                     {(room.items || []).map((i) => {
@@ -1654,6 +1756,46 @@ export default function StepProductConfig({
             setPickerProduct(null);
           }}
           onClose={() => setPickerProduct(null)}
+        />
+      )}
+
+      {/* Change Product Modal for editing variant, finish, or replacing device */}
+      {changeItemTarget && (
+        <ChangeProductModal
+          isOpen={Boolean(changeItemTarget)}
+          mode="change"
+          roomId={Number(currentRoom?.id ?? (currentRoom as any)?._id ?? 0)}
+          roomName={getRoomDisplayName(currentRoom, rooms)}
+          targetItem={changeItemTarget}
+          products={products}
+          categories={categories}
+          quotationDefaults={{
+            defaultTier: quotation.defaultTier ?? null,
+            defaultFinish: quotation.defaultFinish ?? null,
+          }}
+          onClose={() => setChangeItemTarget(null)}
+          onConfirmChange={async ({ itemId, productId, productVariantId, variantConfig, unitPrice, variantLabel }) => {
+            if (onReplaceItem) {
+              await onReplaceItem(
+                itemId,
+                productId,
+                productVariantId ?? undefined,
+                variantConfig ?? undefined,
+                unitPrice,
+                variantLabel ?? undefined
+              );
+            }
+            setChangeItemTarget(null);
+          }}
+          onConfirmAdd={async ({ roomId, productId, productVariantId, variantConfig }) => {
+            await onAddItem(
+              roomId,
+              productId,
+              productVariantId ?? undefined,
+              variantConfig ?? undefined
+            );
+            setChangeItemTarget(null);
+          }}
         />
       )}
     </div>

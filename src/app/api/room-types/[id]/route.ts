@@ -1,6 +1,6 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { RoomType } from "@/models";
-import { requirePermission, requireRole } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { updateRoomTypeSchema } from "@/lib/validation/catalog";
 import { actorFromSession } from "@/lib/softDelete/actor";
@@ -10,7 +10,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    await requirePermission("spaces:manage");
+    return await withPermission("spaces:manage", async () => {
     const { id } = await context.params;
     const roomTypeId = parseNumericId(id, "id");
 
@@ -41,6 +41,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     return apiSuccess(roomType);
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/room-types/[id]" });
   }
@@ -48,31 +49,32 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    const session = await requirePermission("spaces:hard_delete");
-    const actor = actorFromSession(session);
-    const { id } = await context.params;
-    const roomTypeId = parseNumericId(id, "id");
+    return await withPermission("spaces:hard_delete", async ({ session }) => {
+      const actor = actorFromSession(session);
+      const { id } = await context.params;
+      const roomTypeId = parseNumericId(id, "id");
 
-    await connectMongoDB();
+      await connectMongoDB();
 
-    const roomType = await RoomType.findById(roomTypeId).select("name").lean();
-    if (!roomType) {
-      throw new ApiError("NOT_FOUND", "Room type not found.");
-    }
+      const roomType = await RoomType.findById(roomTypeId).select("name").lean();
+      if (!roomType) {
+        throw new ApiError("NOT_FOUND", "Room type not found.");
+      }
 
-    // Soft delete always succeeds: existing house-type templates and
-    // quotation rooms keep resolving it through historical-reference
-    // lookups. It only stops being offered for NEW templates/quotation
-    // rooms, enforced at those creation points.
-    await softDeleteOne({
-      model: RoomType,
-      entityType: "roomType",
-      id: roomTypeId,
-      actor,
-      label: roomType.name,
+      // Soft delete always succeeds: existing house-type templates and
+      // quotation rooms keep resolving it through historical-reference
+      // lookups. It only stops being offered for NEW templates/quotation
+      // rooms, enforced at those creation points.
+      await softDeleteOne({
+        model: RoomType,
+        entityType: "roomType",
+        id: roomTypeId,
+        actor,
+        label: roomType.name,
+      });
+
+      return apiSuccess({ id: roomTypeId, deleted: true });
     });
-
-    return apiSuccess({ id: roomTypeId, deleted: true });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/room-types/[id]" });
   }

@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 /**
  * Append-only audit trail for quotations.
@@ -26,6 +27,7 @@ export type QuotationAuditAction = (typeof QUOTATION_AUDIT_ACTIONS)[number];
 export interface IQuotationAuditEvent {
   _id: string;
   id?: string;
+  companyId: number;
   quotationId: string;
   action: QuotationAuditAction;
   /** Authenticated AdminUser id that performed the action. */
@@ -69,7 +71,9 @@ const QuotationAuditEventSchema = new Schema<IQuotationAuditEventDocument>(
   }
 );
 
-QuotationAuditEventSchema.index({ quotationId: 1, performedOn: 1 });
+QuotationAuditEventSchema.index({ companyId: 1, quotationId: 1, performedOn: 1 });
+
+tenantScopePlugin(QuotationAuditEventSchema);
 
 const IMMUTABLE_MESSAGE = "Quotation audit events are append-only and cannot be modified or deleted.";
 

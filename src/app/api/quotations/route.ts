@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, HouseTypeRoomTemplate, HouseType } from "@/models";
-import { getNextSequence, reserveSequenceBlock } from "@/lib/counter";
+import { getNextQuotationSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
-import { getAuthenticatedActor, requireSession } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationSchema } from "@/lib/validation/quotation";
@@ -19,7 +19,8 @@ import { calculateQuotationGst } from "@/lib/pricing";
 import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { resolveNewQuotationOwnership } from "@/lib/quotationOwnership";
-import { dealerVisibilityFilter } from "@/lib/quotationAccess";
+import { dealerVisibilityFilter, salesExecutiveVisibilityFilter } from "@/lib/quotationAccess";
+import { redactQuotationForRole } from "@/lib/variantRedaction";
 import { dealerSnapshot, recordQuotationEvents } from "@/lib/quotationAudit";
 import { isItemUnavailable, isProtectedQuotationStatus, isRoomUnavailable } from "@/lib/quotationAvailability";
 
@@ -126,8 +127,8 @@ function withDerivedTotals(quotation: Record<string, unknown>): Record<string, u
     quotation.customerDiscountPercent !== undefined && quotation.customerDiscountPercent !== null
       ? quotation.customerDiscountPercent
       : quotation.discountType === "percentage"
-      ? quotation.discountValue || 0
-      : 0
+        ? quotation.discountValue || 0
+        : 0
   );
   const earningPct = Math.max(0, allocatedPct - customerPct);
   const earningAmount = Math.round(((subtotal * earningPct) / 100) * 100) / 100;
@@ -161,8 +162,14 @@ function withDerivedTotals(quotation: Record<string, unknown>): Record<string, u
 
 export async function GET(req: Request) {
   try {
-    const { role, userId, permissions } = await getAuthenticatedActor();
+    return await withSession(({ role, userId, permissions }) => getQuotations(req, role, userId, permissions));
+  } catch (error) {
+    return handleApiError(error, { logPrefix: "GET /api/quotations" });
+  }
+}
 
+async function getQuotations(req: Request, role: string, userId: number, permissions: string[]) {
+  {
     const { searchParams } = new URL(req.url);
     const isPaginated = searchParams.has("page") || searchParams.has("pageSize");
     const searchParam = parseSearchQueryParam(searchParams, "search", { max: 100 });
@@ -183,12 +190,17 @@ export async function GET(req: Request) {
     await connectMongoDB();
     const filter: Record<string, unknown> = {};
 
+    const normRole = (role || "").trim().toLowerCase();
+
     // Role-based visibility enforcement (applied in the query, never after the fact).
-    if (role === "dealer") {
+    if (normRole === "dealer") {
       // Dealers see quotations assigned to them or created by them. Any creator /
       // dealer filters in the URL are ignored so they cannot widen this scope.
       filter.$or = dealerVisibilityFilter(userId).$or;
-    } else if (role === "configurable_admin") {
+    } else if (normRole === "sales_executive") {
+      // Sales Executives may access only quotations assigned to their authenticated user.
+      filter.assignedSalesId = userId;
+    } else if (normRole === "configurable_admin") {
       if (hasPermission("configurable_admin", permissions, "quotations:read_all")) {
         const dealerIdParam = parseIntQueryParam(searchParams, "dealerId");
         if (dealerIdParam !== undefined) filter.dealerId = dealerIdParam;
@@ -201,8 +213,11 @@ export async function GET(req: Request) {
         // Without quotations:read_all, configurable admin may only see quotations they created
         filter.createdBy = String(userId);
       }
-    } else {
-      // Super Admin & Admin can view all, optionally narrowed by assigned dealer or creator.
+    } else if (hasPermission(role, permissions, "quotations:read_all")) {
+      // Super Admin, company_owner, and any admin actually holding
+      // quotations:read_all (the default for "admin", but — like every other
+      // role except super_admin — removable per company via Roles & Permissions,
+      // so this must be checked explicitly rather than assumed from the role name).
       const dealerIdParam = parseIntQueryParam(searchParams, "dealerId");
       if (dealerIdParam !== undefined) filter.dealerId = dealerIdParam;
 
@@ -211,6 +226,9 @@ export async function GET(req: Request) {
 
       // `mine=true`: quotations the caller created themselves.
       if (searchParams.get("mine") === "true") filter.createdBy = String(userId);
+    } else {
+      // Without quotations:read_all, an admin-type account may only see quotations they created.
+      filter.createdBy = String(userId);
     }
 
     if (statusParam && statusParam !== "all") {
@@ -254,19 +272,22 @@ export async function GET(req: Request) {
           .populate(POPULATE_OPTIONS),
       ]);
 
-    const result = await attachQuotationActors(
-      quotations.map((doc) => {
-        const json = (typeof doc.toJSON === "function" ? doc.toJSON() : doc) as unknown as Record<
-          string,
-          unknown
-        >;
-        return withDerivedTotals(json);
-      })
-    );
+      const result = await attachQuotationActors(
+        quotations.map((doc) => {
+          const json = (typeof doc.toJSON === "function" ? doc.toJSON() : doc) as unknown as Record<
+            string,
+            unknown
+          >;
+          return withDerivedTotals(json);
+        })
+      );
 
-    // GET responses stay unwrapped for existing consumers.
-    return NextResponse.json(createPaginatedResponse(result, total, paginationParams));
-  }
+      // GET responses stay unwrapped for existing consumers.
+      const redactedResult = result.map((q) =>
+        redactQuotationForRole(q as any, role, permissions)
+      );
+      return NextResponse.json(createPaginatedResponse(redactedResult, total, paginationParams));
+    }
 
     const quotations = await Quotation.find(filter).sort(sortOptions).populate(POPULATE_OPTIONS);
     const result = await attachQuotationActors(
@@ -279,30 +300,57 @@ export async function GET(req: Request) {
       })
     );
 
-    return NextResponse.json(result);
-  } catch (error) {
-    return handleApiError(error, { logPrefix: "GET /api/quotations" });
+    const redactedResult = result.map((q) =>
+      redactQuotationForRole(q as any, role, permissions)
+    );
+    return NextResponse.json(redactedResult);
   }
 }
 
 export async function POST(req: Request) {
   try {
-    const { role, userId, permissions } = await getAuthenticatedActor();
-    if (role === "configurable_admin") {
-      if (!hasPermission("configurable_admin", permissions, "quotations:create")) {
-        throw new ApiError("FORBIDDEN", "You do not have permission to create quotations.");
-      }
+    return await withSession(({ role, userId, permissions, companyId }) =>
+      createQuotation(req, role, userId, permissions, companyId)
+    );
+  } catch (error) {
+    return handleApiError(error, { logPrefix: "POST /api/quotations" });
+  }
+}
+
+async function createQuotation(
+  req: Request,
+  role: string,
+  userId: number,
+  permissions: string[],
+  companyId?: number | null
+) {
+  {
+    // Checked for every role, not just configurable_admin: quotations:create
+    // is part of the default permission set for admin/dealer/company_owner,
+    // but — like every permission except super_admin's — removable per
+    // company via Roles & Permissions, so it must be verified explicitly
+    // rather than assumed from the role name alone.
+    if (!hasPermission(role, permissions, "quotations:create")) {
+      throw new ApiError("FORBIDDEN", "You do not have permission to create quotations.");
     }
 
     await connectMongoDB();
     const input = createQuotationSchema.parse(await readJsonBody(req));
-    const { houseTypeId, discountValue, customerDiscountPercent, dealerId, ...rest } = input;
+    const { houseTypeId, discountValue, customerDiscountPercent, dealerId, assignedSalesId, ...rest } = input;
 
     // Ownership is derived from the authenticated session. Only the optional
-    // `dealerId` (the dealer to assign to) comes from the client, and it is
-    // validated against the caller's role.
-    const ownership = await resolveNewQuotationOwnership({ role, userId, requestedDealerId: dealerId });
+    // `dealerId` (the dealer to assign to) or `assignedSalesId` comes from the client,
+    // and both are strictly validated against the caller's role, permissions, and tenant scope.
+    const ownership = await resolveNewQuotationOwnership({
+      role,
+      userId,
+      requestedDealerId: dealerId,
+      requestedSalesId: assignedSalesId,
+      callerPermissions: permissions,
+      companyId,
+    });
     const targetDealerId = ownership.dealerId;
+    const targetSalesId = ownership.assignedSalesId;
     const allocatedPercent = ownership.allocatedPercent;
 
     const requestedCustomerDiscount =
@@ -345,7 +393,7 @@ export async function POST(req: Request) {
     const year = createdOn.getFullYear();
 
     const createdQuotation = await withTransaction(async (dbSession) => {
-      const seq = await getNextSequence(`quotationNumber_${year}`, undefined, dbSession);
+      const seq = await getNextQuotationSequence(year, dbSession);
       const quotationNumber = `QT-${year}-${String(seq).padStart(3, "0")}`;
       const quotationId = "q_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
 
@@ -368,7 +416,7 @@ export async function POST(req: Request) {
         dealerId: targetDealerId,
         assignedBy: ownership.assignedBy,
         assignedOn: ownership.assignedOn,
-        assignedSalesId: null,
+        assignedSalesId: targetSalesId,
         createdBy: String(userId),
         createdAt: createdOn,
       });
@@ -434,15 +482,15 @@ export async function POST(req: Request) {
           },
           ...(ownership.assignedBy !== null
             ? [
-                {
-                  quotationId,
-                  action: "quotation_assigned" as const,
-                  performedBy: userId,
-                  previousValue: null,
-                  newValue: dealerSnapshot(ownership.dealer),
-                  metadata: { duringCreation: true },
-                },
-              ]
+              {
+                quotationId,
+                action: "quotation_assigned" as const,
+                performedBy: userId,
+                previousValue: null,
+                newValue: dealerSnapshot(ownership.dealer),
+                metadata: { duringCreation: true },
+              },
+            ]
             : []),
         ],
         dbSession
@@ -451,8 +499,7 @@ export async function POST(req: Request) {
       return newQuotation;
     });
 
-    return apiSuccess(createdQuotation, { status: 201 });
-  } catch (error) {
-    return handleApiError(error, { logPrefix: "POST /api/quotations" });
+    const plain = createdQuotation.toJSON ? createdQuotation.toJSON() : createdQuotation;
+    return apiSuccess(redactQuotationForRole(plain as any, role, permissions), { status: 201 });
   }
 }

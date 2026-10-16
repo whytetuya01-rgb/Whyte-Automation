@@ -47,8 +47,8 @@ async function runTests() {
   });
 
   // ── 2. Permission Registry & Module Group Completeness ───────────────────
-  test("all 23 permissions have complete metadata in PERMISSION_METADATA", () => {
-    assert.equal(ALL_PERMISSIONS.length, 23);
+  test("all 25 permissions have complete metadata in PERMISSION_METADATA", () => {
+    assert.equal(ALL_PERMISSIONS.length, 25);
     for (const perm of ALL_PERMISSIONS) {
       const meta = PERMISSION_METADATA[perm];
       assert.ok(meta, `Missing metadata for permission: ${perm}`);
@@ -60,7 +60,7 @@ async function runTests() {
     }
   });
 
-  test("PERMISSION_MODULE_GROUPS contains exactly all 23 permissions with zero duplicates", () => {
+  test("PERMISSION_MODULE_GROUPS contains exactly all 25 permissions with zero duplicates", () => {
     const collected = new Set<Permission>();
     let totalCount = 0;
 
@@ -74,8 +74,8 @@ async function runTests() {
       }
     }
 
-    assert.equal(totalCount, 23);
-    assert.equal(collected.size, 23);
+    assert.equal(totalCount, 25);
+    assert.equal(collected.size, 25);
     for (const perm of ALL_PERMISSIONS) {
       assert.ok(collected.has(perm), `Permission ${perm} not found in any module group`);
     }

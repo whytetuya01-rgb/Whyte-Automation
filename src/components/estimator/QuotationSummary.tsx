@@ -33,8 +33,8 @@ export default function QuotationSummary({ quotation, onUpdateDiscount }: Props)
     discountType === "percentage"
       ? (grandTotal * discountValue) / 100
       : discountType === "fixed"
-      ? discountValue
-      : 0;
+        ? discountValue
+        : 0;
 
   // Clamp discount so it never exceeds grandTotal
   const clampedDiscount = Math.min(discountAmount, grandTotal);
@@ -81,26 +81,26 @@ export default function QuotationSummary({ quotation, onUpdateDiscount }: Props)
                   </div>
                 )}
                 <div className="pl-2 space-y-1">
-                {group.rooms.map((room) => {
-                  const subtotal = room.items.reduce(
-                    (s, i) => s + i.quantity * Number(i.unitPrice), 0
-                  );
-                  if (subtotal === 0) return null;
-                  const roomName = getRoomFullTitle(room, quotation.rooms);
-                  return (
-                    <div key={room.id} className="flex justify-between items-center text-xs md:text-sm">
-                      <span className="text-gray-600 truncate mr-2">
-                        {roomName}
-                      </span>
-                      <span className="font-medium text-gray-900 shrink-0">{formatCurrency(subtotal)}</span>
-                    </div>
-                  );
-                })}
+                  {group.rooms.map((room) => {
+                    const subtotal = room.items.reduce(
+                      (s, i) => s + i.quantity * Number(i.unitPrice), 0
+                    );
+                    if (subtotal === 0) return null;
+                    const roomName = getRoomFullTitle(room, quotation.rooms);
+                    return (
+                      <div key={room.id} className="flex justify-between items-center text-xs md:text-sm">
+                        <span className="text-gray-600 truncate mr-2">
+                          {roomName}
+                        </span>
+                        <span className="font-medium text-gray-900 shrink-0">{formatCurrency(subtotal)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          );
-        });
-      })()}
+            );
+          });
+        })()}
 
         {totalItems === 0 && (
           <p className="text-center text-gray-400 text-xs md:text-sm py-4 md:py-6">No items added yet</p>

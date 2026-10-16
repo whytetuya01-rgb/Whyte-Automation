@@ -23,8 +23,9 @@ import {
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, Company } from "@/types";
 import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
-import { getRoomFullTitle } from "@/lib/roomUtils";
+import { getRoomFullTitle, getRoomDisplayName } from "@/lib/roomUtils";
 import WhyteLogo from "@/components/shared/WhyteLogo";
+import SocialLinks from "@/components/shared/SocialLinks";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import { isValidGstin } from "@/lib/validation/fields";
@@ -1667,7 +1668,7 @@ export default function StepProposalPreview({
                           <div className="px-4 py-1.5 border-x border-b border-amber-100">
                             <UnavailabilityWarning
                               reason={room.unavailableReason}
-                              label={room.customName ?? room.roomType?.name ?? "This space"}
+                              label={getRoomDisplayName(room, renderableRooms)}
                             />
                           </div>
                         )}
@@ -1817,7 +1818,7 @@ export default function StepProposalPreview({
                         {showRoomFooter && items.length > 0 && (
                           <div className="flex justify-between items-center px-4 py-2 bg-gray-50/70 border-x border-b border-gray-200 rounded-b-xl text-sm font-semibold text-gray-800">
                             <span>
-                              {room.customName ?? room.roomType?.name} Subtotal
+                              {getRoomDisplayName(room, renderableRooms)} Subtotal
                             </span>
                             <span className="font-mono font-bold text-gray-950">
                               {formatCurrency(roomSubtotal)}
@@ -2066,35 +2067,48 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Official Whyte Closing & Contact Card */}
-                        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-4 text-sm">
-                          <div className="space-y-1">
-                            <WhyteLogo
-                              theme="light"
-                              alt="Whyte Automations"
-                              size="document-footer"
-                              unoptimized
-                              loading="eager"
-                            />
-                            <p className="font-bold text-gray-950">
-                              Whyte Automations Private Limited
-                            </p>
-                            <p className="text-[13px] text-gray-500">
-                              Gandhinagar, Gujarat, India • Next-Gen Smart Living
-                            </p>
+                        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-3 text-sm">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="space-y-1">
+                              <WhyteLogo
+                                theme="light"
+                                alt="Whyte Automations"
+                                size="document-footer"
+                                unoptimized
+                                loading="eager"
+                              />
+                              <p className="font-bold text-gray-950">
+                                Whyte Automations Private Limited
+                              </p>
+                              <p className="text-[13px] text-gray-500">
+                                Gandhinagar, Gujarat, India • Next-Gen Smart Living
+                              </p>
+                            </div>
+                            <div className="space-y-1 text-right sm:text-right font-medium text-[13px] text-gray-600">
+                              <p className="flex items-center gap-1.5 sm:justify-end">
+                                <Phone size={11} className="text-gray-400" />
+                                <span>+91 98982 34336 / +91 98989 26336</span>
+                              </p>
+                              <p className="flex items-center gap-1.5 sm:justify-end">
+                                <Mail size={11} className="text-gray-400" />
+                                <span>sales@whyte.co.in</span>
+                              </p>
+                              <p className="flex items-center gap-1.5 sm:justify-end">
+                                <Globe size={11} className="text-gray-400" />
+                                <a
+                                  href="https://whyte.co.in/"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:underline"
+                                >
+                                  https://whyte.co.in/
+                                </a>
+                              </p>
+                            </div>
                           </div>
-                          <div className="space-y-1 text-right sm:text-right font-medium text-[13px] text-gray-600">
-                            <p className="flex items-center gap-1.5 sm:justify-end">
-                              <Phone size={11} className="text-gray-400" />
-                              <span>+91 98982 34336 / +91 98989 26336</span>
-                            </p>
-                            <p className="flex items-center gap-1.5 sm:justify-end">
-                              <Mail size={11} className="text-gray-400" />
-                              <span>sales@whyte.co.in</span>
-                            </p>
-                            <p className="flex items-center gap-1.5 sm:justify-end">
-                              <Globe size={11} className="text-gray-400" />
-                              <span>https://whyte.co.in/</span>
-                            </p>
+                          <div className="pt-2 border-t border-gray-200/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-gray-500">
+                            <span className="font-medium text-gray-600">Connect with Whyte:</span>
+                            <SocialLinks variant="proposal-card" />
                           </div>
                         </div>
                       </div>
@@ -2106,8 +2120,19 @@ export default function StepProposalPreview({
               </div>
 
               {/* Document Footer on Every Page */}
-              <div className="pt-4 text-center text-[11px] font-medium text-gray-400">
-                www.whyte.co.in
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] font-medium text-gray-400">
+                <a
+                  href="https://whyte.co.in/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="transition-colors hover:text-gray-600"
+                >
+                  www.whyte.co.in
+                </a>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] uppercase tracking-wider text-gray-300">Social</span>
+                  <SocialLinks variant="proposal-running" iconClassName="w-3 h-3" />
+                </div>
               </div>
               </div>
             </div>

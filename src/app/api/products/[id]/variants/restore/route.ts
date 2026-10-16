@@ -1,5 +1,5 @@
 import { connectMongoDB } from "@/lib/mongodb";
-import { requirePermission } from "@/lib/api-auth";
+import { withPermission } from "@/lib/api-auth";
 import {
   apiSuccess,
   handleApiError,
@@ -31,30 +31,30 @@ type RouteContext = { params: Promise<{ id: string }> };
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    await requirePermission("catalog:edit");
+    return await withPermission("catalog:edit", async () => {
+      await connectMongoDB();
+      const productId = parseNumericId((await context.params).id, "product id");
 
-    await connectMongoDB();
-    const productId = parseNumericId((await context.params).id, "product id");
+      const parsed = restoreVariantSchema.safeParse(await readJsonBody(req));
+      if (!parsed.success) throw parsed.error;
 
-    const parsed = restoreVariantSchema.safeParse(await readJsonBody(req));
-    if (!parsed.success) throw parsed.error;
+      const { historyId, variantCode, price } = parsed.data;
 
-    const { historyId, variantCode, price } = parsed.data;
+      const created = await restoreVariantToProduct({
+        productId,
+        historyId,
+        variantCode,
+        price,
+      });
 
-    const created = await restoreVariantToProduct({
-      productId,
-      historyId,
-      variantCode,
-      price,
+      return apiSuccess(
+        {
+          message: `Variant "${variantCode}" restored.`,
+          variant: serializeVariant(created.toObject()),
+        },
+        { status: 201 }
+      );
     });
-
-    return apiSuccess(
-      {
-        message: `Variant "${variantCode}" restored.`,
-        variant: serializeVariant(created.toObject()),
-      },
-      { status: 201 }
-    );
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/products/[id]/variants/restore" });
   }

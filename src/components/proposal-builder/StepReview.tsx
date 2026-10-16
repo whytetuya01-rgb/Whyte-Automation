@@ -17,6 +17,7 @@ import {
   ShoppingBag,
   ChevronLeft,
   ChevronRight,
+  SlidersHorizontal,
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, EditorCatalogProduct, Category } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
@@ -26,122 +27,13 @@ import { calculateQuotationGst } from "@/lib/pricing";
 import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
 import { useSession } from "next-auth/react";
 import { getRoomDisplayName, getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
-import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
 import { getItemImageUrl, formatProposalProductName } from "@/components/proposal-builder/StepProposalPreview";
+import ChangeProductModal from "./ChangeProductModal";
+import RoomMassEditModal from "./RoomMassEditModal";
 
-/**
- * Responsive Category Pill Scroller for modal dialogs.
- * Displays horizontal pill buttons that stay within the modal width,
- * with smooth scroll, hidden scrollbars, and dynamic indicator buttons.
- */
-function CategoryPillScroller({
-  categories,
-  selectedCategoryId,
-  onSelectCategory,
-}: {
-  categories: Category[];
-  selectedCategoryId: number | null;
-  onSelectCategory: (id: number | null) => void;
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
 
-  const checkScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const { scrollLeft, scrollWidth, clientWidth } = el;
-    setCanScrollLeft(scrollLeft > 4);
-    setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 6);
-  }, []);
 
-  useEffect(() => {
-    checkScroll();
-    const el = scrollRef.current;
-    if (!el) return;
-    el.addEventListener("scroll", checkScroll, { passive: true });
-    window.addEventListener("resize", checkScroll);
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      window.removeEventListener("resize", checkScroll);
-    };
-  }, [checkScroll, categories.length]);
-
-  const handleScroll = (direction: "left" | "right") => {
-    if (!scrollRef.current) return;
-    const offset = direction === "left" ? -180 : 180;
-    scrollRef.current.scrollBy({ left: offset, behavior: "smooth" });
-  };
-
-  return (
-    <div className="relative w-full min-w-0 overflow-hidden">
-      {/* Left scroll fade & arrow button */}
-      {canScrollLeft && (
-        <div className="absolute left-0 top-0 bottom-0 z-20 flex items-center pr-2 bg-gradient-to-r from-white via-white/90 to-transparent">
-          <button
-            type="button"
-            onClick={() => handleScroll("left")}
-            aria-label="Scroll categories left"
-            className="w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-700 hover:bg-gray-50 hover:text-gray-950 transition active:scale-90"
-          >
-            <ChevronLeft size={13} strokeWidth={2.5} />
-          </button>
-        </div>
-      )}
-
-      {/* Horizontal pill list */}
-      <div
-        ref={scrollRef}
-        className="flex items-center gap-2 overflow-x-auto scrollbar-none scroll-smooth w-full min-w-0 py-0.5 px-0.5"
-        style={{
-          scrollbarWidth: "none",
-          msOverflowStyle: "none",
-          WebkitOverflowScrolling: "touch",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => onSelectCategory(null)}
-          className={`h-8 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition border select-none inline-flex items-center justify-center ${selectedCategoryId === null
-            ? "bg-gray-950 text-white border-accent/40 shadow-xs ring-1 ring-accent/25"
-            : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-950 hover:bg-gray-50/60"
-            }`}
-        >
-          All Categories
-        </button>
-
-        {categories.map((c) => (
-          <button
-            key={c.id}
-            type="button"
-            onClick={() => onSelectCategory(c.id)}
-            className={`h-8 px-3.5 rounded-xl text-xs font-semibold shrink-0 transition border select-none inline-flex items-center justify-center ${selectedCategoryId === c.id
-              ? "bg-gray-950 text-white border-accent/40 shadow-xs ring-1 ring-accent/25"
-              : "bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:text-gray-950 hover:bg-gray-50/60"
-              }`}
-          >
-            {c.name}
-          </button>
-        ))}
-      </div>
-
-      {/* Right scroll fade & arrow button */}
-      {canScrollRight && (
-        <div className="absolute right-0 top-0 bottom-0 z-20 flex items-center pl-2 bg-gradient-to-l from-white via-white/90 to-transparent">
-          <button
-            type="button"
-            onClick={() => handleScroll("right")}
-            aria-label="Scroll categories right"
-            className="w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm flex items-center justify-center text-gray-700 hover:bg-gray-50 hover:text-gray-950 transition active:scale-90"
-          >
-            <ChevronRight size={13} strokeWidth={2.5} />
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
 
 interface Props {
   quotation: Quotation;
@@ -161,6 +53,17 @@ interface Props {
     unitPrice?: number,
     variantLabel?: string
   ) => Promise<void>;
+  onMassUpdateRoomItems?: (
+    roomId: number,
+    updates: Array<{
+      itemId: number;
+      productId: number;
+      productVariantId?: number | null;
+      variantConfig?: Record<string, string> | null;
+      variantLabel?: string | null;
+      quantity?: number;
+    }>
+  ) => Promise<void>;
   onUpdateItem: (itemId: number, data: any) => Promise<void>;
   onDeleteItem: (itemId: number) => Promise<void>;
   onUpdateDiscount: (type: "percentage" | "fixed" | "none", value: number) => Promise<void>;
@@ -174,6 +77,7 @@ export default function StepReview({
   categories = [],
   onAddItem,
   onReplaceItem,
+  onMassUpdateRoomItems,
   onUpdateItem,
   onDeleteItem,
   onUpdateDiscount,
@@ -198,18 +102,9 @@ export default function StepReview({
     targetItem?: QuotationItem;
   } | null>(null);
 
-  // Variant Picker state for Matrix products
-  const [pickerProduct, setPickerProduct] = useState<{
-    product: EditorCatalogProduct;
-    mode: "add" | "change";
-    roomId: number;
-    targetItemId?: number;
-  } | null>(null);
+  // Room-wise Mass Edit state
+  const [massEditRoom, setMassEditRoom] = useState<QuotationRoom | null>(null);
 
-  // Selector modal filters
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
-  const [search, setSearch] = useState("");
-  const [productTypeFilter, setProductTypeFilter] = useState("all");
 
   const rooms = quotation.rooms || [];
   const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
@@ -287,7 +182,9 @@ export default function StepReview({
 
   // A quotation that belongs to a dealer is capped at its allocation snapshot (even 0%).
   const hasDealer = quotation.dealerId !== null && quotation.dealerId !== undefined;
-  const actorIsDealer = (session?.user as { role?: string } | undefined)?.role === "dealer";
+  const actorRole = (session?.user as { role?: string } | undefined)?.role;
+  const isSalesExecutive = actorRole === "sales_executive";
+  const actorIsDealer = actorRole === "dealer";
 
   // Earning uses the same shared formula as the server (allocated% - customer%).
   const { earningPercent, earningAmount: estimatedEarning } = calculateDealerEarning({
@@ -325,10 +222,6 @@ export default function StepReview({
       roomId: Number(roomId),
       roomName,
     });
-    setSearch("");
-    if (categories.length > 0 && selectedCategoryId === null) {
-      setSelectedCategoryId(Number(categories[0].id ?? (categories[0] as any)._id));
-    }
   };
 
   // Open Change Product Modal
@@ -340,137 +233,37 @@ export default function StepReview({
       roomName,
       targetItem: item,
     });
-    setSearch("");
-    if (categories.length > 0 && selectedCategoryId === null) {
-      setSelectedCategoryId(Number(categories[0].id ?? (categories[0] as any)._id));
-    }
   };
 
-  // Filtered Products for the Selector Modal
-  const modalFilteredProducts = useMemo(() => {
-    let list = products.filter((p) => p.isActive);
-
-    if (selectedCategoryId !== null) {
-      const activeCat = categories.find(
-        (c) => Number(c.id ?? (c as any)._id) === selectedCategoryId
-      );
-      const subIds = (activeCat?.children || []).map((s) => Number(s.id ?? (s as any)._id));
-      list = list.filter((p) => {
-        const pCatId = Number(p.categoryId ?? (p as any).category?.id ?? (p as any).category?._id);
-        return pCatId === selectedCategoryId || subIds.includes(pCatId);
-      });
-    }
-
-    if (productTypeFilter !== "all") {
-      list = list.filter((p) => p.type === productTypeFilter);
-    }
-
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.code && p.code.toLowerCase().includes(q)) ||
-          (p.description && p.description.toLowerCase().includes(q))
-      );
-    }
-
-    return list;
-  }, [products, categories, selectedCategoryId, productTypeFilter, search]);
-
-  // Handle Product Selection in Modal
-  const handleSelectProduct = async (product: EditorCatalogProduct) => {
-    if (!selectorState) return;
-
-    const prodId = Number(product.id ?? (product as any)._id);
-    const targetItemId = selectorState.targetItem
-      ? Number(selectorState.targetItem.id ?? (selectorState.targetItem as any)._id)
-      : undefined;
-
-    // If matrix product with multiple variants, open VariantPicker
-    const activeVariants = product.variants?.filter((v) => v.isActive) || [];
-    if (product.isMatrix && activeVariants.length > 1) {
-      setPickerProduct({
-        product,
-        mode: selectorState.mode,
-        roomId: selectorState.roomId,
-        targetItemId,
-      });
-      setSelectorState(null);
-      return;
-    }
-
-    const firstVariant = activeVariants[0];
-    const firstVariantId = firstVariant
-      ? Number(firstVariant.id ?? (firstVariant as any)._id)
-      : undefined;
-    const price = firstVariant ? Number(firstVariant.price) : 0;
-    const variantLabel = firstVariant
-      ? (firstVariant.automationTier || firstVariant.surfaceFinish
-        ? [firstVariant.automationTier, firstVariant.surfaceFinish].filter(Boolean).join(" + ")
-        : null)
-      : null;
-
-    if (selectorState.mode === "add") {
-      if (onAddItem) {
-        await onAddItem(
-          selectorState.roomId,
-          prodId,
-          firstVariantId,
-          firstVariant?.config as Record<string, string> | undefined
-        );
-      }
-    } else if (selectorState.mode === "change" && targetItemId) {
-      if (onReplaceItem) {
+  // Handle Mass Edit Save
+  const handleMassEditSave = async (
+    updates: Array<{
+      itemId: number;
+      productId: number;
+      productVariantId?: number | null;
+      variantConfig?: Record<string, string> | null;
+      variantLabel?: string | null;
+      quantity?: number;
+    }>
+  ) => {
+    if (!massEditRoom) return;
+    const rId = Number(massEditRoom.id ?? (massEditRoom as any)._id);
+    if (onMassUpdateRoomItems) {
+      await onMassUpdateRoomItems(rId, updates);
+    } else if (onReplaceItem) {
+      for (const update of updates) {
         await onReplaceItem(
-          targetItemId,
-          prodId,
-          firstVariantId,
-          firstVariant?.config as Record<string, string> | undefined,
-          price,
-          variantLabel ?? undefined
+          update.itemId,
+          update.productId,
+          update.productVariantId ?? undefined,
+          update.variantConfig ?? undefined,
+          undefined,
+          update.variantLabel ?? undefined
         );
       }
     }
-
-    setSelectorState(null);
   };
 
-  // Handle Variant Selection from VariantPicker
-  const handleVariantChosen = async (variantId: number, config: Record<string, string>) => {
-    if (!pickerProduct) return;
-    const { product, mode, roomId, targetItemId } = pickerProduct;
-    const prodId = Number(product.id ?? (product as any)._id);
-    const numVariantId = Number(variantId);
-    const variant = product.variants?.find(
-      (v) => Number(v.id ?? (v as any)._id) === numVariantId
-    );
-    const price = variant ? Number(variant.price) : 0;
-    const variantLabel = variant
-      ? (variant.automationTier || variant.surfaceFinish
-        ? [variant.automationTier, variant.surfaceFinish].filter(Boolean).join(" + ")
-        : Object.values(config).filter(Boolean).join(" + "))
-      : null;
-
-    if (mode === "add") {
-      if (onAddItem) {
-        await onAddItem(roomId, prodId, numVariantId, config);
-      }
-    } else if (mode === "change" && targetItemId) {
-      if (onReplaceItem) {
-        await onReplaceItem(
-          targetItemId,
-          prodId,
-          numVariantId,
-          config,
-          price,
-          variantLabel ?? undefined
-        );
-      }
-    }
-
-    setPickerProduct(null);
-  };
 
   return (
     <div className="w-full space-y-6">
@@ -645,21 +438,34 @@ export default function StepReview({
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between sm:justify-end gap-3.5">
-                          <span className="font-mono font-bold text-gray-950 text-sm">
+                        <div className="flex items-center justify-between sm:justify-end gap-2.5">
+                          <span className="font-mono font-bold text-gray-950 text-sm mr-1">
                             {formatCurrency(roomSubtotal)}
                           </span>
+
+                          {/* Mass Edit Button */}
+                          <button
+                            type="button"
+                            disabled={isLocked || !room.items || room.items.length === 0}
+                            onClick={() => setMassEditRoom(room)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-800 text-xs font-semibold hover:bg-gray-100 transition active:scale-95 shadow-2xs disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Replace multiple products, variants, and finishes in this space at once"
+                          >
+                            <SlidersHorizontal size={13} strokeWidth={2} />
+                            <span>Mass Edit</span>
+                          </button>
 
                           {/* Add Product Button */}
                           <button
                             type="button"
+                            disabled={isLocked}
                             onClick={() =>
                               handleOpenAddModal(
                                 room.id,
-                                room.customName ?? room.roomType?.name ?? "Space"
+                                getRoomDisplayName(room, rooms)
                               )
                             }
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-950 text-white text-xs font-semibold hover:bg-gray-800 transition active:scale-95 shadow-xs"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-950 text-white text-xs font-semibold hover:bg-gray-800 transition active:scale-95 shadow-xs disabled:opacity-40"
                           >
                             <Plus size={13} strokeWidth={2.5} />
                             <span>Add Product</span>
@@ -672,7 +478,7 @@ export default function StepReview({
                         <div className="px-5 py-2.5 border-b border-amber-100">
                           <UnavailabilityWarning
                             reason={room.unavailableReason}
-                            label={room.customName ?? room.roomType?.name ?? "This space"}
+                            label={getRoomDisplayName(room, rooms)}
                           />
                         </div>
                       )}
@@ -695,7 +501,7 @@ export default function StepReview({
                             onClick={() =>
                               handleOpenAddModal(
                                 room.id,
-                                room.customName ?? room.roomType?.name ?? "Space"
+                                getRoomDisplayName(room, rooms)
                               )
                             }
                             className="mt-2 text-xs font-semibold text-gray-950 underline hover:text-gray-700"
@@ -848,7 +654,7 @@ export default function StepReview({
                                           handleOpenChangeModal(
                                             item,
                                             roomId,
-                                            room.customName ?? room.roomType?.name ?? "Space"
+                                            getRoomDisplayName(room, rooms)
                                           )
                                         }
                                         className="px-2.5 py-1 rounded-lg border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-accent-light hover:text-accent-foreground hover:border-accent-border transition active:scale-95 shadow-2xs"
@@ -947,7 +753,7 @@ export default function StepReview({
                 <label className="block text-xs font-bold text-gray-900">
                   {hasDealer ? "Customer Discount" : "Apply Project Discount"}
                 </label>
-                {hasDealer && (
+                {hasDealer && !isSalesExecutive && (
                   <span className="text-[11px] font-semibold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200">
                     Allocated: {allocatedPercent}%
                   </span>
@@ -974,7 +780,7 @@ export default function StepReview({
                       type="number"
                       min="0"
                       max={hasDealer ? allocatedPercent : 100}
-                      value={discountVal}
+                      value={discountVal == 0 ? "" : discountVal}
                       onChange={(e) => setDiscountVal(Number(e.target.value))}
                       placeholder={discountType === "percentage" ? "10%" : "₹5000"}
                       className={`w-24 h-9 px-2.5 border rounded-lg text-xs font-mono font-bold bg-white focus:outline-none ${discountExceedsAllocation ? "border-red-400 text-red-600" : "border-gray-200 focus:border-gray-950"
@@ -995,7 +801,7 @@ export default function StepReview({
                 </div>
               )}
 
-              {hasDealer && !isLocked && discountType === "percentage" && (
+              {hasDealer && !isSalesExecutive && !isLocked && discountType === "percentage" && (
                 <p className="text-[11px] text-gray-500 font-medium">
                   Maximum allowed: {allocatedPercent}%
                 </p>
@@ -1008,7 +814,7 @@ export default function StepReview({
               )}
 
               {/* Earning Display for Dealer-owned quotations: confirmed only once approved/delivered */}
-              {hasDealer && (
+              {hasDealer && !isSalesExecutive && (
                 <div className="mt-2 pt-2 border-t border-gray-200/60 flex items-center justify-between text-xs">
                   <span className="text-gray-500 font-medium">
                     {isLocked ? "Confirmed Earnings" : "Estimated Earning"} ({earningPercent}%):
@@ -1150,155 +956,58 @@ export default function StepReview({
         </button>
       </div>
 
-      {/* Product Selector Modal for Add / Change */}
-      {selectorState?.isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-2xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[85vh] flex flex-col border border-gray-200 shadow-2xl overflow-hidden">
-            {/* Modal Header */}
-            <div className="p-5 border-b border-gray-100 flex items-start justify-between gap-3 bg-gray-50/60">
-              <div>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block mb-0.5">
-                  {selectorState.mode === "add" ? "Add to Space" : "Replace Product"}
-                </span>
-                <h3 className="font-extrabold text-gray-950 text-lg sm:text-xl">
-                  {selectorState.mode === "add"
-                    ? `Add Product to ${selectorState.roomName}`
-                    : `Change Product in ${selectorState.roomName}`}
-                </h3>
-                {selectorState.mode === "change" && selectorState.targetItem && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Replacing: <strong className="text-gray-900">{selectorState.targetItem.product?.name}</strong>
-                    {selectorState.targetItem.notes && (
-                      <span className="ml-1.5 text-gray-400 font-normal">
-                        (Location: {selectorState.targetItem.notes})
-                      </span>
-                    )}
-                  </p>
-                )}
-              </div>
+      {/* Enhanced Product Modal for Add / Change with Variant & Finish Selectors */}
+      <ChangeProductModal
+        isOpen={Boolean(selectorState?.isOpen)}
+        mode={selectorState?.mode ?? "change"}
+        roomId={selectorState?.roomId ?? 0}
+        roomName={selectorState?.roomName ?? ""}
+        targetItem={selectorState?.targetItem}
+        products={products}
+        categories={categories}
+        quotationDefaults={{
+          defaultTier: quotation.defaultTier ?? null,
+          defaultFinish: quotation.defaultFinish ?? null,
+        }}
+        onClose={() => setSelectorState(null)}
+        onConfirmChange={async ({ itemId, productId, productVariantId, variantConfig, unitPrice, variantLabel }) => {
+          if (onReplaceItem) {
+            await onReplaceItem(
+              itemId,
+              productId,
+              productVariantId ?? undefined,
+              variantConfig ?? undefined,
+              unitPrice,
+              variantLabel ?? undefined
+            );
+          }
+        }}
+        onConfirmAdd={async ({ roomId, productId, productVariantId, variantConfig, unitPrice, variantLabel }) => {
+          if (onAddItem) {
+            await onAddItem(
+              roomId,
+              productId,
+              productVariantId ?? undefined,
+              variantConfig ?? undefined
+            );
+          }
+        }}
+      />
 
-              <button
-                type="button"
-                onClick={() => setSelectorState(null)}
-                className="p-1.5 text-gray-400 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Modal Filters */}
-            <div className="p-4 border-b border-gray-100 space-y-3 bg-white">
-              {/* Category Pills Scroller */}
-              {categories.length > 0 && (
-                <CategoryPillScroller
-                  categories={categories}
-                  selectedCategoryId={selectedCategoryId}
-                  onSelectCategory={setSelectedCategoryId}
-                />
-              )}
-
-              {/* Search & Type filter */}
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Search devices by name or code..."
-                    className="w-full h-8 pl-9 pr-3 border border-gray-200 rounded-lg text-xs text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-gray-950 bg-white"
-                  />
-                </div>
-
-                <div className="w-40 shrink-0">
-                  <Select
-                    value={productTypeFilter}
-                    onChange={(e) => setProductTypeFilter(e.target.value)}
-                    triggerClassName="h-8 rounded-lg text-xs text-gray-700 border-gray-200"
-                    options={[
-                      { value: "all", label: "All Types" },
-                      { value: "switch_board", label: "Switch Boards" },
-                      { value: "accessory", label: "Accessories" },
-                      { value: "smart_lock", label: "Smart Locks" },
-                      { value: "curtain", label: "Curtains" },
-                      { value: "vdp", label: "Video Door Phone" },
-                    ]}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Products List */}
-            <div className="p-4 overflow-y-auto flex-1 space-y-2 divide-y divide-gray-100">
-              {modalFilteredProducts.length === 0 ? (
-                <div className="py-12 text-center text-gray-400">
-                  <Package size={28} className="mx-auto mb-1.5 opacity-40 text-gray-400" />
-                  <p className="text-xs font-semibold text-gray-700">No products match your search</p>
-                  <p className="text-[11px] text-gray-400 mt-0.5">Try clearing filters</p>
-                </div>
-              ) : (
-                modalFilteredProducts.map((prod) => {
-                  const minPrice = prod.variants && prod.variants.length > 0
-                    ? Math.min(...prod.variants.filter((v) => v.isActive).map((v) => Number(v.price || 0)))
-                    : Number(prod.price || 0);
-
-                  return (
-                    <div
-                      key={prod.id}
-                      className="pt-2.5 pb-1 flex items-center justify-between gap-3 group"
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="w-11 h-11 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center shrink-0 overflow-hidden">
-                          {prod.imageUrl ? (
-                            <img
-                              src={prod.imageUrl}
-                              alt={prod.name}
-                              className="w-full h-full object-contain p-1"
-                            />
-                          ) : (
-                            <Package size={18} className="text-gray-300" />
-                          )}
-                        </div>
-
-                        <div className="min-w-0">
-                          <p className="text-[10px] font-semibold uppercase text-gray-400">
-                            {prod.category?.name ?? "Automation"}
-                          </p>
-                          <h5 className="font-bold text-gray-950 text-xs sm:text-sm truncate">
-                            {prod.name}
-                          </h5>
-                          <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                            {prod.code && <span className="font-mono text-gray-400">{prod.code}</span>}
-                            <span>•</span>
-                            <span className="font-mono font-semibold text-gray-950">
-                              {prod.isMatrix ? `from ${formatCurrency(minPrice)}` : formatCurrency(minPrice)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSelectProduct(prod)}
-                        className="px-3.5 py-1.5 bg-gray-950 text-white rounded-lg text-xs font-semibold hover:bg-gray-800 transition active:scale-95 shrink-0"
-                      >
-                        {selectorState.mode === "add" ? "Add to Room" : "Replace with this"}
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Variant Picker for Matrix items in Step 4 */}
-      {pickerProduct && (
-        <VariantPicker
-          product={pickerProduct.product}
-          onSelect={(variantId, config) => handleVariantChosen(variantId, config)}
-          onClose={() => setPickerProduct(null)}
+      {/* Room-wise Mass Edit Modal */}
+      {massEditRoom && (
+        <RoomMassEditModal
+          isOpen={Boolean(massEditRoom)}
+          room={massEditRoom}
+          allRooms={rooms}
+          products={products}
+          categories={categories}
+          quotationDefaults={{
+            defaultTier: quotation.defaultTier ?? null,
+            defaultFinish: quotation.defaultFinish ?? null,
+          }}
+          onClose={() => setMassEditRoom(null)}
+          onSave={handleMassEditSave}
         />
       )}
     </div>

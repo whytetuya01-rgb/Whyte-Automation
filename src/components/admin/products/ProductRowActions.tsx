@@ -137,7 +137,7 @@ export default function ProductRowActions({
         title={`Edit variants of ${productName}`}
         className={cn(
           buttonClass,
-          "bg-pink-50 text-pink-700 hover:bg-pink-100 border border-pink-200/60"
+          "bg-[var(--color-admin-primary-soft,#FCEAF0)] text-[var(--color-admin-primary-foreground,#B83E68)] hover:opacity-90 border border-[var(--color-admin-primary-border,#F1B8C8)]"
         )}
       >
         <Layers className="h-3.5 w-3.5" aria-hidden="true" />

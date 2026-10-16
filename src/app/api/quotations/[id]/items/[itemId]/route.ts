@@ -1,12 +1,13 @@
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationItem, QuotationRoom, Product } from "@/models";
-import { getAuthenticatedActor } from "@/lib/api-auth";
+import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationItemSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationItem } from "@/lib/quotationNormalization";
 import { redactQuotationItemForRole } from "@/lib/variantRedaction";
-import { calculateFromTaxInclusivePrice } from "@/lib/pricing";
+import { calculateFromTaxInclusivePrice, resolveVariantPricing } from "@/lib/pricing";
+import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
@@ -16,15 +17,14 @@ type RouteContext = { params: Promise<{ id: string; itemId: string }> };
 /** Session required: editing and removing items are business operations. */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    const { role, userId, permissions } = await getAuthenticatedActor();
-
+    return await withSession(async ({ role, userId, permissions }) => {
     const { id, itemId } = await context.params;
     const quotationId = parseQuotationId(id);
     const itId = parseNumericId(itemId, "itemId");
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId createdBy").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status dealerId assignedSalesId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
@@ -97,21 +97,58 @@ export async function PATCH(req: Request, context: RouteContext) {
       if (!product.isActive) {
         throw new ApiError("VALIDATION_ERROR", "This product is no longer available.", { field: "productId" });
       }
+
+      const productJson = (typeof product.toJSON === "function" ? product.toJSON() : product) as {
+        variants?: Array<{
+          id?: number;
+          _id?: number;
+          automationTier?: string | null;
+          surfaceFinish?: string | null;
+          config?: Record<string, string> | null;
+          price?: unknown;
+          priceWithoutTax?: unknown;
+          taxPercent?: unknown;
+        }>;
+      };
+      const variants = Array.isArray(productJson.variants) ? productJson.variants : [];
+
       const targetVariantId =
         parsed.productVariantId !== undefined
           ? parsed.productVariantId
           : (existingItem as unknown as { productVariantId?: number | null }).productVariantId;
-      if (targetVariantId != null) {
-        const productJson = (typeof product.toJSON === "function" ? product.toJSON() : product) as {
-          variants?: Array<{ id?: number; _id?: number }>;
-        };
-        const variants = Array.isArray(productJson.variants) ? productJson.variants : [];
-        const match = variants.find((v) => (v.id ?? v._id) === targetVariantId);
-        if (!match) {
-          throw new ApiError("VALIDATION_ERROR", "The selected variant is unavailable.", {
-            field: "productVariantId",
-          });
-        }
+
+      let match = targetVariantId != null ? variants.find((v) => (v.id ?? v._id) === targetVariantId) : undefined;
+
+      if (!match && targetVariantId == null && variants.length === 1) {
+        match = variants[0];
+      }
+
+      if (targetVariantId != null && !match) {
+        throw new ApiError("VALIDATION_ERROR", "The selected variant is unavailable.", {
+          field: "productVariantId",
+        });
+      }
+
+      if (match) {
+        data.productVariantId = match.id ?? match._id;
+        const variantPricing = resolveVariantPricing(
+          match.price !== undefined && match.price !== null && match.price !== ""
+            ? { price: match.price, taxPercent: match.taxPercent }
+            : { priceWithoutTax: match.priceWithoutTax, taxPercent: match.taxPercent }
+        );
+        data.unitPrice = mongoose.Types.Decimal128.fromString(variantPricing.price.toFixed(2));
+        data.priceWithoutTax = mongoose.Types.Decimal128.fromString(variantPricing.priceWithoutTax.toFixed(2));
+        data.taxAmount = mongoose.Types.Decimal128.fromString(variantPricing.taxAmount.toFixed(2));
+        data.taxPercent = mongoose.Types.Decimal128.fromString(variantPricing.taxPercent.toFixed(2));
+
+        const tierLbl = formatTierLabel(match.automationTier);
+        const finishLbl = formatFinishLabel(match.surfaceFinish);
+        data.variantLabel =
+          tierLbl || finishLbl
+            ? [tierLbl, finishLbl].filter(Boolean).join(" + ")
+            : parsed.variantLabel ?? (match.config ? Object.values(match.config).filter(Boolean).join(" + ") : null);
+
+        data.variantConfig = parsed.variantConfig ?? match.config ?? null;
       }
     }
 
@@ -134,6 +171,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     // of the populated product/variant straight past the redaction below.
     const plainItem = item?.toObject ? item.toObject() : item;
     return apiSuccess(redactQuotationItemForRole(normalizeQuotationItem(plainItem), role, permissions));
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/quotations/[id]/items/[itemId]" });
   }
@@ -141,7 +179,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    const { session, role, userId, permissions } = await getAuthenticatedActor();
+    return await withSession(async ({ session, role, userId, permissions }) => {
     const actor = actorFromSession(session);
 
     const { id, itemId } = await context.params;
@@ -150,7 +188,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId createdBy").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status dealerId assignedSalesId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
@@ -180,6 +218,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
     });
 
     return apiSuccess({ id: itId, deleted: true });
+    });
   } catch (error) {
     return handleApiError(error, { logPrefix: "DELETE /api/quotations/[id]/items/[itemId]" });
   }

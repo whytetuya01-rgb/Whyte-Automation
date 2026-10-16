@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import { createDecimalField } from "./helpers";
+import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 /**
  * Write-only, inert audit trail of hard-deleted ProductVariant records.
@@ -20,6 +21,7 @@ export type ProductVariantHistoryReason = "hard_delete" | "product_hard_delete";
 export interface IProductVariantHistory {
   _id: number;
   id?: number;
+  companyId: number;
   /** The _id of the ProductVariant that was hard deleted. */
   variantId: number;
   productId: number;
@@ -110,8 +112,10 @@ ProductVariantHistorySchema.virtual("product", {
   justOne: true,
 });
 
-ProductVariantHistorySchema.index({ productId: 1, variantId: 1 });
-ProductVariantHistorySchema.index({ productId: 1, deletedAt: -1 });
+ProductVariantHistorySchema.index({ companyId: 1, productId: 1, variantId: 1 });
+ProductVariantHistorySchema.index({ companyId: 1, productId: 1, deletedAt: -1 });
+
+tenantScopePlugin(ProductVariantHistorySchema);
 
 export const ProductVariantHistory: Model<IProductVariantHistoryDocument> =
   mongoose.models.ProductVariantHistory ||
