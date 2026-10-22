@@ -23,7 +23,9 @@ import {
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, Company } from "@/types";
 import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
-import { getRoomFullTitle, getRoomDisplayName } from "@/lib/roomUtils";
+import { getRoomFullTitle, getRoomDisplayName, isMultiFloorHouseType } from "@/lib/roomUtils";
+import { getEffectiveFloorForRoom } from "@/lib/floorAssignment";
+import { getRoomImage, roomImageSrc, RoomImageEntry } from "@/lib/roomImageMap";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import SocialLinks from "@/components/shared/SocialLinks";
 import { calculateQuotationGst } from "@/lib/pricing";
@@ -216,6 +218,115 @@ export function getItemImageUrl(item: QuotationItem): string | null {
   return cleanUrl;
 }
 
+export function getItemConnectivity(item: QuotationItem): string | null {
+  const val =
+    item.variantConfig?.connectivity ||
+    item.variantConfig?.series ||
+    item.variantConfig?.type ||
+    item.variantConfig?.protocol;
+  if (
+    !val ||
+    typeof val !== "string" ||
+    val.toLowerCase() === "undefined" ||
+    val.toLowerCase() === "null"
+  ) {
+    return null;
+  }
+  return val.trim();
+}
+
+/**
+ * Resolves the catalog room photograph entry for any room instance.
+ * Checks custom assigned name, authoritative catalog roomType name,
+ * and disambiguated display name (e.g. "Living Room 2" -> "living-room").
+ */
+export function resolveRoomImage(
+  room: QuotationRoom,
+  renderableRooms?: QuotationRoom[]
+): RoomImageEntry {
+  const custom = room.customName?.trim();
+  const typeName = room.roomType?.name?.trim();
+  const displayName = getRoomDisplayName(room, renderableRooms);
+
+  // If custom room name is set, test if it maps to a specific room category
+  if (custom) {
+    const customEntry = getRoomImage(custom);
+    if (
+      customEntry.file !== "living-room" ||
+      !typeName ||
+      typeName.toLowerCase().includes("living")
+    ) {
+      return customEntry;
+    }
+  }
+
+  // Authoritative catalog room type fallback
+  if (typeName) {
+    return getRoomImage(typeName);
+  }
+
+  return getRoomImage(displayName);
+}
+
+/**
+ * Premium Room Image component displayed in the room header banner.
+ * Displays the room photograph with rounded corners, object-cover, and focal-point alignment.
+ * If the image fails to load or has no catalog photo, displays a clean neutral illustration.
+ */
+export function RoomHeaderImage({
+  room,
+  renderableRooms,
+  fallbackIcon: FallbackIcon,
+}: {
+  room: QuotationRoom;
+  renderableRooms: QuotationRoom[];
+  fallbackIcon: React.ComponentType<{ size?: number; className?: string }>;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+
+  const imageEntry = useMemo(() => {
+    try {
+      return resolveRoomImage(room, renderableRooms);
+    } catch {
+      return null;
+    }
+  }, [room, renderableRooms]);
+
+  const imgSrc = imageEntry ? roomImageSrc(imageEntry) : null;
+  const focalY = imageEntry?.focalY ?? 0.5;
+  const label = room.roomType?.name || room.customName || "Space";
+
+  if (!imgSrc || imgFailed) {
+    return (
+      <div
+        className="w-20 sm:w-24 h-13 sm:h-[54px] shrink-0 rounded-lg border border-gray-200/90 bg-gradient-to-br from-gray-100 via-gray-50 to-gray-100 flex flex-col items-center justify-center p-1 text-gray-400 select-none shadow-2xs"
+        aria-label={label}
+      >
+        <div className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center text-accent shadow-2xs mb-0.5">
+          <FallbackIcon size={13} />
+        </div>
+        <span className="text-[8px] font-bold uppercase tracking-wider text-gray-500 truncate max-w-full">
+          {label}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative w-20 sm:w-24 h-13 sm:h-[54px] shrink-0 rounded-lg overflow-hidden border border-gray-200/90 bg-gray-100 shadow-2xs">
+      <img
+        src={imgSrc}
+        alt={imageEntry?.alt || label}
+        className="w-full h-full object-cover"
+        style={{ objectPosition: `50% ${Math.round(focalY * 100)}%` }}
+        crossOrigin="anonymous"
+        loading="eager"
+        onError={() => setImgFailed(true)}
+      />
+    </div>
+  );
+}
+
 /**
  * Safe filter for rooms that have at least one allocated device with quantity > 0.
  * Completely excludes rooms with 0 allocated devices, empty arrays, or quantity 0.
@@ -316,9 +427,9 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
   // every row's rendered height grew roughly 10-18% with it, so the header/
   // footer/item budgets below are bumped ~15% to keep pages from overflowing
   // and getting squashed into the fixed A4 image slot.
-  const PAGE_CAPACITY = 940;
-  const FOOTER_RESERVE = 63;
-  const RUNNING_HEADER = 63;
+  const PAGE_CAPACITY = 960;
+  const FOOTER_RESERVE = 40;
+  const RUNNING_HEADER = 45;
 
   const getCapacity = () => PAGE_CAPACITY - RUNNING_HEADER - FOOTER_RESERVE;
 
@@ -364,12 +475,33 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
     if (itemsLeft.length === 0) continue;
 
+    // Allocate each Page for each room:
+    // If the current page already contains a previous room or slice,
+    // commit that page so this room starts on a fresh page.
+    if (currentSections.length > 0) {
+      pages.push({
+        pageNumber: currentPage,
+        totalPages: 0,
+        isFirstPage: false,
+        isLastPage: false,
+        sections: currentSections,
+      });
+      currentPage++;
+      currentSections = [];
+      currentHeight = 0;
+    }
+
     while (itemsLeft.length > 0) {
       const showSectionHeader = isFirstProductRoomSection && isFirstSlice;
-      const headerH = (showSectionHeader ? 104 : 0) + (isFirstSlice ? 75 + 52 : 52);
-      const minItemH = 98;
+      const sectionH = showSectionHeader ? 60 : 0;
+      const roomH = isFirstSlice ? 58 : 28;
+      const tableHeadH = 28;
+      const subtotalH = 34;
+      const itemH = 65;
+      const baseRoomH = sectionH + roomH + tableHeadH;
 
-      if (currentHeight + headerH + minItemH > getCapacity()) {
+      // If a continuation slice cannot fit on the current page, start a new page
+      if (currentSections.length > 0 && currentHeight + baseRoomH + itemH > getCapacity()) {
         pages.push({
           pageNumber: currentPage,
           totalPages: 0,
@@ -382,13 +514,16 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
         currentHeight = 0;
       }
 
+      // Pack as many items of this room as can fit onto this page
       const sliceItems: QuotationItem[] = [];
-      let sliceH = headerH;
+      let sliceH = sectionH + roomH + tableHeadH;
 
       while (itemsLeft.length > 0) {
         const item = itemsLeft[0];
-        const itemH = 98;
-        if (currentHeight + sliceH + itemH > getCapacity()) {
+        const isLastItem = itemsLeft.length === 1;
+        const requiredH = itemH + (isLastItem ? subtotalH : 0);
+
+        if (currentHeight + sliceH + requiredH > getCapacity() && sliceItems.length > 0) {
           break;
         }
         sliceItems.push(item);
@@ -398,7 +533,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
       const isLastSlice = itemsLeft.length === 0;
       if (isLastSlice) {
-        sliceH += 58;
+        sliceH += subtotalH;
       }
 
       const hasSectionHeader = isFirstProductRoomSection && isFirstSlice;
@@ -422,14 +557,9 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
     }
   }
 
-  // SECTION C: Closing, Financials, Terms & Contact. This block (financial
-  // breakdown, investment callout, includes/terms, next steps, closing
-  // contact card) measures ~930px tall when actually rendered — close to a
-  // full page's own content budget on its own. Estimated at capacity itself
-  // so it reliably lands on its own fresh page rather than being crammed
-  // onto whatever space is left after the last room's items.
-  const closingEstimateH = getCapacity();
-  if (currentHeight + closingEstimateH > getCapacity()) {
+  // SECTION C: Closing, Financials, Terms & Contact.
+  // Allocate its own dedicated page for clean visibility and premium layout.
+  if (currentSections.length > 0) {
     pages.push({
       pageNumber: currentPage,
       totalPages: 0,
@@ -946,7 +1076,7 @@ export default function StepProposalPreview({
                 ref={(el) => {
                   pageRefs.current[pageIdx] = el;
                 }}
-                className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-12 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
+                className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
                 style={{ boxSizing: "border-box", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
               >
               {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
@@ -977,7 +1107,7 @@ export default function StepProposalPreview({
               )}
 
               {/* Page Content Area */}
-              <div className="relative z-10 space-y-6">
+              <div className="relative z-10 space-y-4">
                 {/* Running Header on Page 2+ */}
                 {!page.isFirstPage && (
                   <div className="pb-3 border-b border-gray-200 flex items-center justify-between text-sm">
@@ -1172,45 +1302,37 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Proven Milestone Statistics */}
-                        <div className="grid grid-cols-5 gap-2 p-4 rounded-2xl bg-white border border-gray-200 shadow-sm text-center">
-                          <div>
-                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
-                              250+
+                        <div className="grid grid-cols-4 gap-3 text-center">
+                          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-pink-200/90 shadow-2xs flex flex-col items-center justify-center">
+                            <p className="text-2xl sm:text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                              1000+
                             </p>
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
-                              Installations
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
-                              20,000+
-                            </p>
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
-                              Switches
+                            <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                              INSTALLATIONS
                             </p>
                           </div>
-                          <div>
-                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
-                              35+
+                          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                            <p className="text-2xl sm:text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                              89000+
                             </p>
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
-                              Products
+                            <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                              SWITCHES
                             </p>
                           </div>
-                          <div>
-                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
+                          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                            <p className="text-2xl sm:text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                              50+
+                            </p>
+                            <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                              PRODUCTS
+                            </p>
+                          </div>
+                          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                            <p className="text-2xl sm:text-3xl font-extrabold text-[#ef4370] tracking-tight">
                               25+
                             </p>
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
-                              Features
-                            </p>
-                          </div>
-                          <div>
-                            <p className="text-2xl sm:text-3xl font-black font-mono text-gray-950">
-                              10+
-                            </p>
-                            <p className="text-[10px] uppercase tracking-wider text-gray-500 font-bold">
-                              Cities
+                            <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                              FEATURES
                             </p>
                           </div>
                         </div>
@@ -1615,6 +1737,12 @@ export default function StepProposalPreview({
                         acc + Number(i.unitPrice || 0) * (i.quantity || 1),
                       0
                     );
+                    const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
+                    const floorLocation = getEffectiveFloorForRoom(room, renderableRooms, isMultiFloor);
+                    const deviceCount = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
+                      (acc, i) => acc + (Number(i.quantity) || 1),
+                      0
+                    );
 
                     return (
                       <div key={sIdx} className="space-y-2.5">
@@ -1637,194 +1765,219 @@ export default function StepProposalPreview({
                           </div>
                         )}
 
-                        {/* Room Header Banner — device count only; the subtotal is
-                            shown exactly once, in the room's footer banner below. */}
-                        {showRoomHeader && (
-                          <div className="bg-gray-50 px-4 py-3 rounded-t-2xl border border-gray-200 border-l-[3px] border-l-accent flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <Icon size={14} className="text-accent" />
-                              <h3 className="font-extrabold text-gray-950 text-sm sm:text-base uppercase tracking-wider">
-                                {getRoomFullTitle(room, renderableRooms)}
-                              </h3>
+                        {/* Unified Single Room Container with Pink Left Accent */}
+                        <div className="rounded-xl overflow-hidden border border-gray-200 border-l-4 border-l-accent bg-white shadow-2xs">
+                          {/* Room Header Banner — room image, room name, floor info, and device count */}
+                          {showRoomHeader && (
+                            <div className="bg-gray-50/85 p-3 sm:p-3.5 border-b border-gray-200 flex items-center justify-between gap-4">
+                              <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                <RoomHeaderImage
+                                  room={room}
+                                  renderableRooms={renderableRooms}
+                                  fallbackIcon={Icon}
+                                />
+                                <div className="min-w-0 flex-1 space-y-0.5">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <Icon size={16} className="text-accent shrink-0" />
+                                    <h3 className="font-extrabold text-gray-950 text-base sm:text-lg uppercase tracking-wider truncate">
+                                      {getRoomDisplayName(room, renderableRooms)}
+                                    </h3>
+                                  </div>
+                                  {floorLocation && floorLocation !== "Unspecified Location" ? (
+                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+                                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent/70 shrink-0" />
+                                      <span>{floorLocation}</span>
+                                    </p>
+                                  ) : (
+                                    <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
+                                      Smart Space Configuration
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <span className="inline-flex items-center text-xs font-mono font-bold text-accent-foreground bg-accent-light px-2.5 py-1 rounded-md border border-accent-border/60 shadow-2xs whitespace-nowrap">
+                                  {deviceCount} {deviceCount === 1 ? "device" : "devices"}
+                                </span>
+                              </div>
                             </div>
-                            <span className="text-[11px] font-mono text-accent-foreground bg-accent-light px-2 py-0.5 rounded border border-accent-border/60">
-                              {eligibleItemsOfRoom(room, room.items, isLocked).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0)}{" "}
-                              {eligibleItemsOfRoom(room, room.items, isLocked).reduce((acc, i) => acc + (Number(i.quantity) || 1), 0) === 1
-                                ? "device"
-                                : "devices"}
-                            </span>
-                          </div>
-                        )}
+                          )}
 
-                        {/* Room Continuation */}
-                        {isContinuation && (
-                          <div className="bg-gray-50/80 px-4 py-1.5 rounded-t-xl border border-gray-200 text-sm font-semibold text-gray-700">
-                            {getRoomFullTitle(room, renderableRooms)} (Continued)
-                          </div>
-                        )}
+                          {/* Room Continuation */}
+                          {isContinuation && (
+                            <div className="bg-gray-50/80 px-4 py-2 border-b border-gray-200 flex items-center justify-between text-sm font-semibold text-gray-700">
+                              <div className="flex items-center gap-2">
+                                <Icon size={14} className="text-accent" />
+                                <span>{getRoomFullTitle(room, renderableRooms)} (Continued)</span>
+                              </div>
+                            </div>
+                          )}
 
-                        {/* Unavailable room type (never shown once Approved/Delivered) */}
-                        {showRoomHeader && !isLocked && room.isUnavailable && (
-                          <div className="px-4 py-1.5 border-x border-b border-amber-100">
-                            <UnavailabilityWarning
-                              reason={room.unavailableReason}
-                              label={getRoomDisplayName(room, renderableRooms)}
-                            />
-                          </div>
-                        )}
+                          {/* Unavailable room type (never shown once Approved/Delivered) */}
+                          {showRoomHeader && !isLocked && room.isUnavailable && (
+                            <div className="px-4 py-1.5 bg-amber-50/40 border-b border-amber-100">
+                              <UnavailabilityWarning
+                                reason={room.unavailableReason}
+                                label={getRoomDisplayName(room, renderableRooms)}
+                              />
+                            </div>
+                          )}
 
-                        {/* Room Notes (if any) */}
-                        {showRoomHeader && room.notes && (
-                          <div className="px-4 py-1.5 bg-amber-50/50 border-x border-b border-amber-100 text-[13px] text-amber-900">
-                            <span className="font-semibold">Space Note: </span>
-                            {room.notes}
-                          </div>
-                        )}
+                          {/* Room Notes (if any) */}
+                          {showRoomHeader && room.notes && (
+                            <div className="px-4 py-1.5 bg-amber-50/50 border-b border-amber-100 text-[13px] text-amber-900">
+                              <span className="font-semibold">Space Note: </span>
+                              {room.notes}
+                            </div>
+                          )}
 
-                        {/* Compact Product Table: Product Name | Qty | Unit Price */}
-                        {items.length > 0 && (
-                          <div
-                            className={`border border-gray-200 overflow-hidden ${
-                              showRoomFooter ? "rounded-b-none" : "rounded-b-xl"
-                            }`}
-                          >
-                            <table className="w-full text-left border-collapse text-sm">
-                              <thead>
-                                <tr className="bg-gray-50/80 border-b border-gray-200 text-[11px] uppercase font-bold text-gray-500 tracking-wider">
-                                  <th className="py-2.5 px-4">PRODUCT</th>
-                                  <th className="py-2.5 px-4 w-20 text-center">
-                                    QTY
-                                  </th>
-                                  <th className="py-2.5 px-4 w-28 text-right">
-                                    UNIT PRICE
-                                  </th>
-                                </tr>
-                              </thead>
-                              <tbody className="divide-y divide-gray-100">
-                                {items.map((item, itemIdx) => {
-                                  const unitPrice = Number(item.unitPrice || 0);
-                                  const formattedName = formatProposalProductName(item.product?.name);
-                                  const moduleSize = getItemModuleSize(item);
-                                  const finish = getItemFinish(item, quotation);
-                                  const color = getItemColor(item);
-                                  const tier = getItemTier(item, quotation);
-                                  const sbLabel = item.sbNumber?.trim();
-                                  const imgUrl = getItemImageUrl(item);
-                                  const rawLoc = item.notes?.trim() || "";
-                                  const hasValidLocation =
-                                    Boolean(rawLoc) &&
-                                    !rawLoc.startsWith("/") &&
-                                    !rawLoc.includes("whyte_catalog_images") &&
-                                    !["unspecified", "not specified", "n/a", "unknown", "installation location not specified"].includes(rawLoc.toLowerCase());
+                          {/* Compact Product Table: Product Name | Qty | Unit Price */}
+                          {items.length > 0 && (
+                            <div className="overflow-hidden">
+                              <table className="w-full text-left border-collapse text-sm">
+                                <thead>
+                                  <tr className="bg-gray-50/80 border-b border-gray-200 text-[11px] uppercase font-bold text-gray-500 tracking-wider">
+                                    <th className="py-2.5 px-4">PRODUCT</th>
+                                    <th className="py-2.5 px-4 w-20 text-center">
+                                      QTY
+                                    </th>
+                                    <th className="py-2.5 px-4 w-28 text-right">
+                                      UNIT PRICE
+                                    </th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-100">
+                                  {items.map((item, itemIdx) => {
+                                    const unitPrice = Number(item.unitPrice || 0);
+                                    const formattedName = formatProposalProductName(item.product?.name);
+                                    const moduleSize = getItemModuleSize(item);
+                                    const finish = getItemFinish(item, quotation);
+                                    const color = getItemColor(item);
+                                    const tier = getItemTier(item, quotation);
+                                    const connectivity = getItemConnectivity(item);
+                                    const sbLabel = item.sbNumber?.trim();
+                                    const imgUrl = getItemImageUrl(item);
+                                    const rawLoc = item.notes?.trim() || "";
+                                    const hasValidLocation =
+                                      Boolean(rawLoc) &&
+                                      !rawLoc.startsWith("/") &&
+                                      !rawLoc.includes("whyte_catalog_images") &&
+                                      !["unspecified", "not specified", "n/a", "unknown", "installation location not specified"].includes(rawLoc.toLowerCase());
 
-                                  return (
-                                    <tr
-                                      key={item.id || itemIdx}
-                                      className="hover:bg-gray-50/40 transition-colors"
-                                    >
-                                      {/* Product Thumbnail & Clean Name & Location */}
-                                      <td className="py-2.5 px-4 align-middle">
-                                        <div className="flex items-center gap-3">
-                                          {/* Standardized 48px Tile container for EVERY product */}
-                                          <div className="w-12 h-12 shrink-0 rounded-xl border border-gray-200/90 bg-white shadow-2xs flex items-center justify-center p-1 overflow-hidden relative">
-                                            {imgUrl ? (
-                                              <img
-                                                src={imgUrl}
-                                                alt={formattedName}
-                                                className="max-h-full max-w-full object-contain"
-                                                crossOrigin="anonymous"
-                                                onError={(e) => {
-                                                  (e.target as HTMLElement).style.display = "none";
-                                                }}
-                                              />
-                                            ) : (
-                                              <Package size={18} className="text-gray-300" />
-                                            )}
-                                          </div>
-
-                                          <div className="min-w-0 flex-1 space-y-0.5">
-                                            <div className="flex items-center gap-2">
-                                              <p className="font-bold text-gray-950 text-sm sm:text-base leading-snug">
-                                                {formattedName}
-                                              </p>
-                                              {sbLabel && (
-                                                <span className="font-mono text-[10px] font-bold text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded shrink-0">
-                                                  {sbLabel}
-                                                </span>
-                                              )}
-                                              {!isLocked && !room.isUnavailable && item.isUnavailable && (
-                                                <UnavailabilityWarning reason={item.unavailableReason} compact />
-                                              )}
-                                            </div>
-
-                                            <div className="flex flex-wrap items-center gap-1.5">
-                                              {moduleSize && (
-                                                <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80">
-                                                  {moduleSize}
-                                                </span>
-                                              )}
-                                              {finish && (
-                                                <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
-                                                  {finish}
-                                                </span>
-                                              )}
-                                              {color && (
-                                                <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
-                                                  {color}
-                                                </span>
-                                              )}
-                                              {tier && (
-                                                <span className="text-[10px] font-bold text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize">
-                                                  {tier}
-                                                </span>
-                                              )}
-                                              {hasValidLocation && (
-                                                <span className="text-[13px] text-gray-600 ml-1">
-                                                  <span className="text-gray-400 font-medium">Location: </span>
-                                                  <span className="font-medium text-gray-900">{item.notes}</span>
-                                                </span>
-                                              )}
-                                            </div>
-                                          </div>
-                                        </div>
-                                      </td>
-
-                                      {/* Qty */}
-                                      <td className="py-2.5 px-4 text-center font-mono font-bold text-gray-900 text-sm sm:text-base align-middle">
-                                        {item.quantity || 1}
-                                      </td>
-
-                                      {/* Unit Price — struck through when this item/room is excluded from
-                                          the totals below, so the exclusion is visible right at the price,
-                                          not just in the name column's badge. Never applied once locked. */}
-                                      <td
-                                        className={`py-2.5 px-4 text-right font-mono text-sm sm:text-base align-middle ${
-                                          !isLocked && (room.isUnavailable || item.isUnavailable)
-                                            ? "text-gray-400 line-through"
-                                            : "text-gray-700"
-                                        }`}
+                                    return (
+                                      <tr
+                                        key={item.id || itemIdx}
+                                        className="hover:bg-gray-50/40 transition-colors"
                                       >
-                                        {formatCurrency(unitPrice)}
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
+                                        {/* Product Thumbnail & Clean Name & Location */}
+                                        <td className="py-2.5 px-4 align-middle">
+                                          <div className="flex items-center gap-3">
+                                            {/* Standardized 48px Tile container for EVERY product */}
+                                            <div className="w-12 h-12 shrink-0 rounded-xl border border-gray-200/90 bg-white shadow-2xs flex items-center justify-center p-1 overflow-hidden relative">
+                                              {imgUrl ? (
+                                                <img
+                                                  src={imgUrl}
+                                                  alt={formattedName}
+                                                  className="max-h-full max-w-full object-contain"
+                                                  crossOrigin="anonymous"
+                                                  onError={(e) => {
+                                                    (e.target as HTMLElement).style.display = "none";
+                                                  }}
+                                                />
+                                              ) : (
+                                                <Package size={18} className="text-gray-300" />
+                                              )}
+                                            </div>
 
-                        {/* Room Subtotal Banner */}
-                        {showRoomFooter && items.length > 0 && (
-                          <div className="flex justify-between items-center px-4 py-2 bg-gray-50/70 border-x border-b border-gray-200 rounded-b-xl text-sm font-semibold text-gray-800">
-                            <span>
-                              {getRoomDisplayName(room, renderableRooms)} Subtotal
-                            </span>
-                            <span className="font-mono font-bold text-gray-950">
-                              {formatCurrency(roomSubtotal)}
-                            </span>
-                          </div>
-                        )}
+                                            <div className="min-w-0 flex-1 space-y-0.5">
+                                              <div className="flex items-center gap-2">
+                                                <p className="font-bold text-gray-950 text-sm sm:text-base leading-snug">
+                                                  {formattedName}
+                                                </p>
+                                                {sbLabel && (
+                                                  <span className="font-mono text-[10px] font-bold text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded shrink-0">
+                                                    {sbLabel}
+                                                  </span>
+                                                )}
+                                                {!isLocked && !room.isUnavailable && item.isUnavailable && (
+                                                  <UnavailabilityWarning reason={item.unavailableReason} compact />
+                                                )}
+                                              </div>
+
+                                              <div className="flex flex-wrap items-center gap-1.5">
+                                                {moduleSize && (
+                                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80">
+                                                    {moduleSize}
+                                                  </span>
+                                                )}
+                                                {finish && (
+                                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
+                                                    {finish}
+                                                  </span>
+                                                )}
+                                                {color && (
+                                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
+                                                    {color}
+                                                  </span>
+                                                )}
+                                                {tier && (
+                                                  <span className="text-[10px] font-bold text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize">
+                                                    {tier}
+                                                  </span>
+                                                )}
+                                                {connectivity && (
+                                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 uppercase">
+                                                    {connectivity}
+                                                  </span>
+                                                )}
+                                                {hasValidLocation && (
+                                                  <span className="text-[13px] text-gray-600 ml-1">
+                                                    <span className="text-gray-400 font-medium">Location: </span>
+                                                    <span className="font-medium text-gray-900">{item.notes}</span>
+                                                  </span>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </td>
+
+                                        {/* Qty */}
+                                        <td className="py-2.5 px-4 text-center font-mono font-bold text-gray-900 text-sm sm:text-base align-middle">
+                                          {item.quantity || 1}
+                                        </td>
+
+                                        {/* Unit Price — struck through when this item/room is excluded from
+                                            the totals below, so the exclusion is visible right at the price,
+                                            not just in the name column's badge. Never applied once locked. */}
+                                        <td
+                                          className={`py-2.5 px-4 text-right font-mono text-sm sm:text-base align-middle ${
+                                            !isLocked && (room.isUnavailable || item.isUnavailable)
+                                              ? "text-gray-400 line-through"
+                                              : "text-gray-700"
+                                          }`}
+                                        >
+                                          {formatCurrency(unitPrice)}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+
+                          {/* Room Subtotal Banner */}
+                          {showRoomFooter && items.length > 0 && (
+                            <div className="flex justify-between items-center px-4 py-2.5 bg-gray-50/70 border-t border-gray-200 text-sm font-semibold text-gray-800">
+                              <span>
+                                {getRoomDisplayName(room, renderableRooms)} Subtotal
+                              </span>
+                              <span className="font-mono font-bold text-gray-950">
+                                {formatCurrency(roomSubtotal)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
                     );
                   }
