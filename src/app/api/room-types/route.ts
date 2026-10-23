@@ -4,7 +4,7 @@ import { RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { ensureRoomTypesAndTemplatesSeeded } from "@/lib/seedRoomData";
-import { withPermission, withSession } from "@/lib/api-auth";
+import { requireActiveCompany, withPermission, withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createRoomTypeSchema } from "@/lib/validation/catalog";
 
@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    return await withSession(async () => {
+    return await withSession(async (actor) => {
+      requireActiveCompany(actor); // a GET must never reach the seeder (or any tenant model) without a company
       await connectMongoDB();
       await ensureRoomTypesAndTemplatesSeeded();
       const roomTypes = await RoomType.find().sort({ sortOrder: 1 });

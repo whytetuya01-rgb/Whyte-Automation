@@ -250,6 +250,21 @@ export async function withSession<T>(fn: (actor: TenantSessionActor) => Promise<
   return runWithTenantContext(tenantContextOf(actor), () => fn(actor));
 }
 
+/**
+ * For endpoints that read (or lazily initialise) a COMPANY's own data: a Super Admin who has not selected "Act as
+ * Company" has no active company, and tenant isolation deliberately scopes such a session to nothing. Instead of
+ * letting a model call blow up (or, worse, creating records), answer with a controlled, explanatory 403. Never
+ * bypasses tenant scoping and never assigns the caller to any company.
+ */
+export function requireActiveCompany(actor: Pick<TenantSessionActor, "companyId">): number {
+  if (actor.companyId === null || actor.companyId === undefined) {
+    throw new ApiError("FORBIDDEN", 'No company is selected. Choose a company with "Act as Company" to view this data.', {
+      details: { reason: "COMPANY_CONTEXT_REQUIRED" },
+    });
+  }
+  return actor.companyId;
+}
+
 /** Same as `withSession`, but also requires one specific permission first (checked inside the same tenant context). */
 export async function withPermission<T>(permission: Permission, fn: (actor: TenantSessionActor) => Promise<T>): Promise<T> {
   return withSession(async (actor) => {

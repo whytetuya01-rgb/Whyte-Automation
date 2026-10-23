@@ -5,7 +5,7 @@ import { resolveRoomPresets } from "@/lib/roomPresetsFallback";
 import { ensureRoomTypesAndTemplatesSeeded } from "@/lib/seedRoomData";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { parseIntQueryParam } from "@/lib/validation/common";
-import { withSession } from "@/lib/api-auth";
+import { requireActiveCompany, withSession } from "@/lib/api-auth";
 import { handleApiError } from "@/lib/api-response";
 import type { HouseType as HouseTypeDto, HouseTypeRoomTemplate } from "@/types";
 
@@ -19,7 +19,8 @@ export async function GET(req: Request) {
   // check inside that inner try would be swallowed and returned as a
   // successful 200, which would be an authentication bypass.
   try {
-    return await withSession(async () => {
+    return await withSession(async (actor) => {
+      requireActiveCompany(actor); // outside the inner try on purpose: this must reach the caller, not the 200 fallback
       try {
         const url = new URL(req.url);
     // A malformed houseTypeId used to become NaN and was silently ignored.
