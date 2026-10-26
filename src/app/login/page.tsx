@@ -8,6 +8,7 @@ import { AlertCircle, CheckCircle2, Eye, EyeOff, Lock, User } from "lucide-react
 import toast from "react-hot-toast";
 import { Button, Input } from "@/components/ui";
 import WhyteLogo from "@/components/shared/WhyteLogo";
+import { REVIEW_BLOCK_MESSAGES, type ReviewBlock } from "@/lib/companyReviewStatus";
 import { EMAIL_MESSAGE, isValidEmail } from "@/lib/validation/fields";
 
 function safeUserCallback(value: string | null): string | null {
@@ -42,6 +43,8 @@ function UserLoginForm() {
         let message = "Invalid email address or password. Please try again.";
         if (result.error === "ADMIN_IN_USER_PORTAL") {
           message = "This portal is exclusively for Dealer accounts. Administrators must log in via the Admin Portal at /admin/login.";
+        } else if (result.error in REVIEW_BLOCK_MESSAGES) {
+          message = REVIEW_BLOCK_MESSAGES[result.error as ReviewBlock];
         }
         setAuthError(message);
         toast.error(message);
@@ -96,7 +99,7 @@ function UserLoginForm() {
               <Input id="user-password" label="Password" type={showPassword ? "text" : "password"} value={password} onChange={(event) => { setPassword(event.target.value); setErrors((current) => ({ ...current, password: undefined })); }} placeholder="Enter your password" autoComplete="current-password" required disabled={loading} leftIcon={<Lock size={17} />} rightIcon={<button type="button" onClick={() => setShowPassword((visible) => !visible)} aria-label={showPassword ? "Hide password" : "Show password"} className="text-neutral-400 hover:text-neutral-700">{showPassword ? <EyeOff size={17} /> : <Eye size={17} />}</button>} error={errors.password} />
               <Button type="submit" fullWidth size="lg" loading={loading} className="mt-2 h-12">Sign in</Button>
             </form>
-            <p className="mt-7 border-t border-neutral-200 pt-6 text-sm text-neutral-600">New to Whyte? <Link href="/register" className="font-semibold text-neutral-950 underline underline-offset-4">Create a Dealer account</Link></p>
+            <p className="mt-7 border-t border-neutral-200 pt-6 text-sm text-neutral-600">New to Whyte? <Link href="/register" className="font-semibold text-neutral-950 underline underline-offset-4">Create a Dealer account</Link> · <Link href="/register/company" className="font-semibold text-neutral-950 underline underline-offset-4">Register your company</Link></p>
             <p className="mt-4 text-xs text-neutral-500">Administrator? <Link href="/admin/login" className="font-medium text-neutral-700 underline underline-offset-4">Use the Admin Portal</Link></p>
           </div>
         </section>

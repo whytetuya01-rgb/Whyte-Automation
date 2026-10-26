@@ -30,6 +30,19 @@ export function companyProductFolder(companyId: number): string {
   return `${COMPANY_UPLOAD_ROOT}/${companyId}/products`;
 }
 
+/** Folder for a company's own branding assets (its logo). Server-derived from the session / new company id, never from input. */
+export function companyBrandingFolder(companyId: number): string {
+  if (!Number.isInteger(companyId) || companyId <= 0) {
+    throw new Error("A positive integer companyId is required to build an upload folder.");
+  }
+  return `${COMPANY_UPLOAD_ROOT}/${companyId}/branding`;
+}
+
+/** True when `publicId` sits inside that company's own branding folder (and is a safe path). */
+export function isOwnBrandingAsset(publicId: string, companyId: number): boolean {
+  return isSafePublicId(publicId) && publicId.startsWith(`${companyBrandingFolder(companyId)}/`);
+}
+
 /** Conservative shape check: slash-separated segments of letters, digits, `_` and `-`; no traversal, no empty segments. */
 export function isSafePublicId(publicId: string): boolean {
   if (publicId.length === 0 || publicId.length > 255) return false;

@@ -36,9 +36,27 @@ export function getRoomDisplayName(
 }
 
 /**
+ * The floor / location label to SHOW for a room, or `null` when there is nothing to show.
+ *
+ * A flat (1/2/3 BHK, apartment) has no floors: the underlying `subArea` and the internally calculated default are
+ * kept untouched (room ids, relationships and stored values do not change) but no label is displayed. Multi-floor
+ * properties (villa, duplex, bungalow, ...) keep showing the real floor.
+ */
+export function getRoomFloorLabel(
+  room: QuotationRoom | null | undefined,
+  allRooms: QuotationRoom[] | undefined,
+  isMultiFloor: boolean
+): string | null {
+  if (!room || !isMultiFloor) return null;
+  const floorLocation = getEffectiveFloorForRoom(room, allRooms || [], isMultiFloor);
+  return floorLocation && floorLocation !== "Unspecified Location" ? floorLocation : null;
+}
+
+/**
  * Returns full title formatted as:
  * "Living Room · First Floor"
  * or "Living Room 2 · Second Floor"
+ * and just "Living Room" for flat configurations (`isMultiFloor` false).
  */
 export function getRoomFullTitle(
   room: QuotationRoom | null | undefined,
@@ -47,11 +65,8 @@ export function getRoomFullTitle(
 ): string {
   if (!room) return "Space";
   const displayName = getRoomDisplayName(room, allRooms);
-  const floorLocation = getEffectiveFloorForRoom(room, allRooms || [], isMultiFloor);
-  if (floorLocation && floorLocation !== "Unspecified Location") {
-    return `${displayName} · ${floorLocation}`;
-  }
-  return displayName;
+  const floorLabel = getRoomFloorLabel(room, allRooms, isMultiFloor);
+  return floorLabel ? `${displayName} · ${floorLabel}` : displayName;
 }
 
 export interface FloorRoomGroup {

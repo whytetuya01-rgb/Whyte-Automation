@@ -23,6 +23,7 @@ import {
   SlidersHorizontal,
   X,
   RotateCcw,
+  Loader2,
 } from "lucide-react";
 import {
   EditorCatalogProduct,
@@ -37,11 +38,12 @@ import { eligibleItemsOfRoom, isProtectedQuotationStatus } from "@/lib/quotation
 import UnavailabilityWarning from "./UnavailabilityWarning";
 import {
   getRoomDisplayName,
-  getRoomFullTitle,
+  getRoomFloorLabel,
   groupRoomsByFloor,
   isMultiFloorHouseType,
 } from "@/lib/roomUtils";
-import { getEffectiveFloorForRoom } from "@/lib/floorAssignment";
+import { MAX_ITEM_QUANTITY, parseQuantityInput } from "@/lib/quantity";
+import RoomNameEditor from "./RoomNameEditor";
 import { getCategoryConfig, formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import {
   filterProductCatalog,
@@ -59,13 +61,15 @@ interface Props {
   categories: Category[];
   activeRoomId: number | null;
   onSelectRoom: (roomId: number) => void;
+  /** Resolves `false` when the request failed (the editor has already toasted the reason). */
   onAddItem: (
     roomId: number,
     productId: number,
     productVariantId?: number,
-    variantConfig?: Record<string, string>
-  ) => Promise<void>;
-  onUpdateItem: (itemId: number, data: any) => Promise<void>;
+    variantConfig?: Record<string, string>,
+    quantity?: number
+  ) => Promise<boolean | void>;
+  onUpdateItem: (itemId: number, data: any) => Promise<boolean | void>;
   onDeleteItem: (itemId: number) => Promise<void>;
   onReplaceItem?: (
     itemId: number,
@@ -91,6 +95,7 @@ export default function StepProductConfig({
   onUpdateItem,
   onDeleteItem,
   onReplaceItem,
+  onUpdateRoom,
   onUpdateRoomNotes,
   onContinue,
   onBack,
@@ -101,6 +106,11 @@ export default function StepProductConfig({
     rooms.find((r) => Number(r.id ?? (r as any)._id) === Number(activeRoomId)) ||
     rooms[0] ||
     null;
+
+  // Approved/Delivered quotations never reach this editor step in practice
+  // (the lock rejects the edit before the page gets this far), but the
+  // check is explicit rather than assumed — see `isProtectedQuotationStatus`.
+  const isLocked = isProtectedQuotationStatus(quotation.status);
 
   // Property multi-floor status
   const isMultiFloor = useMemo(() => {
@@ -202,6 +212,13 @@ export default function StepProductConfig({
 
   // Expanded Product Card Variants state
   const [expandedCardIds, setExpandedCardIds] = useState<Set<number>>(new Set());
+
+  // Direct quantity entry. Keys are "<roomId>:<productId>" so a draft or error never leaks to another room or product.
+  const [qtyDrafts, setQtyDrafts] = useState<Record<string, string>>({});
+  const [qtyErrors, setQtyErrors] = useState<Record<string, string>>({});
+  const [addingKeys, setAddingKeys] = useState<Set<string>>(new Set());
+  // Synchronous guard: state updates are async, so a fast double click must be stopped by a ref, not by `addingKeys`.
+  const addInFlight = useRef<Set<string>>(new Set());
 
   const toggleCardVariants = (productId: number) => {
     setExpandedCardIds((prev) => {
@@ -470,6 +487,98 @@ export default function StepProductConfig({
     );
   };
 
+  const clearQtyEntry = (key: string) => {
+    setQtyDrafts((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setQtyErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  };
+
+  const setQtyError = (key: string, message: string) => setQtyErrors((prev) => ({ ...prev, [key]: message }));
+
+  // "Add" with a typed quantity. The number in the stepper is the quantity wanted in this room: the difference to what
+  // is already there is added through the same create / increment calls as "+", so there is never a duplicate line.
+  const handleAddTypedQuantity = async (catItem: FilteredProductResult, inRoomCount: number) => {
+    if (!currentRoom || isLocked) return;
+    const roomId = Number(currentRoom.id);
+    const { product, eligibleVariants, exactVariant } = catItem;
+    const prodId = Number(product.id);
+    const key = `${roomId}:${prodId}`;
+    if (!roomId || !prodId || addInFlight.current.has(key)) return;
+
+    const parsed = parseQuantityInput(qtyDrafts[key] ?? String(inRoomCount));
+    if (!parsed.ok) {
+      setQtyError(key, parsed.message);
+      return;
+    }
+
+    const variant = exactVariant ?? (eligibleVariants.length === 1 ? eligibleVariants[0] : null);
+    if (!variant && eligibleVariants.length > 1) {
+      setExpandedCardIds((prev) => new Set(prev).add(prodId));
+      setQtyError(key, "Choose a variant below, then press Add.");
+      return;
+    }
+    const varId = variant ? Number(variant.id) : null;
+
+    const existing = (currentRoom.items || []).find((i) => {
+      if (Number(i.productId) !== prodId) return false;
+      return varId === null || Number(i.productVariantId) === varId;
+    });
+    const existingQty = existing ? Number(existing.quantity) || 1 : 0;
+    if (parsed.value <= existingQty) {
+      setQtyError(key, `${existingQty} already in this room. Enter a higher quantity, or use − to remove.`);
+      return;
+    }
+
+    addInFlight.current.add(key);
+    setAddingKeys(new Set(addInFlight.current));
+    setQtyErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    try {
+      let result: boolean | void;
+      if (existing) {
+        result = await onUpdateItem(Number(existing.id), { quantity: parsed.value });
+      } else {
+        const config: Record<string, string> = { ...(variant?.config || {}) };
+        if (variant) {
+          const vTier = getVariantTier(variant);
+          const vFinish = getVariantFinish(variant);
+          if (vTier) config.series = vTier;
+          if (vFinish) config.finish = vFinish;
+        }
+        result = await onAddItem(
+          roomId,
+          prodId,
+          varId ?? undefined,
+          Object.keys(config).length > 0 ? config : undefined,
+          parsed.value
+        );
+      }
+      if (result === false) {
+        setQtyError(key, "Could not add. Your quantity was kept; please try again.");
+        return;
+      }
+      clearQtyEntry(key);
+    } catch {
+      setQtyError(key, "Could not add. Your quantity was kept; please try again.");
+    } finally {
+      addInFlight.current.delete(key);
+      setAddingKeys(new Set(addInFlight.current));
+    }
+  };
+
   // Remove one instance of product/variant in current room (decrement quantity or delete)
   const handleRemoveProductInstance = async (catItem: FilteredProductResult) => {
     if (!currentRoom) return;
@@ -499,10 +608,12 @@ export default function StepProductConfig({
     }
   };
 
-  // Approved/Delivered quotations never reach this editor step in practice
-  // (the lock rejects the edit before the page gets this far), but the
-  // check is explicit rather than assumed — see `isProtectedQuotationStatus`.
-  const isLocked = isProtectedQuotationStatus(quotation.status);
+  // Quotation-specific space name: writes only `customName` on this quotation's room record (the room type, its
+  // templates and every other quotation are untouched). Absent when the page was not given a room updater.
+  const handleRenameRoom = async (roomId: number, customName: string) => {
+    if (!onUpdateRoom) return;
+    await onUpdateRoom(roomId, { customName });
+  };
 
   // Totals Calculation for Live Summary. Excludes a room/item whose catalog
   // reference has been soft-deleted — the same rule the server applies in
@@ -584,10 +695,12 @@ export default function StepProductConfig({
               <strong className="text-gray-900 font-semibold">
                 {getRoomDisplayName(currentRoom, rooms)}
               </strong>
-              <span className="text-gray-400 font-normal">
-                {" · "}
-                {getEffectiveFloorForRoom(currentRoom, rooms, isMultiFloor)}
-              </span>
+              {getRoomFloorLabel(currentRoom, rooms, isMultiFloor) && (
+                <span className="text-gray-400 font-normal">
+                  {" · "}
+                  {getRoomFloorLabel(currentRoom, rooms, isMultiFloor)}
+                </span>
+              )}
             </span>
           )}
         </div>
@@ -622,7 +735,7 @@ export default function StepProductConfig({
                 const isCurrent = Boolean(currentId && roomId === currentId);
                 const IconComp = getRoomIcon(room.customName ?? room.roomType?.name ?? "Room");
                 const roomDisplayName = getRoomDisplayName(room, rooms);
-                const roomFloor = getEffectiveFloorForRoom(room, rooms, isMultiFloor);
+                const roomFloor = getRoomFloorLabel(room, rooms, isMultiFloor);
                 const roomSub = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
                   (acc, i) => acc + (Number(i.quantity) || 1) * Number(i.unitPrice || 0),
                   0
@@ -640,7 +753,7 @@ export default function StepProductConfig({
                     }}
                     type="button"
                     onClick={() => onSelectRoom(roomId)}
-                    aria-label={`${roomDisplayName}, ${roomFloor}, ${roomProdCount} devices`}
+                    aria-label={`${roomDisplayName}${roomFloor ? `, ${roomFloor}` : ""}, ${roomProdCount} devices`}
                     className={`flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl border select-none flex-none shrink-0 cursor-pointer transition-all duration-150 ${
                       isCurrent
                         ? "bg-gray-950 border-accent/40 shadow-xs ring-1 ring-accent/25 text-white"
@@ -667,13 +780,15 @@ export default function StepProductConfig({
                       >
                         {roomDisplayName}
                       </span>
-                      <span
-                        className={`text-[10px] font-normal leading-none mt-0.5 whitespace-nowrap ${
-                          isCurrent ? "text-gray-400" : "text-gray-500"
-                        }`}
-                      >
-                        {roomFloor}
-                      </span>
+                      {roomFloor && (
+                        <span
+                          className={`text-[10px] font-normal leading-none mt-0.5 whitespace-nowrap ${
+                            isCurrent ? "text-gray-400" : "text-gray-500"
+                          }`}
+                        >
+                          {roomFloor}
+                        </span>
+                      )}
                     </div>
 
                     {/* Device Count Badge */}
@@ -1011,13 +1126,14 @@ export default function StepProductConfig({
                   <span className="text-gray-500 font-normal">Adding into:</span>
                   <span className="font-extrabold text-accent flex items-center gap-1">
                     <MapPin size={11} className="text-accent shrink-0" />
-                    <strong className="text-gray-950 font-bold">
-                      {getRoomDisplayName(currentRoom, rooms)}
-                    </strong>
-                    <span className="text-gray-500 font-medium">
-                      {" · "}
-                      {getEffectiveFloorForRoom(currentRoom, rooms, isMultiFloor)}
-                    </span>
+                    <RoomNameEditor
+                      key={`adding-into-${currentRoom.id ?? (currentRoom as any)._id}`}
+                      roomId={Number(currentRoom.id ?? (currentRoom as any)._id)}
+                      name={getRoomDisplayName(currentRoom, rooms)}
+                      floorLabel={getRoomFloorLabel(currentRoom, rooms, isMultiFloor)}
+                      onRename={onUpdateRoom ? handleRenameRoom : undefined}
+                      disabled={isLocked}
+                    />
                   </span>
                 </div>
               )}
@@ -1077,6 +1193,18 @@ export default function StepProductConfig({
                     .reduce((acc, i) => acc + (Number(i.quantity) || 1), 0);
 
                   const otherVariantsInRoom = productTotalInRoom - inRoomCount;
+
+                  const cardRoomId = currentRoom ? Number(currentRoom.id) : 0;
+                  const cardKey = `${cardRoomId}:${prodId}`;
+                  const draftValue = qtyDrafts[cardKey] ?? String(inRoomCount);
+                  const cardError = qtyErrors[cardKey];
+                  const isAdding = addingKeys.has(cardKey);
+                  const draftParsed = cardKey in qtyDrafts ? parseQuantityInput(draftValue) : null;
+                  const needsVariantChoice = !exactVariant && eligibleVariants.length > 1;
+                  const addHint =
+                    !cardError && draftParsed?.ok && !needsVariantChoice && draftParsed.value > inRoomCount
+                      ? `Adds ${draftParsed.value - inRoomCount} more (${draftParsed.value} in this room)`
+                      : null;
 
                   return (
                     <div
@@ -1293,8 +1421,11 @@ export default function StepProductConfig({
                         >
                           <button
                             type="button"
-                            disabled={inRoomCount === 0}
-                            onClick={() => handleRemoveProductInstance(catItem)}
+                            disabled={inRoomCount === 0 || isAdding}
+                            onClick={() => {
+                              clearQtyEntry(cardKey);
+                              void handleRemoveProductInstance(catItem);
+                            }}
                             className={`w-7 h-7 flex items-center justify-center transition active:scale-90 disabled:opacity-20 disabled:cursor-not-allowed ${
                               inRoomCount > 0
                                 ? "hover:bg-white/20 text-white"
@@ -1305,17 +1436,45 @@ export default function StepProductConfig({
                             <Minus size={12} />
                           </button>
 
-                          <span
-                            className={`w-7 text-center text-xs font-mono ${
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            autoComplete="off"
+                            value={draftValue}
+                            maxLength={6}
+                            disabled={isAdding || isLocked}
+                            aria-label={`Quantity of ${prod.name} in this room`}
+                            aria-invalid={cardError ? true : undefined}
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              setQtyDrafts((prev) => ({ ...prev, [cardKey]: next }));
+                              setQtyErrors((prev) => {
+                                if (!(cardKey in prev)) return prev;
+                                const copy = { ...prev };
+                                delete copy[cardKey];
+                                return copy;
+                              });
+                            }}
+                            onFocus={(event) => event.currentTarget.select()}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter") {
+                                event.preventDefault();
+                                void handleAddTypedQuantity(catItem, inRoomCount);
+                              }
+                            }}
+                            className={`w-10 bg-transparent text-center text-xs font-mono outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-60 ${
                               inRoomCount > 0 ? "text-white font-bold" : "text-gray-700 font-semibold"
                             }`}
-                          >
-                            {inRoomCount}
-                          </span>
+                          />
 
                           <button
                             type="button"
-                            onClick={() => handleAddProduct(catItem)}
+                            disabled={isAdding}
+                            onClick={() => {
+                              clearQtyEntry(cardKey);
+                              void handleAddProduct(catItem);
+                            }}
                             className={`w-7 h-7 flex items-center justify-center transition active:scale-90 ${
                               inRoomCount > 0
                                 ? "hover:bg-white/20 text-white"
@@ -1332,6 +1491,28 @@ export default function StepProductConfig({
                             <Plus size={12} />
                           </button>
                         </div>
+                      </div>
+
+                      {/* Direct quantity entry: type the quantity above, then Add */}
+                      <div className="mt-2">
+                        <button
+                          type="button"
+                          disabled={isAdding || isLocked}
+                          onClick={() => void handleAddTypedQuantity(catItem, inRoomCount)}
+                          aria-busy={isAdding}
+                          className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-white shadow-xs transition hover:bg-accent-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                          title="Add the quantity typed above to this room"
+                        >
+                          {isAdding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} strokeWidth={2.5} />}
+                          <span>{isAdding ? "Adding…" : "Add"}</span>
+                        </button>
+                        {cardError ? (
+                          <p role="alert" className="mt-1 text-[10px] font-medium leading-snug text-red-600">
+                            {cardError}
+                          </p>
+                        ) : addHint ? (
+                          <p className="mt-1 text-[10px] leading-snug text-gray-500">{addHint}</p>
+                        ) : null}
                       </div>
                     </div>
                   );
@@ -1376,7 +1557,7 @@ export default function StepProductConfig({
               {floorGroups.map((group) => (
                 <div key={group.floor} className="space-y-1">
                   <div className="flex items-center justify-between px-1 py-0.5 text-[10px] font-extrabold text-gray-400 uppercase tracking-wider border-b border-gray-100/80">
-                    <span>{group.floor}</span>
+                    <span>{isMultiFloor ? group.floor : "All spaces"}</span>
                     <span className="font-mono text-[9px] font-bold bg-gray-100 text-gray-600 px-1.5 py-0.2 rounded">
                       {group.rooms.length} {group.rooms.length === 1 ? "Space" : "Spaces"}
                     </span>
@@ -1409,13 +1590,15 @@ export default function StepProductConfig({
                             <span className="font-semibold truncate">
                               {getRoomDisplayName(room, rooms)}
                             </span>
-                            <span
-                              className={`text-[10px] truncate ${
-                                isCurrent ? "text-gray-300" : "text-gray-400"
-                              }`}
-                            >
-                              {getEffectiveFloorForRoom(room, rooms, isMultiFloor)}
-                            </span>
+                            {getRoomFloorLabel(room, rooms, isMultiFloor) && (
+                              <span
+                                className={`text-[10px] truncate ${
+                                  isCurrent ? "text-gray-300" : "text-gray-400"
+                                }`}
+                              >
+                                {getRoomFloorLabel(room, rooms, isMultiFloor)}
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1.5 shrink-0">
@@ -1473,12 +1656,17 @@ export default function StepProductConfig({
                   <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400">
                     Added Products
                   </h3>
-                  <p className="text-sm font-extrabold text-gray-950 mt-0.5 flex items-center gap-1 flex-wrap">
-                    <span>{getRoomDisplayName(currentRoom, rooms)}</span>
-                    <span className="text-xs font-normal text-gray-400">
-                      · {getEffectiveFloorForRoom(currentRoom, rooms, isMultiFloor)}
-                    </span>
-                  </p>
+                  <div className="mt-0.5">
+                    <RoomNameEditor
+                      key={`added-products-${currentRoom.id ?? (currentRoom as any)._id}`}
+                      roomId={Number(currentRoom.id ?? (currentRoom as any)._id)}
+                      name={getRoomDisplayName(currentRoom, rooms)}
+                      floorLabel={getRoomFloorLabel(currentRoom, rooms, isMultiFloor)}
+                      onRename={onUpdateRoom ? handleRenameRoom : undefined}
+                      disabled={isLocked}
+                      prominent
+                    />
+                  </div>
                 </div>
 
                 <span className="text-xs font-bold font-mono text-gray-700 bg-gray-100 px-2.5 py-0.5 rounded-md">

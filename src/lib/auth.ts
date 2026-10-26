@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Company } from "@/models";
 import { runUnscoped } from "@/lib/tenant/context";
+import { reviewBlockFor } from "@/lib/companyReviewStatus";
 import { resolveAccountCompany } from "@/lib/tenant/accountCompany";
 
 const ADMIN_PORTAL_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
@@ -63,8 +64,12 @@ export const authOptions = {
         if (!account.ok) return null;
         const resolvedCompanyId = account.companyId;
         if (resolvedCompanyId !== null) {
-          const company = await Company.findById(resolvedCompanyId).select("status").lean();
+          const company = await Company.findById(resolvedCompanyId).select("status registrationStatus").lean();
           if (!company || company.status === "suspended") return null;
+          // Self-registered companies cannot sign in until a Super Admin approves them. Reported only now, after
+          // the password matched, so the review state is never revealed to someone who merely knows an email.
+          const blocked = reviewBlockFor(company.registrationStatus);
+          if (blocked) throw new Error(blocked);
         }
 
         return {

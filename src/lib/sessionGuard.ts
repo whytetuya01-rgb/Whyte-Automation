@@ -3,6 +3,7 @@ import { AdminUser, Company } from "@/models";
 import { getRolePermissions } from "@/lib/roleService";
 import { SUPER_ADMIN_PERMISSIONS } from "@/lib/permissions";
 import { runUnscoped } from "@/lib/tenant/context";
+import { reviewBlockFor } from "@/lib/companyReviewStatus";
 import { resolveAccountCompany } from "@/lib/tenant/accountCompany";
 
 /**
@@ -109,8 +110,8 @@ export async function getSessionActor(userId: number, tokenRole: string): Promis
 
     // Invalidate the session if the company is missing or suspended
     if (valid && companyId !== null) {
-      const company = await Company.findById(companyId).select("status").lean();
-      if (!company || company.status === "suspended") valid = false;
+      const company = await Company.findById(companyId).select("status registrationStatus").lean();
+      if (!company || company.status === "suspended" || reviewBlockFor(company.registrationStatus)) valid = false;
     }
 
     let permissions: string[] = [];

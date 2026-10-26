@@ -37,7 +37,7 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
   }
 
   try {
-    const response = await fetch("https://api.resend.com/emails", {
+    const response = await fetch(`${(process.env.RESEND_API_BASE_URL || "https://api.resend.com").replace(/\/+$/, "")}/emails`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,

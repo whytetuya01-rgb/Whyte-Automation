@@ -23,8 +23,7 @@ import {
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, Company } from "@/types";
 import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
-import { getRoomFullTitle, getRoomDisplayName, isMultiFloorHouseType } from "@/lib/roomUtils";
-import { getEffectiveFloorForRoom } from "@/lib/floorAssignment";
+import { getRoomFullTitle, getRoomDisplayName, getRoomFloorLabel, isMultiFloorHouseType } from "@/lib/roomUtils";
 import { getRoomImage, roomImageSrc, RoomImageEntry } from "@/lib/roomImageMap";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import SocialLinks from "@/components/shared/SocialLinks";
@@ -277,11 +276,17 @@ export function RoomHeaderImage({
   room,
   renderableRooms,
   fallbackIcon: FallbackIcon,
+  large = false,
 }: {
   room: QuotationRoom;
   renderableRooms: QuotationRoom[];
   fallbackIcon: React.ComponentType<{ size?: number; className?: string }>;
+  /** Product Summary room card: a big photograph instead of the compact thumbnail. */
+  large?: boolean;
 }) {
+  const frame = large
+    ? "w-40 h-24 shrink-0 rounded-xl"
+    : "w-20 sm:w-24 h-13 sm:h-[54px] shrink-0 rounded-lg";
   const [imgFailed, setImgFailed] = useState(false);
 
   const imageEntry = useMemo(() => {
@@ -294,12 +299,12 @@ export function RoomHeaderImage({
 
   const imgSrc = imageEntry ? roomImageSrc(imageEntry) : null;
   const focalY = imageEntry?.focalY ?? 0.5;
-  const label = room.roomType?.name || room.customName || "Space";
+  const label = room.customName?.trim() || room.roomType?.name || "Space";
 
   if (!imgSrc || imgFailed) {
     return (
       <div
-        className="w-20 sm:w-24 h-13 sm:h-[54px] shrink-0 rounded-lg border border-gray-200/90 bg-gradient-to-br from-gray-100 via-gray-50 to-gray-100 flex flex-col items-center justify-center p-1 text-gray-400 select-none shadow-2xs"
+        className={`${frame} border border-gray-200/90 bg-gradient-to-br from-gray-100 via-gray-50 to-gray-100 flex flex-col items-center justify-center p-1 text-gray-400 select-none shadow-2xs`}
         aria-label={label}
       >
         <div className="w-6 h-6 rounded-md bg-white border border-gray-200 flex items-center justify-center text-accent shadow-2xs mb-0.5">
@@ -313,7 +318,7 @@ export function RoomHeaderImage({
   }
 
   return (
-    <div className="relative w-20 sm:w-24 h-13 sm:h-[54px] shrink-0 rounded-lg overflow-hidden border border-gray-200/90 bg-gray-100 shadow-2xs">
+    <div className={`relative ${frame} overflow-hidden border border-gray-200/90 bg-gray-100 shadow-2xs`}>
       <img
         src={imgSrc}
         alt={imageEntry?.alt || label}
@@ -410,6 +415,46 @@ export function getAuthorizedDealer(quotation: Quotation): AuthorizedDealerInfo 
 }
 
 /**
+ * The installation location typed for a product, or `null` when it is empty or a placeholder / image path that
+ * must never reach the client document.
+ */
+export function getItemLocation(item: QuotationItem): string | null {
+  const raw = item.notes?.trim() || "";
+  if (!raw || raw.startsWith("/") || raw.includes("whyte_catalog_images")) return null;
+  if (["unspecified", "not specified", "n/a", "unknown", "installation location not specified"].includes(raw.toLowerCase())) {
+    return null;
+  }
+  return raw;
+}
+
+/** Product Summary row geometry (px). The proposal page is a fixed-width A4 canvas, so these never depend on the viewport. */
+const PRODUCT_IMAGE_PX = 112;
+const PRODUCT_ROW_MIN_PX = PRODUCT_IMAGE_PX + 25; // 12px padding top/bottom + 1px divider
+/** Room block pieces. */
+const ROOM_GAP_PX = 12; // space-y-4 (16px) minus the -4px each room section pulls back = a 12px gap
+const ROOM_HEADER_PX = 130; // 2px border + 12px padding + 96px photograph + 12px padding + rule + slack
+const ROOM_CONTINUED_PX = 40; // slim "continued" title bar of a split room
+const ROOM_CONTINUES_PX = 30; // "Continued on next page" note closing a split room
+const ROOM_SUBTOTAL_PX = 56; // distinct subtotal strip + bottom border
+const ROOM_EXTRA_NOTE_PX = 30;
+const SECTION_TITLE_PX = 66;
+
+/**
+ * Rendered height of one product row, from what it will actually contain. A long name, many configuration chips
+ * or a long location wrap onto extra lines; the pagination budget must grow with them or the page overflows its
+ * fixed 1123px canvas.
+ */
+function estimateProductRowHeight(item: QuotationItem, quotation: Quotation): number {
+  const nameLines = Math.max(1, Math.ceil(formatProposalProductName(item.product?.name).length / 34));
+  const chipCount = [getItemModuleSize(item), getItemFinish(item, quotation), getItemColor(item), getItemTier(item, quotation), getItemConnectivity(item)].filter(Boolean).length;
+  const chipRows = chipCount ? Math.ceil(chipCount / 4) : 0;
+  const location = getItemLocation(item);
+  const locationLines = location ? Math.max(1, Math.ceil(location.length / 52)) : 0;
+  const textHeight = nameLines * 22 + chipRows * 28 + locationLines * 22 + 24;
+  return Math.max(PRODUCT_ROW_MIN_PX, textHeight + 25);
+}
+
+/**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  */
 function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
@@ -469,39 +514,24 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
   for (let rIdx = 0; rIdx < rooms.length; rIdx++) {
     const room = rooms[rIdx];
-    const items = room.items || [];
-    const itemsLeft = [...items];
+    const itemsLeft = [...(room.items || [])];
     let isFirstSlice = true;
 
     if (itemsLeft.length === 0) continue;
 
-    // Allocate each Page for each room:
-    // If the current page already contains a previous room or slice,
-    // commit that page so this room starts on a fresh page.
-    if (currentSections.length > 0) {
-      pages.push({
-        pageNumber: currentPage,
-        totalPages: 0,
-        isFirstPage: false,
-        isLastPage: false,
-        sections: currentSections,
-      });
-      currentPage++;
-      currentSections = [];
-      currentHeight = 0;
-    }
+    // Rooms flow one after another: a room starts on the current page whenever its header, its first product row
+    // (and, for a one-row room, the subtotal) still fit. Otherwise it starts the next page, so a heading is
+    // never left alone at the bottom of a page.
+    const extrasH = (room.notes ? ROOM_EXTRA_NOTE_PX : 0) + (room.isUnavailable ? ROOM_EXTRA_NOTE_PX : 0);
 
     while (itemsLeft.length > 0) {
       const showSectionHeader = isFirstProductRoomSection && isFirstSlice;
-      const sectionH = showSectionHeader ? 60 : 0;
-      const roomH = isFirstSlice ? 58 : 28;
-      const tableHeadH = 28;
-      const subtotalH = 34;
-      const itemH = 65;
-      const baseRoomH = sectionH + roomH + tableHeadH;
+      const sectionH = showSectionHeader ? SECTION_TITLE_PX : 0;
+      const roomH = isFirstSlice ? ROOM_HEADER_PX + extrasH : ROOM_CONTINUED_PX;
+      const firstItemH = estimateProductRowHeight(itemsLeft[0], quotation);
+      const minNeededH = sectionH + roomH + firstItemH + (itemsLeft.length === 1 ? ROOM_SUBTOTAL_PX : ROOM_CONTINUES_PX);
 
-      // If a continuation slice cannot fit on the current page, start a new page
-      if (currentSections.length > 0 && currentHeight + baseRoomH + itemH > getCapacity()) {
+      if (currentSections.length > 0 && currentHeight + ROOM_GAP_PX + minNeededH > getCapacity()) {
         pages.push({
           pageNumber: currentPage,
           totalPages: 0,
@@ -514,29 +544,25 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
         currentHeight = 0;
       }
 
-      // Pack as many items of this room as can fit onto this page
+      // Pack as many product rows as fit; the subtotal travels with the last row.
       const sliceItems: QuotationItem[] = [];
-      let sliceH = sectionH + roomH + tableHeadH;
+      let sliceH = (currentSections.length > 0 ? ROOM_GAP_PX : 0) + sectionH + roomH;
 
       while (itemsLeft.length > 0) {
-        const item = itemsLeft[0];
+        const itemH = estimateProductRowHeight(itemsLeft[0], quotation);
         const isLastItem = itemsLeft.length === 1;
-        const requiredH = itemH + (isLastItem ? subtotalH : 0);
+        const requiredH = itemH + (isLastItem ? ROOM_SUBTOTAL_PX : ROOM_CONTINUES_PX);
 
         if (currentHeight + sliceH + requiredH > getCapacity() && sliceItems.length > 0) {
           break;
         }
-        sliceItems.push(item);
+        sliceItems.push(itemsLeft[0]);
         sliceH += itemH;
         itemsLeft.shift();
       }
 
       const isLastSlice = itemsLeft.length === 0;
-      if (isLastSlice) {
-        sliceH += subtotalH;
-      }
-
-      const hasSectionHeader = isFirstProductRoomSection && isFirstSlice;
+      sliceH += isLastSlice ? ROOM_SUBTOTAL_PX : ROOM_CONTINUES_PX;
 
       currentSections.push({
         type: "room",
@@ -544,14 +570,14 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
         roomIndex: rIdx,
         items: sliceItems,
         isContinuation: !isFirstSlice,
-        showSectionHeader: hasSectionHeader,
+        showSectionHeader,
         showRoomHeader: isFirstSlice,
         showRoomFooter: isLastSlice,
       });
 
       currentHeight += sliceH;
       isFirstSlice = false;
-      if (hasSectionHeader) {
+      if (showSectionHeader) {
         isFirstProductRoomSection = false;
       }
     }
@@ -1579,7 +1605,7 @@ export default function StepProposalPreview({
                                   >
                                     <Icon size={13} className="text-accent" />
                                     <span className="font-semibold text-gray-900">
-                                      {getRoomFullTitle(r, renderableRooms)}
+                                      {getRoomFullTitle(r, renderableRooms, isMultiFloorHouseType(quotation.houseType))}
                                     </span>
                                     <span className="font-mono text-[11px] bg-accent-light text-accent-foreground border border-accent-border/60 px-1.5 py-0.5 rounded font-bold">
                                       {count} {count === 1 ? "device" : "devices"}
@@ -1738,7 +1764,8 @@ export default function StepProposalPreview({
                       0
                     );
                     const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
-                    const floorLocation = getEffectiveFloorForRoom(room, renderableRooms, isMultiFloor);
+                    // Flats have no floors: the label is hidden, the stored floor value is untouched.
+                    const floorLocation = getRoomFloorLabel(room, renderableRooms, isMultiFloor);
                     const deviceCount = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
                       (acc, i) => acc + (Number(i.quantity) || 1),
                       0
@@ -1765,57 +1792,52 @@ export default function StepProposalPreview({
                           </div>
                         )}
 
-                        {/* Unified Single Room Container with Pink Left Accent */}
-                        <div className="rounded-xl overflow-hidden border border-gray-200 border-l-4 border-l-accent bg-white shadow-2xs">
-                          {/* Room Header Banner — room image, room name, floor info, and device count */}
+                        {/* One bordered room container with a pink left accent: header, product rows separated by hairlines, subtotal. No nested boxes. */}
+                        <div className="rounded-xl overflow-hidden border border-gray-200 border-l-4 border-l-accent bg-white -mb-1">
                           {showRoomHeader && (
-                            <div className="bg-gray-50/85 p-3 sm:p-3.5 border-b border-gray-200 flex items-center justify-between gap-4">
-                              <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-4 p-3 border-b border-gray-200">
+                              <div className="flex items-center gap-4 min-w-0 flex-1">
                                 <RoomHeaderImage
                                   room={room}
                                   renderableRooms={renderableRooms}
                                   fallbackIcon={Icon}
+                                  large
                                 />
-                                <div className="min-w-0 flex-1 space-y-0.5">
+                                <div className="min-w-0 flex-1 space-y-1">
                                   <div className="flex items-center gap-2 min-w-0">
-                                    <Icon size={16} className="text-accent shrink-0" />
-                                    <h3 className="font-extrabold text-gray-950 text-base sm:text-lg uppercase tracking-wider truncate">
+                                    <Icon size={17} className="text-accent shrink-0" />
+                                    <h3 className="font-extrabold text-gray-950 text-xl uppercase tracking-wider truncate">
                                       {getRoomDisplayName(room, renderableRooms)}
                                     </h3>
                                   </div>
-                                  {floorLocation && floorLocation !== "Unspecified Location" ? (
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
-                                      <span className="inline-block w-1.5 h-1.5 rounded-full bg-accent/70 shrink-0" />
-                                      <span>{floorLocation}</span>
-                                    </p>
+                                  {floorLocation ? (
+                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{floorLocation}</p>
                                   ) : (
-                                    <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
-                                      Smart Space Configuration
-                                    </p>
+                                    <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Smart Space Configuration</p>
                                   )}
                                 </div>
                               </div>
-                              <div className="shrink-0 text-right">
-                                <span className="inline-flex items-center text-xs font-mono font-bold text-accent-foreground bg-accent-light px-2.5 py-1 rounded-md border border-accent-border/60 shadow-2xs whitespace-nowrap">
-                                  {deviceCount} {deviceCount === 1 ? "device" : "devices"}
+                              <p className="shrink-0 text-right leading-none">
+                                <span className="block font-mono text-2xl font-black text-accent">{deviceCount}</span>
+                                <span className="block mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                                  {deviceCount === 1 ? "device" : "devices"}
                                 </span>
-                              </div>
+                              </p>
                             </div>
                           )}
 
-                          {/* Room Continuation */}
                           {isContinuation && (
-                            <div className="bg-gray-50/80 px-4 py-2 border-b border-gray-200 flex items-center justify-between text-sm font-semibold text-gray-700">
-                              <div className="flex items-center gap-2">
-                                <Icon size={14} className="text-accent" />
-                                <span>{getRoomFullTitle(room, renderableRooms)} (Continued)</span>
-                              </div>
+                            <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-gray-200 bg-gray-50/60 text-xs font-bold uppercase tracking-wider text-gray-600">
+                              <span className="flex items-center gap-2 min-w-0">
+                                <Icon size={13} className="text-accent shrink-0" />
+                                <span className="truncate">{getRoomFullTitle(room, renderableRooms, isMultiFloor)}</span>
+                              </span>
+                              <span className="shrink-0 text-[10px] tracking-widest text-accent">CONTINUED</span>
                             </div>
                           )}
 
-                          {/* Unavailable room type (never shown once Approved/Delivered) */}
                           {showRoomHeader && !isLocked && room.isUnavailable && (
-                            <div className="px-4 py-1.5 bg-amber-50/40 border-b border-amber-100">
+                            <div className="px-4 py-1.5 border-b border-amber-100">
                               <UnavailabilityWarning
                                 reason={room.unavailableReason}
                                 label={getRoomDisplayName(room, renderableRooms)}
@@ -1823,156 +1845,131 @@ export default function StepProposalPreview({
                             </div>
                           )}
 
-                          {/* Room Notes (if any) */}
                           {showRoomHeader && room.notes && (
-                            <div className="px-4 py-1.5 bg-amber-50/50 border-b border-amber-100 text-[13px] text-amber-900">
+                            <div className="px-4 py-1.5 border-b border-amber-100 text-[13px] text-amber-900">
                               <span className="font-semibold">Space Note: </span>
                               {room.notes}
                             </div>
                           )}
 
-                          {/* Compact Product Table: Product Name | Qty | Unit Price */}
                           {items.length > 0 && (
-                            <div className="overflow-hidden">
-                              <table className="w-full text-left border-collapse text-sm">
-                                <thead>
-                                  <tr className="bg-gray-50/80 border-b border-gray-200 text-[11px] uppercase font-bold text-gray-500 tracking-wider">
-                                    <th className="py-2.5 px-4">PRODUCT</th>
-                                    <th className="py-2.5 px-4 w-20 text-center">
-                                      QTY
-                                    </th>
-                                    <th className="py-2.5 px-4 w-28 text-right">
-                                      UNIT PRICE
-                                    </th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-gray-100">
-                                  {items.map((item, itemIdx) => {
-                                    const unitPrice = Number(item.unitPrice || 0);
-                                    const formattedName = formatProposalProductName(item.product?.name);
-                                    const moduleSize = getItemModuleSize(item);
-                                    const finish = getItemFinish(item, quotation);
-                                    const color = getItemColor(item);
-                                    const tier = getItemTier(item, quotation);
-                                    const connectivity = getItemConnectivity(item);
-                                    const sbLabel = item.sbNumber?.trim();
-                                    const imgUrl = getItemImageUrl(item);
-                                    const rawLoc = item.notes?.trim() || "";
-                                    const hasValidLocation =
-                                      Boolean(rawLoc) &&
-                                      !rawLoc.startsWith("/") &&
-                                      !rawLoc.includes("whyte_catalog_images") &&
-                                      !["unspecified", "not specified", "n/a", "unknown", "installation location not specified"].includes(rawLoc.toLowerCase());
+                            <div className="divide-y divide-gray-100 px-4">
+                              {items.map((item, itemIdx) => {
+                                const unitPrice = Number(item.unitPrice || 0);
+                                const formattedName = formatProposalProductName(item.product?.name);
+                                const moduleSize = getItemModuleSize(item);
+                                const finish = getItemFinish(item, quotation);
+                                const color = getItemColor(item);
+                                const tier = getItemTier(item, quotation);
+                                const connectivity = getItemConnectivity(item);
+                                const sbLabel = item.sbNumber?.trim();
+                                const imgUrl = getItemImageUrl(item);
+                                const location = getItemLocation(item);
+                                const excluded = !isLocked && (room.isUnavailable || item.isUnavailable);
+                                const chipClass =
+                                  "text-[11px] font-semibold text-gray-600 bg-gray-100/80 px-2 py-0.5 rounded-full";
 
-                                    return (
-                                      <tr
-                                        key={item.id || itemIdx}
-                                        className="hover:bg-gray-50/40 transition-colors"
+                                return (
+                                  <div
+                                    key={item.id || itemIdx}
+                                    className="flex items-center gap-5 py-3"
+                                    style={{ minHeight: PRODUCT_ROW_MIN_PX }}
+                                  >
+                                    {/* The product itself, straight on white: no frame, no grey tile, never cropped or stretched */}
+                                    <div
+                                      className="shrink-0 flex items-center justify-center"
+                                      style={{ width: PRODUCT_IMAGE_PX, height: PRODUCT_IMAGE_PX }}
+                                    >
+                                      {imgUrl ? (
+                                        <img
+                                          src={imgUrl}
+                                          alt={formattedName}
+                                          className="max-h-full max-w-full object-contain"
+                                          crossOrigin="anonymous"
+                                          onError={(e) => {
+                                            (e.target as HTMLElement).style.display = "none";
+                                          }}
+                                        />
+                                      ) : (
+                                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-200 text-gray-300">
+                                          <Package size={28} />
+                                          <span className="text-[9px] font-semibold uppercase tracking-wider">No image</span>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <div className="min-w-0 flex-1 space-y-1.5">
+                                      <div className="flex items-start gap-2 min-w-0">
+                                        {sbLabel && (
+                                          <span className="font-mono text-[11px] font-bold text-accent shrink-0 mt-[3px] tracking-wide">
+                                            {sbLabel}
+                                          </span>
+                                        )}
+                                        <p className="font-bold text-gray-950 text-[15px] leading-snug break-words min-w-0">
+                                          {formattedName}
+                                        </p>
+                                        {!isLocked && !room.isUnavailable && item.isUnavailable && (
+                                          <UnavailabilityWarning reason={item.unavailableReason} compact />
+                                        )}
+                                      </div>
+
+                                      {(moduleSize || finish || color || tier || connectivity) && (
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          {moduleSize && <span className={chipClass}>{moduleSize}</span>}
+                                          {finish && <span className={`${chipClass} capitalize`}>{finish}</span>}
+                                          {color && <span className={`${chipClass} capitalize`}>{color}</span>}
+                                          {tier && (
+                                            <span className="text-[11px] font-semibold text-accent-foreground bg-accent-light px-2 py-0.5 rounded-full capitalize">
+                                              {tier}
+                                            </span>
+                                          )}
+                                          {connectivity && <span className={`${chipClass} uppercase`}>{connectivity}</span>}
+                                        </div>
+                                      )}
+
+                                      {location && (
+                                        <p className="flex items-start gap-1.5 text-[13px] text-gray-600 break-words">
+                                          <MapPin size={13} className="text-accent shrink-0 mt-0.5" />
+                                          <span>
+                                            <span className="text-gray-400">Location: </span>
+                                            <span className="font-semibold text-gray-900">{location}</span>
+                                          </span>
+                                        </p>
+                                      )}
+                                    </div>
+
+                                    {/* Quantity and unit price, right-aligned. Struck through when this item/room is excluded from the totals. */}
+                                    <div className="shrink-0 w-32 text-right space-y-1">
+                                      <p className="font-mono font-bold text-gray-500 text-sm leading-none">
+                                        Qty <span className="text-gray-950 text-lg font-extrabold">{item.quantity || 1}</span>
+                                      </p>
+                                      <p
+                                        className={`font-mono font-extrabold text-lg leading-none ${
+                                          excluded ? "text-gray-400 line-through" : "text-gray-950"
+                                        }`}
                                       >
-                                        {/* Product Thumbnail & Clean Name & Location */}
-                                        <td className="py-2.5 px-4 align-middle">
-                                          <div className="flex items-center gap-3">
-                                            {/* Standardized 48px Tile container for EVERY product */}
-                                            <div className="w-12 h-12 shrink-0 rounded-xl border border-gray-200/90 bg-white shadow-2xs flex items-center justify-center p-1 overflow-hidden relative">
-                                              {imgUrl ? (
-                                                <img
-                                                  src={imgUrl}
-                                                  alt={formattedName}
-                                                  className="max-h-full max-w-full object-contain"
-                                                  crossOrigin="anonymous"
-                                                  onError={(e) => {
-                                                    (e.target as HTMLElement).style.display = "none";
-                                                  }}
-                                                />
-                                              ) : (
-                                                <Package size={18} className="text-gray-300" />
-                                              )}
-                                            </div>
-
-                                            <div className="min-w-0 flex-1 space-y-0.5">
-                                              <div className="flex items-center gap-2">
-                                                <p className="font-bold text-gray-950 text-sm sm:text-base leading-snug">
-                                                  {formattedName}
-                                                </p>
-                                                {sbLabel && (
-                                                  <span className="font-mono text-[10px] font-bold text-gray-600 bg-gray-100 border border-gray-200 px-1.5 py-0.2 rounded shrink-0">
-                                                    {sbLabel}
-                                                  </span>
-                                                )}
-                                                {!isLocked && !room.isUnavailable && item.isUnavailable && (
-                                                  <UnavailabilityWarning reason={item.unavailableReason} compact />
-                                                )}
-                                              </div>
-
-                                              <div className="flex flex-wrap items-center gap-1.5">
-                                                {moduleSize && (
-                                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80">
-                                                    {moduleSize}
-                                                  </span>
-                                                )}
-                                                {finish && (
-                                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
-                                                    {finish}
-                                                  </span>
-                                                )}
-                                                {color && (
-                                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 capitalize">
-                                                    {color}
-                                                  </span>
-                                                )}
-                                                {tier && (
-                                                  <span className="text-[10px] font-bold text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize">
-                                                    {tier}
-                                                  </span>
-                                                )}
-                                                {connectivity && (
-                                                  <span className="text-[10px] font-bold text-gray-700 bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200/80 uppercase">
-                                                    {connectivity}
-                                                  </span>
-                                                )}
-                                                {hasValidLocation && (
-                                                  <span className="text-[13px] text-gray-600 ml-1">
-                                                    <span className="text-gray-400 font-medium">Location: </span>
-                                                    <span className="font-medium text-gray-900">{item.notes}</span>
-                                                  </span>
-                                                )}
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </td>
-
-                                        {/* Qty */}
-                                        <td className="py-2.5 px-4 text-center font-mono font-bold text-gray-900 text-sm sm:text-base align-middle">
-                                          {item.quantity || 1}
-                                        </td>
-
-                                        {/* Unit Price — struck through when this item/room is excluded from
-                                            the totals below, so the exclusion is visible right at the price,
-                                            not just in the name column's badge. Never applied once locked. */}
-                                        <td
-                                          className={`py-2.5 px-4 text-right font-mono text-sm sm:text-base align-middle ${
-                                            !isLocked && (room.isUnavailable || item.isUnavailable)
-                                              ? "text-gray-400 line-through"
-                                              : "text-gray-700"
-                                          }`}
-                                        >
-                                          {formatCurrency(unitPrice)}
-                                        </td>
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
+                                        {formatCurrency(unitPrice)}
+                                      </p>
+                                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">per unit</p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
 
-                          {/* Room Subtotal Banner */}
+                          {/* Room subtotal: its own distinct strip, always on the same page as the last product row */}
+                          {!showRoomFooter && items.length > 0 && (
+                            <div className="px-4 py-1.5 border-t border-gray-100 text-right text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                              Continued on next page
+                            </div>
+                          )}
                           {showRoomFooter && items.length > 0 && (
-                            <div className="flex justify-between items-center px-4 py-2.5 bg-gray-50/70 border-t border-gray-200 text-sm font-semibold text-gray-800">
-                              <span>
+                            <div className="flex justify-between items-center px-4 py-3 border-t border-gray-200 bg-accent-light/50 text-sm font-bold text-gray-900">
+                              <span className="uppercase tracking-wider text-[12px]">
                                 {getRoomDisplayName(room, renderableRooms)} Subtotal
                               </span>
-                              <span className="font-mono font-bold text-gray-950">
+                              <span className="font-mono font-extrabold text-gray-950 text-base">
                                 {formatCurrency(roomSubtotal)}
                               </span>
                             </div>
@@ -1985,13 +1982,13 @@ export default function StepProposalPreview({
                   /* 6. FINANCIAL SUMMARY, INVESTMENT CALLOUT, TERMS & OFFICIAL WHYTE CLOSING */
                   if (section.type === "closing_and_financials") {
                     return (
-                      <div key={sIdx} className="space-y-3">
+                      <div key={sIdx} className="space-y-2">
                         {/* Section Header — same eyebrow + h2 pattern as every other page. */}
                         <div>
                           <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
                             Pricing & Commercial Summary
                           </span>
-                          <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
+                          <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
                             Investment &amp; Next Steps
                           </h2>
                         </div>
@@ -2007,7 +2004,7 @@ export default function StepProposalPreview({
                             </span>
                           </div>
 
-                          <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 space-y-2 text-sm">
+                          <div className="p-3 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5 text-sm">
                             {/* Subtotal */}
                             <div className="flex justify-between items-center text-gray-600">
                               <span className="font-medium text-gray-600">Subtotal</span>
@@ -2091,7 +2088,7 @@ export default function StepProposalPreview({
                                   Total Investment (Incl. Taxes)
                                 </span>
                               </div>
-                              <span className="text-3xl font-black font-mono text-gray-950 tracking-tight">
+                              <span className="text-2xl font-black font-mono text-gray-950 tracking-tight">
                                 {formatCurrency(grandTotal, { decimals: 2 })}
                               </span>
                             </div>
@@ -2099,11 +2096,11 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Final Investment Callout */}
-                        <div className="p-4 rounded-2xl border border-accent-border/80 bg-accent-light/40 text-center space-y-1">
+                        <div className="p-3 rounded-2xl border border-accent-border/80 bg-accent-light/40 text-center space-y-0.5">
                           <p className="text-[11px] uppercase font-bold tracking-widest text-accent">
                             ESTIMATED PROJECT INVESTMENT
                           </p>
-                          <p className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-gray-950">
+                          <p className="text-2xl font-black font-mono tracking-tight text-gray-950">
                             {formatCurrency(grandTotal, { decimals: 2 })}
                           </p>
                           <p className="text-[13px] text-gray-500">
@@ -2112,9 +2109,9 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Proposal Includes & Commercial Information */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                        <div className="grid grid-cols-2 gap-3 text-sm">
                           {/* Proposal Includes */}
-                          <div className="p-3.5 rounded-xl border border-gray-200 bg-white space-y-1.5">
+                          <div className="p-3 rounded-xl border border-gray-200 bg-white space-y-1">
                             <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">
                               Proposal Includes
                             </h4>
@@ -2143,7 +2140,7 @@ export default function StepProposalPreview({
                           </div>
 
                           {/* Commercial Terms & Validity */}
-                          <div className="p-3.5 rounded-xl border border-gray-200 bg-white space-y-1.5">
+                          <div className="p-3 rounded-xl border border-gray-200 bg-white space-y-1">
                             <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">
                               Commercial Terms & Validity
                             </h4>
@@ -2187,30 +2184,30 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Next Steps */}
-                        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5">
+                        <div className="p-3 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5">
                           <h4 className="font-bold uppercase tracking-wider text-gray-950 text-[11px]">
                             Next Steps
                           </h4>
-                          <ol className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[13px] text-gray-700">
-                            <li className="p-2 bg-white rounded-lg border border-gray-200">
+                          <ol className="grid grid-cols-4 gap-2 text-[13px] text-gray-700">
+                            <li className="p-1.5 bg-white rounded-lg border border-gray-200">
                               <span className="font-bold text-gray-950 block text-sm">
                                 1. Review
                               </span>
                               Review the proposed automation configuration.
                             </li>
-                            <li className="p-2 bg-white rounded-lg border border-gray-200">
+                            <li className="p-1.5 bg-white rounded-lg border border-gray-200">
                               <span className="font-bold text-gray-950 block text-sm">
                                 2. Confirm
                               </span>
                               Confirm product selection and quantities.
                             </li>
-                            <li className="p-2 bg-white rounded-lg border border-gray-200">
+                            <li className="p-1.5 bg-white rounded-lg border border-gray-200">
                               <span className="font-bold text-gray-950 block text-sm">
                                 3. Align
                               </span>
                               Confirm on-site installation requirements.
                             </li>
-                            <li className="p-2 bg-white rounded-lg border border-gray-200">
+                            <li className="p-1.5 bg-white rounded-lg border border-gray-200">
                               <span className="font-bold text-gray-950 block text-sm">
                                 4. Proceed
                               </span>
@@ -2220,9 +2217,13 @@ export default function StepProposalPreview({
                         </div>
 
                         {/* Official Whyte Closing & Contact Card */}
-                        <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50 flex flex-col gap-3 text-sm">
-                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                            <div className="space-y-1">
+                        <div
+                          data-testid="company-panel"
+                          className="rounded-xl border border-gray-200 border-l-4 border-l-accent bg-white overflow-hidden break-inside-avoid"
+                        >
+                          {/* Two balanced columns: who we are | how to reach us */}
+                          <div className="grid grid-cols-2 items-stretch">
+                            <div className="p-4 space-y-1.5">
                               <WhyteLogo
                                 theme="light"
                                 alt="Whyte Automations"
@@ -2230,37 +2231,38 @@ export default function StepProposalPreview({
                                 unoptimized
                                 loading="eager"
                               />
-                              <p className="font-bold text-gray-950">
+                              <p className="font-bold text-gray-950 text-[15px] leading-snug">
                                 Whyte Automations Private Limited
                               </p>
-                              <p className="text-[13px] text-gray-500">
-                                Gandhinagar, Gujarat, India • Next-Gen Smart Living
+                              <p className="text-[13px] text-gray-500 leading-snug">
+                                Gandhinagar, Gujarat, India <span className="text-gray-300">•</span>{" "}
+                                <span className="font-semibold text-accent">Next-Gen Smart Living</span>
                               </p>
                             </div>
-                            <div className="space-y-1 text-right sm:text-right font-medium text-[13px] text-gray-600">
-                              <p className="flex items-center gap-1.5 sm:justify-end">
-                                <Phone size={11} className="text-gray-400" />
-                                <span>+91 98982 34336 / +91 98989 26336</span>
+                            <div className="p-4 border-l border-gray-100 flex flex-col justify-center gap-2 text-[13px] text-gray-700">
+                              <p className="flex items-center gap-2.5">
+                                <Phone size={14} className="text-accent shrink-0" />
+                                <span className="font-medium">+91 98982 34336 / +91 98989 26336</span>
                               </p>
-                              <p className="flex items-center gap-1.5 sm:justify-end">
-                                <Mail size={11} className="text-gray-400" />
-                                <span>sales@whyte.co.in</span>
+                              <p className="flex items-center gap-2.5">
+                                <Mail size={14} className="text-accent shrink-0" />
+                                <span className="font-medium">sales@whyte.co.in</span>
                               </p>
-                              <p className="flex items-center gap-1.5 sm:justify-end">
-                                <Globe size={11} className="text-gray-400" />
+                              <p className="flex items-center gap-2.5">
+                                <Globe size={14} className="text-accent shrink-0" />
                                 <a
                                   href="https://whyte.co.in/"
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="hover:underline"
+                                  className="font-medium hover:underline"
                                 >
                                   https://whyte.co.in/
                                 </a>
                               </p>
                             </div>
                           </div>
-                          <div className="pt-2 border-t border-gray-200/70 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs text-gray-500">
-                            <span className="font-medium text-gray-600">Connect with Whyte:</span>
+                          <div className="px-4 py-2 border-t border-gray-100 flex items-center justify-between gap-4">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 shrink-0">Connect with Whyte</span>
                             <SocialLinks variant="proposal-card" />
                           </div>
                         </div>
@@ -2273,7 +2275,7 @@ export default function StepProposalPreview({
               </div>
 
               {/* Document Footer on Every Page */}
-              <div className="pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] font-medium text-gray-400">
+              <div data-testid="page-footer" className="pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] font-medium text-gray-400">
                 <a
                   href="https://whyte.co.in/"
                   target="_blank"
@@ -2282,10 +2284,9 @@ export default function StepProposalPreview({
                 >
                   www.whyte.co.in
                 </a>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-wider text-gray-300">Social</span>
-                  <SocialLinks variant="proposal-running" iconClassName="w-3 h-3" />
-                </div>
+                <span className="font-mono tracking-wider text-gray-400">
+                  Page {page.pageNumber} of {page.totalPages}
+                </span>
               </div>
               </div>
             </div>

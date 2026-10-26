@@ -133,7 +133,8 @@ export default function SocialLinks({
 
   if (variant === "proposal-card") {
     return (
-      <div className={cn("flex flex-wrap items-center gap-2", className)}>
+      // One unwrapped row: plain icon + label links, no button chrome (the proposal page is a fixed 794px canvas).
+      <div className={cn("flex flex-nowrap items-center gap-5 whitespace-nowrap", className)}>
         {WHYTE_SOCIAL_LINKS.map((item) => (
           <a
             key={item.id}
@@ -141,9 +142,9 @@ export default function SocialLinks({
             target="_blank"
             rel="noopener noreferrer"
             aria-label={item.ariaLabel}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-100 hover:text-black shadow-2xs"
+            className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-gray-700 transition-colors hover:text-gray-950"
           >
-            {renderSocialIcon(item.id, iconClassName || "w-3 h-3 text-gray-500")}
+            {renderSocialIcon(item.id, iconClassName || "w-3.5 h-3.5 text-accent")}
             <span>{item.name}</span>
           </a>
         ))}

@@ -13,6 +13,7 @@ export type AdminNavRole = "super_admin" | "company_owner" | "admin" | "configur
 
 export const RESTRICTED_NAV_ROLES: Readonly<Record<string, readonly AdminNavRole[]>> = {
   "/admin/activity": ["super_admin"],
+  "/admin/companies": ["super_admin"],
   "/admin/theme": ["super_admin", "company_owner", "admin"],
   "/admin/users": ["super_admin", "company_owner", "admin"],
   "/admin/roles": ["super_admin"],

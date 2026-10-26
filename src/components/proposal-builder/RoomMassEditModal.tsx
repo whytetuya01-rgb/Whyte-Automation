@@ -48,6 +48,8 @@ interface Props {
   isOpen: boolean;
   room: QuotationRoom;
   allRooms: QuotationRoom[];
+  /** False for flats: the floor label is not shown in the title. Defaults to true. */
+  isMultiFloor?: boolean;
   products: EditorCatalogProduct[];
   categories: Category[];
   quotationDefaults?: { defaultTier?: string | null; defaultFinish?: string | null };
@@ -66,6 +68,7 @@ export default function RoomMassEditModal({
   isOpen,
   room,
   allRooms,
+  isMultiFloor = true,
   products = [],
   categories = [],
   quotationDefaults,
@@ -395,7 +398,7 @@ export default function RoomMassEditModal({
                 </span>
               </div>
               <h3 className="font-extrabold text-gray-950 text-lg sm:text-xl mt-0.5">
-                Mass Edit Space: {getRoomFullTitle(room, allRooms)}
+                Mass Edit Space: {getRoomFullTitle(room, allRooms, isMultiFloor)}
               </h3>
             </div>
           </div>

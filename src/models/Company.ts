@@ -11,6 +11,29 @@ import type { SoftDeleteFields } from "@/lib/softDelete/fields";
  */
 export type CompanyStatus = "pending" | "active" | "suspended";
 
+/**
+ * Review state of a SELF-REGISTERED company, kept separate from `status` on purpose. `status: "pending"` already
+ * means something else in production (the default company, Whyte, is `pending` and its users sign in normally), so
+ * it cannot double as "waiting for review".
+ *
+ * A company without this field (every company created before self-registration) is treated as approved. Only
+ * `pending_review` and `rejected` block access.
+ */
+export type CompanyRegistrationStatus = "pending_review" | "approved" | "rejected";
+
+export type DecisionEmailKind = "approved" | "rejected";
+export type DecisionEmailStatus = "pending" | "sent" | "failed";
+
+export interface CompanyDecisionEmail {
+  kind: DecisionEmailKind;
+  status: DecisionEmailStatus;
+  attempts: number;
+  lastAttemptAt: Date | null;
+  sentAt: Date | null;
+  /** Short machine reason from the last failed attempt (never provider text or secrets). */
+  lastError: string | null;
+}
+
 export type SiteTheme = "whyte-rose" | "champagne-bronze" | "emerald-haven";
 export const VALID_SITE_THEMES: SiteTheme[] = ["whyte-rose", "champagne-bronze", "emerald-haven"];
 
@@ -42,6 +65,17 @@ export interface ICompany extends SoftDeleteFields {
   email: string | null;
   address: string;
   logoUrl: string | null;
+  /** Cloudinary public id of the uploaded logo (`whyte/companies/<id>/branding/…`); null for a legacy / external logoUrl or no logo. */
+  logoPublicId?: string | null;
+  /** Absent / null on companies that predate self-registration (treated as approved). */
+  registrationStatus?: CompanyRegistrationStatus | null;
+  registrationSubmittedAt?: Date | null;
+  reviewedAt?: Date | null;
+  reviewedBy?: number | null;
+  reviewedByName?: string | null;
+  /** Internal reviewer note. Never shown to the company and never put in an email. */
+  reviewNote?: string | null;
+  decisionEmail?: CompanyDecisionEmail | null;
   tagline: string | null;
   theme?: SiteTheme;
   themeLayout?: ThemeLayoutSettings;
@@ -78,6 +112,27 @@ const CompanySchema = new Schema<ICompanyDocument>(
     email: { type: String, default: null, trim: true },
     address: { type: String, required: true, trim: true },
     logoUrl: { type: String, default: null },
+    logoPublicId: { type: String, default: null },
+    registrationStatus: { type: String, enum: ["pending_review", "approved", "rejected"], default: undefined },
+    registrationSubmittedAt: { type: Date, default: undefined },
+    reviewedAt: { type: Date, default: undefined },
+    reviewedBy: { type: Number, default: undefined },
+    reviewedByName: { type: String, default: undefined },
+    reviewNote: { type: String, default: undefined, maxlength: 500 },
+    decisionEmail: {
+      type: new Schema(
+        {
+          kind: { type: String, enum: ["approved", "rejected"], required: true },
+          status: { type: String, enum: ["pending", "sent", "failed"], required: true },
+          attempts: { type: Number, default: 0 },
+          lastAttemptAt: { type: Date, default: null },
+          sentAt: { type: Date, default: null },
+          lastError: { type: String, default: null },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     tagline: { type: String, default: null, trim: true },
     theme: {
       type: String,

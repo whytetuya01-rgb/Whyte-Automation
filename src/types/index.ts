@@ -288,6 +288,7 @@ export interface Company {
   email: string | null;
   address: string;
   logoUrl: string | null;
+  logoPublicId?: string | null;
   tagline: string | null;
 }
 

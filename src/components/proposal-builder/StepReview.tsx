@@ -26,11 +26,12 @@ import { eligibleItemsOfRoom } from "@/lib/quotationAvailability";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
 import { useSession } from "next-auth/react";
-import { getRoomDisplayName, getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
+import { getRoomDisplayName, getRoomFloorLabel, getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
 import { Select } from "@/components/ui/Select";
 import { getItemImageUrl, formatProposalProductName } from "@/components/proposal-builder/StepProposalPreview";
 import ChangeProductModal from "./ChangeProductModal";
 import RoomMassEditModal from "./RoomMassEditModal";
+import RoomNameEditor from "./RoomNameEditor";
 
 
 
@@ -43,8 +44,9 @@ interface Props {
     roomId: number,
     productId: number,
     productVariantId?: number,
-    variantConfig?: Record<string, string>
-  ) => Promise<void>;
+    variantConfig?: Record<string, string>,
+    quantity?: number
+  ) => Promise<boolean | void>;
   onReplaceItem?: (
     itemId: number,
     productId: number,
@@ -64,9 +66,11 @@ interface Props {
       quantity?: number;
     }>
   ) => Promise<void>;
-  onUpdateItem: (itemId: number, data: any) => Promise<void>;
+  onUpdateItem: (itemId: number, data: any) => Promise<boolean | void>;
   onDeleteItem: (itemId: number) => Promise<void>;
   onUpdateDiscount: (type: "percentage" | "fixed" | "none", value: number) => Promise<void>;
+  /** The same quotation-specific room updater the Space Selection and Product Configuration steps use. */
+  onUpdateRoom?: (roomId: number, data: Partial<QuotationRoom>) => Promise<void>;
   onContinue: () => void;
   onBack: () => void;
 }
@@ -81,6 +85,7 @@ export default function StepReview({
   onUpdateItem,
   onDeleteItem,
   onUpdateDiscount,
+  onUpdateRoom,
   onContinue,
   onBack,
 }: Props) {
@@ -349,7 +354,7 @@ export default function StepReview({
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gray-50 border border-gray-200 text-xs font-semibold text-gray-800"
                     >
                       <Icon size={13} className="text-gray-500" />
-                      <span>{getRoomFullTitle(r, rooms)}</span>
+                      <span>{getRoomFullTitle(r, rooms, isMultiFloor)}</span>
                       <span className="text-[11px] font-mono text-gray-400">({count})</span>
                     </div>
                   );
@@ -388,7 +393,7 @@ export default function StepReview({
               {isMultiFloor ? "Configured Products Grouped Floorwise" : "Configured Products by Space"}
             </h3>
 
-            {groupRoomsByFloor(rooms).map((group) => (
+            {groupRoomsByFloor(rooms, isMultiFloor).map((group) => (
               <div key={group.floor} className="space-y-4 pt-1">
                 {isMultiFloor && (
                   <div className="flex items-center gap-2 bg-gray-950 text-white px-4 py-2.5 rounded-2xl text-xs font-bold uppercase tracking-wider shadow-xs">
@@ -430,7 +435,21 @@ export default function StepReview({
                           </div>
                           <div>
                             <h4 className="font-bold text-gray-950 text-sm sm:text-base">
-                              {getRoomFullTitle(room, rooms)}
+                              <RoomNameEditor
+                                key={`review-room-${room.id}`}
+                                roomId={Number(room.id)}
+                                name={getRoomDisplayName(room, rooms)}
+                                floorLabel={getRoomFloorLabel(room, rooms, isMultiFloor)}
+                                onRename={
+                                  onUpdateRoom
+                                    ? async (roomId, customName) => {
+                                        await onUpdateRoom(roomId, { customName });
+                                      }
+                                    : undefined
+                                }
+                                disabled={isLocked}
+                                prominent
+                              />
                             </h4>
                             <p className="text-[11px] text-gray-400">
                               {roomProductCount} {roomProductCount === 1 ? "product" : "products"} configured
@@ -1000,6 +1019,7 @@ export default function StepReview({
           isOpen={Boolean(massEditRoom)}
           room={massEditRoom}
           allRooms={rooms}
+          isMultiFloor={isMultiFloor}
           products={products}
           categories={categories}
           quotationDefaults={{

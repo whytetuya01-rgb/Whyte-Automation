@@ -41,6 +41,9 @@ export async function PATCH(req: Request) {
 
       // Explicit allowlist: a client can never write `_id` or `updatedAt`.
       const data = updateCompanySchema.parse(await readJsonBody(req));
+      // The logo (URL and storage id travel together) changes only through POST/DELETE /api/company/logo, so a
+      // profile save can never point it at an arbitrary URL or leave the stored public id out of step.
+      delete data.logoUrl;
       if (Object.keys(data).length === 0) {
         throw new ApiError("VALIDATION_ERROR", "No editable fields were supplied.");
       }

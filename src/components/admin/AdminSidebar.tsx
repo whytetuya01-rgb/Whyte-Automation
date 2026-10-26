@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Users,
   Palette,
+  Building,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -62,6 +63,7 @@ const navGroups: NavGroup[] = [
   {
     title: "OVERSIGHT",
     items: [
+      { href: "/admin/companies", label: "Companies", icon: Building },
       { href: "/admin/activity", label: "Activity Log", icon: Activity },
       { href: "/admin/users", label: "Users", icon: Users },
       { href: "/admin/roles", label: "Roles & Permissions", icon: ShieldCheck },

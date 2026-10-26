@@ -9,6 +9,7 @@ import {
   quantityField,
   strictObject,
 } from "@/lib/validation/common";
+import { MAX_ITEM_QUANTITY } from "@/lib/quantity";
 import { optionalEmailSchema, optionalGstinSchema, optionalPhoneSchema } from "@/lib/validation/fields";
 
 /**
@@ -163,6 +164,14 @@ export const updateQuotationRoomSchema = strictObject({
   sortOrder: intField(),
 });
 
+/** A line-item quantity: a whole number from 0 up to the shared maximum (create still floors it at 1). */
+const itemQuantityField = quantityField.pipe(
+  z
+    .number()
+    .int("Quantity must be a whole number.")
+    .max(MAX_ITEM_QUANTITY, `Quantity cannot be more than ${MAX_ITEM_QUANTITY}.`)
+);
+
 /**
  * QuotationItem create body. `unitPrice` is intentionally absent: the price is
  * always taken from the resolved ProductVariant so a client cannot invent one.
@@ -172,7 +181,7 @@ export const createQuotationItemSchema = strictObject({
   productId: numericIdSchema,
   productVariantId: numericIdSchema.optional().nullable(),
   variantConfig: z.record(z.string(), z.string()).optional().nullable(),
-  quantity: quantityField.optional(),
+  quantity: itemQuantityField.optional(),
   sbNumber: optionalText(60),
   notes: optionalText(500),
   sortOrder: intField(),
@@ -184,7 +193,7 @@ export const createQuotationItemSchema = strictObject({
  * quotation before the move is applied.
  */
 export const updateQuotationItemSchema = strictObject({
-  quantity: quantityField.optional(),
+  quantity: itemQuantityField.optional(),
   sbNumber: optionalText(60),
   notes: optionalText(500),
   productId: numericIdSchema.optional(),

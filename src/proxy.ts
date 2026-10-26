@@ -30,6 +30,8 @@ const PUBLIC_PAGES = ["/login", "/register", "/admin/login", "/admin/register"];
 /** NextAuth framework endpoints that must stay reachable to sign in. */
 const PUBLIC_API_PREFIX = "/api/auth";
 const PUBLIC_REGISTRATION_API = "/api/admin/register";
+/** Company self-registration (creates a new tenant + its Company Owner). POST only; the handler is strict and rate-limited. */
+const PUBLIC_COMPANY_REGISTRATION_API = "/api/company/register";
 const DEALER_LANDING_PAGE = "/dealer/access";
 const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
 
@@ -63,7 +65,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  if (pathname === PUBLIC_REGISTRATION_API && request.method === "POST") {
+  if ((pathname === PUBLIC_REGISTRATION_API || pathname === PUBLIC_COMPANY_REGISTRATION_API) && request.method === "POST") {
     return NextResponse.next();
   }
 

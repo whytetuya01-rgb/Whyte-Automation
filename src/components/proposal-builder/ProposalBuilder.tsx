@@ -581,17 +581,20 @@ export default function ProposalBuilder({
   };
 
   // Step 3: Item Operations
+  // Resolves `true` once the item is saved and shown, `false` when the request failed (already toasted), so callers
+  // that type a quantity can keep it instead of reporting a success that did not happen.
   const handleAddItem = async (
     roomId: number,
     productId: number,
     productVariantId?: number,
-    variantConfig?: Record<string, string>
-  ) => {
-    if (!quotation?.id) return;
+    variantConfig?: Record<string, string>,
+    quantity: number = 1
+  ): Promise<boolean> => {
+    if (!quotation?.id) return false;
     const targetRoomId = Number(roomId || activeRoomId || quotation.rooms?.[0]?.id);
     if (!targetRoomId) {
       toast.error("Please select a space before adding devices");
-      return;
+      return false;
     }
     setSaveStatus("saving");
 
@@ -604,7 +607,7 @@ export default function ProposalBuilder({
           productId,
           productVariantId: productVariantId ?? undefined,
           variantConfig: variantConfig ?? undefined,
-          quantity: 1,
+          quantity,
         }),
       });
 
@@ -616,15 +619,17 @@ export default function ProposalBuilder({
       const body = await res.json();
       upsertItemLocally(body?.data ?? body);
       setSaveStatus("saved");
-      toast.success("Device added to space");
+      toast.success(quantity > 1 ? `${quantity} devices added to space` : "Device added to space");
+      return true;
     } catch (e: any) {
       toast.error(extractErrorMessage(e, "Failed to add device"));
       setSaveStatus("unsaved");
+      return false;
     }
   };
 
-  const handleUpdateItem = async (itemId: number, data: any) => {
-    if (!quotation?.id) return;
+  const handleUpdateItem = async (itemId: number, data: any): Promise<boolean> => {
+    if (!quotation?.id) return false;
     setSaveStatus("saving");
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/items/${itemId}`, {
@@ -640,9 +645,11 @@ export default function ProposalBuilder({
       const body = await res.json();
       upsertItemLocally(body?.data ?? body);
       setSaveStatus("saved");
+      return true;
     } catch (e: any) {
       toast.error(extractErrorMessage(e, "Failed to update item"));
       setSaveStatus("unsaved");
+      return false;
     }
   };
 
@@ -1022,6 +1029,7 @@ export default function ProposalBuilder({
             onUpdateItem={handleUpdateItem}
             onDeleteItem={handleDeleteItem}
             onUpdateDiscount={handleUpdateDiscount}
+            onUpdateRoom={handleUpdateRoom}
             onContinue={() => navigateToStep(5)}
             onBack={() => navigateToStep(3)}
           />

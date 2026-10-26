@@ -4,7 +4,12 @@ import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export const CANONICAL_ADMIN_ROLES = ["super_admin", "admin", "sales_executive", "dealer"] as const satisfies readonly AdminRole[];
 export const ACTIVE_ADMIN_ROLES = ["super_admin", "admin", "sales_executive", "dealer", "configurable_admin"] as const satisfies readonly AdminRole[];
-export const ALL_ADMIN_USER_ROLES = ["super_admin", "admin", "sales_executive", "dealer", "sales", "configurable_admin"] as const;
+/**
+ * Every role value an account may hold. `company_owner` is the role self-registered companies get; it must be listed
+ * here because the dev hot-reload patch below re-applies this list as the `role` enum on a cached model, and a
+ * missing value makes registration fail with "Validator failed for path `role`".
+ */
+export const ALL_ADMIN_USER_ROLES = ["super_admin", "company_owner", "admin", "sales_executive", "dealer", "sales", "configurable_admin"] as const;
 
 /** The one role exempt from needing a companyId — the platform owner, not a company's own user. */
 function isPlatformSuperAdmin(doc: unknown): boolean {
