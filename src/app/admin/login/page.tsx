@@ -21,7 +21,7 @@ import {
 import notify from "@/lib/notify";
 import { Input, Button } from "@/components/ui";
 import WhyteLogo from "@/components/shared/WhyteLogo";
-import { REVIEW_BLOCK_MESSAGES, type ReviewBlock } from "@/lib/companyReviewStatus";
+import { REVIEW_BLOCK_MESSAGES, type LoginBlock } from "@/lib/companyReviewStatus";
 
 function LoginForm() {
   const router = useRouter();
@@ -79,7 +79,7 @@ function LoginForm() {
         if (result.error === "DEALER_IN_ADMIN_PORTAL") {
           message = "Dealer accounts cannot sign in to the Admin Portal. Please use the Dealer login at /login.";
         } else if (result.error in REVIEW_BLOCK_MESSAGES) {
-          message = REVIEW_BLOCK_MESSAGES[result.error as ReviewBlock];
+          message = REVIEW_BLOCK_MESSAGES[result.error as LoginBlock];
         }
         setAuthError(message);
         notify.error("Unable to sign in", message);
@@ -211,18 +211,14 @@ function LoginForm() {
       <div className="mt-6 text-center text-sm text-neutral-500">
         Need an account?{" "}
         <Link
-          href="/register"
-          className="font-medium text-neutral-900 underline underline-offset-4 hover:text-admin-primary transition-colors"
-        >
-          Register as a Dealer
-        </Link>{" "}
-        or{" "}
-        <Link
           href="/register/company"
           className="font-medium text-neutral-900 underline underline-offset-4 hover:text-admin-primary transition-colors"
         >
-          register your company
+          Register your company
         </Link>
+        <p className="mt-1 text-xs text-neutral-400">
+          Dealer accounts are created directly by company administrators.
+        </p>
       </div>
 
       {/* Security note footer */}

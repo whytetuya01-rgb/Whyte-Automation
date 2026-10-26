@@ -133,7 +133,7 @@ try {
   const bodyText = await page.locator("body").innerText();
   assert.match(bodyText, /Thank you for registering with Whyte Automation\. Your company registration request has been submitted successfully and is awaiting approval from our team\. You will receive an email once your request is reviewed\./);
   assert.match(bodyText, /Pending Approval/i);
-  assert.equal(await page.getByRole("link", { name: "Back to login" }).getAttribute("href"), "/admin/login");
+  assert.equal(await page.getByRole("link", { name: "Back to login" }).getAttribute("href"), "/login");
   assert.doesNotMatch(bodyText + page.url(), /riya@skyline|Sup3rSecret|Skyline|passwordHash|\b[0-9]{1,4}\b.*companyId/i, "nothing from the submission is shown or put in the URL");
   await shot(page, "r-3-submitted");
   const stored = await db.collection("companies").findOne({ name: "Skyline Smart Homes Pvt. Ltd." });
@@ -196,6 +196,35 @@ try {
   await admin.page.getByTestId("tab-approved").click();
   await admin.page.locator('[data-testid="company-row"][data-company-name="Skyline Smart Homes Pvt. Ltd."]').waitFor();
   pass("Approve asks for confirmation, then approves, moves the company to the Approved tab and sends the approval email");
+
+  // the list uses the whole content area (no empty strip on the right)
+  const widths = await admin.page.evaluate(() => {
+    const list = document.querySelector("ul[aria-busy]").getBoundingClientRect();
+    const main = document.querySelector("main").getBoundingClientRect();
+    return { list: list.width, main: main.width };
+  });
+  assert.ok(widths.list / widths.main > 0.85, `the company list fills the page (${Math.round(widths.list)} of ${Math.round(widths.main)}px)`);
+  await shot(admin.page, "r-7b-full-width");
+  pass("the Companies page uses the full content width");
+
+  // deactivate / reactivate from the Approved tab
+  const approvedRow = admin.page.locator('[data-testid="company-row"][data-company-name="Skyline Smart Homes Pvt. Ltd."]');
+  await approvedRow.getByTestId("deactivate-button").click();
+  await admin.page.locator('[data-testid="confirm-modal"]').getByTestId("confirm-button").click();
+  await approvedRow.getByTestId("deactivated-pill").waitFor();
+  assert.equal((await db.collection("companies").findOne({ name: "Skyline Smart Homes Pvt. Ltd." })).status, "suspended");
+  const blockedPage = await open("");
+  await blockedPage.page.goto(`${baseUrl}/admin/login`, { waitUntil: "domcontentloaded" });
+  await blockedPage.page.locator("#admin-identifier").fill("riya@skyline.example");
+  await blockedPage.page.locator("#admin-password").fill(PASSWORD);
+  await blockedPage.page.locator('button[type="submit"]').first().click();
+  await blockedPage.page.locator("text=Your company account has been deactivated").first().waitFor();
+  await blockedPage.context.close();
+  await approvedRow.getByTestId("reactivate-button").click();
+  await admin.page.locator('[data-testid="confirm-modal"]').getByTestId("confirm-button").click();
+  await approvedRow.getByTestId("deactivate-button").waitFor();
+  assert.equal((await db.collection("companies").findOne({ name: "Skyline Smart Homes Pvt. Ltd." })).status, "active");
+  pass("Deactivate (with confirmation) shows a Deactivated badge and the owner sees 'Your company account has been deactivated'; Reactivate restores access");
   await admin.context.close();
 
   // ═══ 4. owner signs in; uploads a new logo from Company Settings ═══

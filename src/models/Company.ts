@@ -76,6 +76,11 @@ export interface ICompany extends SoftDeleteFields {
   /** Internal reviewer note. Never shown to the company and never put in an email. */
   reviewNote?: string | null;
   decisionEmail?: CompanyDecisionEmail | null;
+  /** The status a deactivated (suspended) company returns to when it is reactivated. */
+  suspendedFromStatus?: CompanyStatus | null;
+  statusChangedAt?: Date | null;
+  statusChangedBy?: number | null;
+  statusChangedByName?: string | null;
   tagline: string | null;
   theme?: SiteTheme;
   themeLayout?: ThemeLayoutSettings;
@@ -119,6 +124,10 @@ const CompanySchema = new Schema<ICompanyDocument>(
     reviewedBy: { type: Number, default: undefined },
     reviewedByName: { type: String, default: undefined },
     reviewNote: { type: String, default: undefined, maxlength: 500 },
+    suspendedFromStatus: { type: String, enum: ["pending", "active", "suspended"], default: undefined },
+    statusChangedAt: { type: Date, default: undefined },
+    statusChangedBy: { type: Number, default: undefined },
+    statusChangedByName: { type: String, default: undefined },
     decisionEmail: {
       type: new Schema(
         {
@@ -193,6 +202,17 @@ CompanySchema.pre("save", function (this: ICompanyDocument) {
 // (offboarding) must never be a hard delete of the one record every other
 // collection's companyId points at.
 softDeletePlugin(CompanySchema, { blockHardDelete: true });
+
+/**
+ * Next dev hot reload keeps models in `mongoose.models`, so a process that loaded an OLDER Company schema would keep
+ * using it. Mongoose silently drops fields its schema does not know, which for `registrationStatus` means a freshly
+ * registered company is saved WITHOUT its review state and is treated as an approved legacy company. Drop a cached
+ * model that predates the review fields so it is rebuilt from this schema.
+ */
+const cachedCompany = mongoose.models.Company;
+if (cachedCompany && (!cachedCompany.schema.path("registrationStatus") || !cachedCompany.schema.path("suspendedFromStatus"))) {
+  mongoose.deleteModel("Company");
+}
 
 export const Company: Model<ICompanyDocument> =
   mongoose.models.Company || mongoose.model<ICompanyDocument>("Company", CompanySchema);

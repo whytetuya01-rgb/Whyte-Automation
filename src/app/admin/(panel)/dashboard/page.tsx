@@ -4,8 +4,9 @@ import PageHeader from "@/components/admin/PageHeader";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Category as CategoryModel, Product } from "@/models";
 import { getAdminDashboardData } from "@/lib/adminDashboardData";
+import { getSuperAdminDashboardData } from "@/lib/superAdminDashboardData";
 import { getAuthenticatedActor } from "@/lib/api-auth";
-import { withTenant } from "@/lib/tenant/context";
+import { runUnscoped, withTenant } from "@/lib/tenant/context";
 import { formatCurrency } from "@/lib/utils";
 import { normalizeCategories, normalizeProducts } from "@/lib/quotationNormalization";
 import type { Product as IProduct } from "@/types";
@@ -17,37 +18,52 @@ import RecentQuotations from "@/components/admin/dashboard/RecentQuotations";
 import QuickActions from "@/components/admin/dashboard/QuickActions";
 import CatalogSnapshot from "@/components/admin/dashboard/CatalogSnapshot";
 import RecentProducts from "@/components/admin/dashboard/RecentProducts";
+import SuperAdminDashboard from "@/components/admin/dashboard/SuperAdminDashboard";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Admin dashboard. Presentation only: every figure comes from existing
- * collections and the application's existing calculations (see
- * `getAdminDashboardData`). Failures propagate to `error.tsx`, which offers a retry.
- *
- * Layout: one 12-column grid. On small screens items are re-ordered by
- * importance (KPIs, chart, recent quotations, status, catalog, quick actions)
- * instead of simply stacking the desktop order.
+ * Role-adaptive Dashboard:
+ * - Super Admins see the dedicated Superadmin Dashboard with platform oversight,
+ *   multi-tenant company registrations, dealer ecosystem, and security audit trail.
+ * - Standard Admins see the operational business dashboard focused on quotations & catalog.
  */
 export default async function DashboardPage() {
   const actor = await getAuthenticatedActor();
   await connectMongoDB();
 
-  const [data, rawProducts, rawCategories] = await withTenant(actor, () =>
-    Promise.all([
-      getAdminDashboardData(),
-      Product.find()
-        .sort({ createdAt: -1 })
-        .limit(5)
-        .populate({ path: "category", populate: { path: "parent" } })
-        .populate({ path: "variants", options: { sort: { sortOrder: 1 } } }),
-      CategoryModel.find().lean(),
-    ])
-  );
+  const isSuperAdmin = actor.role === "super_admin";
+
+  // Fetch Superadmin platform telemetry if Super Admin
+  const superAdminData = isSuperAdmin ? await getSuperAdminDashboardData() : null;
+
+  // Fetch operational catalog/quotation data (run unscoped for superadmin so tenant isolation doesn't block)
+  const [data, rawProducts, rawCategories] = isSuperAdmin
+    ? await runUnscoped("platform-admin", () =>
+        Promise.all([
+          getAdminDashboardData(),
+          Product.find()
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .populate({ path: "category", populate: { path: "parent" } })
+            .populate({ path: "variants", options: { sort: { sortOrder: 1 } } }),
+          CategoryModel.find().lean(),
+        ])
+      )
+    : await withTenant(actor, () =>
+        Promise.all([
+          getAdminDashboardData(),
+          Product.find()
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .populate({ path: "category", populate: { path: "parent" } })
+            .populate({ path: "variants", options: { sort: { sortOrder: 1 } } }),
+          CategoryModel.find().lean(),
+        ])
+      );
 
   const recentProducts: IProduct[] = normalizeProducts(rawProducts.map((doc) => doc.toObject()));
   const categories = normalizeCategories(rawCategories);
-  // The product normaliser does not carry creation dates, so read them from the documents.
   const addedAtById: Record<number, string> = {};
   for (const doc of rawProducts) addedAtById[doc._id] = new Date(doc.createdAt).toISOString();
 
@@ -55,12 +71,113 @@ export default async function DashboardPage() {
   const approvedCount = quotations.statusCounts.approved + quotations.statusCounts.delivered;
   const decided = approvedCount + quotations.statusCounts.rejected;
 
-  // Trends are shown only when they can be computed from real figures.
   const monthChange =
     quotations.lastMonth > 0
       ? Math.round(((quotations.thisMonth - quotations.lastMonth) / quotations.lastMonth) * 100)
       : null;
 
+  // Operational business view
+  const adminViewContent = (
+    <div className="grid grid-cols-12 gap-4 lg:gap-5">
+      {/* KPIs: four across on desktop, two across on tablet, one on phones. */}
+      <div className="col-span-12 order-1 lg:order-none grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
+        <DashboardKpi
+          label="Quotations"
+          value={String(quotations.total)}
+          icon={FileText}
+          href="/admin/quotations"
+          hint={`${quotations.thisMonth} created this month`}
+          trend={
+            monthChange === null
+              ? undefined
+              : { text: `${monthChange > 0 ? "+" : ""}${monthChange}% vs last month`, direction: monthChange > 0 ? "up" : monthChange < 0 ? "down" : "flat" }
+          }
+        />
+        <DashboardKpi
+          label="Pending Review"
+          value={String(quotations.statusCounts.sent)}
+          icon={Clock}
+          href="/admin/quotations?status=sent"
+          hint={quotations.statusCounts.draft > 0 ? `${quotations.statusCounts.draft} more in draft` : "Sent and awaiting approval"}
+        />
+        <DashboardKpi
+          label="Approved Value"
+          value={formatCurrency(quotations.approvedValue)}
+          icon={BadgeCheck}
+          href="/admin/quotations?status=approved"
+          hint={`${approvedCount} approved or delivered`}
+          trend={decided > 0 ? { text: `${Math.round((approvedCount / decided) * 100)}% approval rate`, direction: "flat" } : undefined}
+        />
+        <DashboardKpi
+          label="Dealer Earnings"
+          value={formatCurrency(quotations.confirmedDealerEarnings)}
+          icon={Wallet}
+          href="/admin/dealers"
+          hint="Confirmed on approved quotations"
+        />
+      </div>
+
+      <DashboardCard
+        title="Quotation Performance"
+        description="Quotations created per month, by status"
+        action={{ href: "/admin/quotations", label: "View all" }}
+        className="col-span-12 lg:col-span-8 order-2 lg:order-none"
+      >
+        <QuotationTrendChart months={quotations.months} />
+      </DashboardCard>
+
+      <DashboardCard
+        title="Status Summary"
+        description="All quotations by lifecycle stage"
+        className="col-span-12 md:col-span-6 lg:col-span-4 order-4 lg:order-none"
+      >
+        <StatusSummary counts={quotations.statusCounts} total={quotations.total} />
+      </DashboardCard>
+
+      <DashboardCard
+        title="Recent Quotations"
+        action={{ href: "/admin/quotations", label: "View all" }}
+        flush
+        className="col-span-12 lg:col-span-8 order-3 lg:order-none"
+      >
+        <RecentQuotations rows={quotations.recent} />
+      </DashboardCard>
+
+      <div className="col-span-12 lg:col-span-4 order-5 lg:order-none grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4 lg:gap-5 content-start">
+        <DashboardCard title="Quick Actions" className="order-2 md:order-none">
+          <QuickActions />
+        </DashboardCard>
+        <DashboardCard
+          title="Catalog"
+          description={`${catalog.totalProducts} products · ${catalog.categoryCount} categories`}
+          action={{ href: "/admin/products", label: "Manage" }}
+          className="order-1 md:order-none"
+        >
+          <CatalogSnapshot catalog={catalog} />
+        </DashboardCard>
+      </div>
+
+      <DashboardCard
+        title="Recently Added Products"
+        action={{ href: "/admin/products", label: "View all" }}
+        flush
+        className="col-span-12 order-6 lg:order-none"
+      >
+        <RecentProducts products={recentProducts} categories={categories} addedAtById={addedAtById} />
+      </DashboardCard>
+    </div>
+  );
+
+  if (isSuperAdmin && superAdminData) {
+    return (
+      <SuperAdminDashboard
+        data={superAdminData}
+        adminViewContent={adminViewContent}
+      />
+    );
+  }
+
+  // Standard Admin Dashboard View
   return (
     <div className="space-y-5 max-w-full">
       <PageHeader
@@ -85,95 +202,7 @@ export default async function DashboardPage() {
           </>
         }
       />
-
-      <div className="grid grid-cols-12 gap-4 lg:gap-5">
-        {/* KPIs: four across on desktop, two across on tablet, one on phones. */}
-        <div className="col-span-12 order-1 lg:order-none grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5">
-          <DashboardKpi
-            label="Quotations"
-            value={String(quotations.total)}
-            icon={FileText}
-            href="/admin/quotations"
-            hint={`${quotations.thisMonth} created this month`}
-            trend={
-              monthChange === null
-                ? undefined
-                : { text: `${monthChange > 0 ? "+" : ""}${monthChange}% vs last month`, direction: monthChange > 0 ? "up" : monthChange < 0 ? "down" : "flat" }
-            }
-          />
-          <DashboardKpi
-            label="Pending Review"
-            value={String(quotations.statusCounts.sent)}
-            icon={Clock}
-            href="/admin/quotations?status=sent"
-            hint={quotations.statusCounts.draft > 0 ? `${quotations.statusCounts.draft} more in draft` : "Sent and awaiting approval"}
-          />
-          <DashboardKpi
-            label="Approved Value"
-            value={formatCurrency(quotations.approvedValue)}
-            icon={BadgeCheck}
-            href="/admin/quotations?status=approved"
-            hint={`${approvedCount} approved or delivered`}
-            trend={decided > 0 ? { text: `${Math.round((approvedCount / decided) * 100)}% approval rate`, direction: "flat" } : undefined}
-          />
-          <DashboardKpi
-            label="Dealer Earnings"
-            value={formatCurrency(quotations.confirmedDealerEarnings)}
-            icon={Wallet}
-            href="/admin/dealers"
-            hint="Confirmed on approved quotations"
-          />
-        </div>
-
-        <DashboardCard
-          title="Quotation Performance"
-          description="Quotations created per month, by status"
-          action={{ href: "/admin/quotations", label: "View all" }}
-          className="col-span-12 lg:col-span-8 order-2 lg:order-none"
-        >
-          <QuotationTrendChart months={quotations.months} />
-        </DashboardCard>
-
-        <DashboardCard
-          title="Status Summary"
-          description="All quotations by lifecycle stage"
-          className="col-span-12 md:col-span-6 lg:col-span-4 order-4 lg:order-none"
-        >
-          <StatusSummary counts={quotations.statusCounts} total={quotations.total} />
-        </DashboardCard>
-
-        <DashboardCard
-          title="Recent Quotations"
-          action={{ href: "/admin/quotations", label: "View all" }}
-          flush
-          className="col-span-12 lg:col-span-8 order-3 lg:order-none"
-        >
-          <RecentQuotations rows={quotations.recent} />
-        </DashboardCard>
-
-        <div className="col-span-12 lg:col-span-4 order-5 lg:order-none grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-4 lg:gap-5 content-start">
-          <DashboardCard title="Quick Actions" className="order-2 md:order-none">
-            <QuickActions />
-          </DashboardCard>
-          <DashboardCard
-            title="Catalog"
-            description={`${catalog.totalProducts} products · ${catalog.categoryCount} categories`}
-            action={{ href: "/admin/products", label: "Manage" }}
-            className="order-1 md:order-none"
-          >
-            <CatalogSnapshot catalog={catalog} />
-          </DashboardCard>
-        </div>
-
-        <DashboardCard
-          title="Recently Added Products"
-          action={{ href: "/admin/products", label: "View all" }}
-          flush
-          className="col-span-12 order-6 lg:order-none"
-        >
-          <RecentProducts products={recentProducts} categories={categories} addedAtById={addedAtById} />
-        </DashboardCard>
-      </div>
+      {adminViewContent}
     </div>
   );
 }

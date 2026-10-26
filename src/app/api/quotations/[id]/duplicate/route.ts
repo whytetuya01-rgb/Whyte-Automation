@@ -1,5 +1,7 @@
+import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
-import { Quotation, QuotationRoom, QuotationItem } from "@/models";
+import { Quotation, QuotationRoom, QuotationItem, ProductVariant } from "@/models";
+import { resolveVariantPricing } from "@/lib/pricing";
 import { getNextQuotationSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { withSession } from "@/lib/api-auth";
@@ -60,7 +62,7 @@ export async function POST(req: Request, context: RouteContext) {
           path: "items",
           populate: [
             { path: "product", select: "name isDeleted" },
-            { path: "productVariant", select: "isDeleted" },
+            { path: "productVariant", select: "isDeleted price priceWithoutTax taxPercent isActive" },
           ],
         },
       ],
@@ -251,6 +253,62 @@ export async function POST(req: Request, context: RouteContext) {
         const itemsToCreate = [];
         for (const item of items) {
           const nextItemId = itemIds[itemIdCursor++];
+
+          // Resolve current default selling price from Product Master / selected variant
+          let defaultPrice = 0;
+          let defaultPriceWithoutTax = 0;
+          let defaultTaxPercent = 18;
+          let defaultTaxAmount = 0;
+
+          const variant = item.productVariant as {
+            price?: unknown;
+            priceWithoutTax?: unknown;
+            taxPercent?: unknown;
+            isActive?: boolean;
+            isDeleted?: boolean;
+          } | null | undefined;
+
+          if (variant && (variant.price !== undefined || variant.priceWithoutTax !== undefined)) {
+            const pricing = resolveVariantPricing({
+              price: variant.price,
+              priceWithoutTax: variant.priceWithoutTax,
+              taxPercent: variant.taxPercent,
+            });
+            defaultPrice = pricing.price;
+            defaultPriceWithoutTax = pricing.priceWithoutTax;
+            defaultTaxPercent = pricing.taxPercent;
+            defaultTaxAmount = pricing.taxAmount;
+          } else if (item.productVariantId) {
+            const liveVariant = await ProductVariant.findById(item.productVariantId).lean();
+            if (liveVariant) {
+              const pricing = resolveVariantPricing({
+                price: liveVariant.price,
+                priceWithoutTax: liveVariant.priceWithoutTax,
+                taxPercent: liveVariant.taxPercent,
+              });
+              defaultPrice = pricing.price;
+              defaultPriceWithoutTax = pricing.priceWithoutTax;
+              defaultTaxPercent = pricing.taxPercent;
+              defaultTaxAmount = pricing.taxAmount;
+            }
+          }
+
+          if (defaultPrice === 0) {
+            const fallbackPrice = item.originalUnitPrice
+              ? Number(String(item.originalUnitPrice))
+              : Number(String(item.unitPrice || 0));
+            if (fallbackPrice > 0) {
+              const pricing = resolveVariantPricing({
+                price: fallbackPrice,
+                taxPercent: item.taxPercent ? Number(String(item.taxPercent)) : 18,
+              });
+              defaultPrice = pricing.price;
+              defaultPriceWithoutTax = pricing.priceWithoutTax;
+              defaultTaxPercent = pricing.taxPercent;
+              defaultTaxAmount = pricing.taxAmount;
+            }
+          }
+
           itemsToCreate.push({
             _id: nextItemId,
             quotationRoomId: nextRoomId,
@@ -260,10 +318,12 @@ export async function POST(req: Request, context: RouteContext) {
             variantConfig: item.variantConfig ?? null,
             sbNumber: item.sbNumber ?? null,
             quantity: item.quantity ?? 1,
-            unitPrice: item.unitPrice,
-            priceWithoutTax: item.priceWithoutTax ?? null,
-            taxPercent: item.taxPercent ?? null,
-            taxAmount: item.taxAmount ?? null,
+            unitPrice: mongoose.Types.Decimal128.fromString(defaultPrice.toFixed(2)),
+            priceWithoutTax: mongoose.Types.Decimal128.fromString(defaultPriceWithoutTax.toFixed(2)),
+            taxPercent: mongoose.Types.Decimal128.fromString(defaultTaxPercent.toFixed(2)),
+            taxAmount: mongoose.Types.Decimal128.fromString(defaultTaxAmount.toFixed(2)),
+            isCustomPrice: false,
+            originalUnitPrice: null,
             notes: item.notes ?? null,
             sortOrder: item.sortOrder ?? 0,
           });

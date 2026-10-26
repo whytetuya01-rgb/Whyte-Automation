@@ -925,3 +925,13 @@ table {
     scale: none !important;
   }
 }
+
+/* Restrained entrance for confirmation pages: a short fade and 12px rise. It is plain CSS, so the content is
+   visible without JavaScript, and it does not run at all for visitors who prefer reduced motion. */
+@keyframes whyte-rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .whyte-rise { animation: whyte-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+}

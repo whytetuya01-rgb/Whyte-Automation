@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSession } from "next-auth/react";
 import { Building2, LogOut, X } from "lucide-react";
+import { SearchableSelect, type SelectOption } from "@/components/ui/SearchableSelect";
 
 interface ActAsState {
   actingAsCompany: boolean;
@@ -42,6 +43,7 @@ export default function ActAsCompanyControl() {
   const [state, setState] = useState<ActAsState | null>(null);
   const [open, setOpen] = useState(false);
   const [companies, setCompanies] = useState<CompanyOption[]>([]);
+  const [loadingCompanies, setLoadingCompanies] = useState(false);
   const [companyId, setCompanyId] = useState<string>("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -57,6 +59,32 @@ export default function ActAsCompanyControl() {
     }
     return { actingAsCompany: false, companyId: null, companyName: null, reason: null, expiresAt: null } satisfies ActAsState;
   }, []);
+
+  const loadCompanies = useCallback(async () => {
+    try {
+      setLoadingCompanies(true);
+      const res = await fetch("/api/platform/companies");
+      const json = await readJson<CompanyOption[]>(res);
+      if (res.ok && json?.data) {
+        const list = json.data;
+        setCompanies(list);
+        if (list.length === 1 && !companyId) {
+          setCompanyId(String(list[0].id));
+        }
+      }
+    } catch {
+      // Handled during openDialog if failed
+    } finally {
+      setLoadingCompanies(false);
+    }
+  }, [companyId]);
+
+  // Preload companies immediately when Super Admin is active so opening the dialog has zero delay
+  useEffect(() => {
+    if (isSuperAdmin) {
+      void loadCompanies();
+    }
+  }, [isSuperAdmin, loadCompanies]);
 
   useEffect(() => {
     if (!isSuperAdmin) return;
@@ -81,15 +109,8 @@ export default function ActAsCompanyControl() {
   const openDialog = async () => {
     setError(null);
     setOpen(true);
-    try {
-      const res = await fetch("/api/platform/companies");
-      const json = await readJson<CompanyOption[]>(res);
-      if (!res.ok) throw new Error(json?.error?.message ?? "Could not load companies.");
-      const list = json?.data ?? [];
-      setCompanies(list);
-      if (list.length === 1) setCompanyId(String(list[0].id));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load companies.");
+    if (companies.length === 0) {
+      void loadCompanies();
     }
   };
 
@@ -119,6 +140,15 @@ export default function ActAsCompanyControl() {
       window.location.reload();
     }
   };
+
+  // Hooks must run on every render, so this stays above the early return below.
+  const companyOptions: SelectOption[] = useMemo(() => {
+    return companies.map((c) => ({
+      value: String(c.id),
+      label: c.name,
+      badge: c.status,
+    }));
+  }, [companies]);
 
   if (status !== "authenticated" || !isSuperAdmin) return null;
 
@@ -179,56 +209,86 @@ export default function ActAsCompanyControl() {
 
       {open && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Act as company">
-          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-xl text-neutral-900" data-testid="act-as-dialog">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl text-neutral-900 border border-neutral-100" data-testid="act-as-dialog">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-base font-bold">Act as company</h2>
-              <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="cursor-pointer text-neutral-500 hover:text-neutral-900">
+              <h2 className="text-base font-bold text-gray-950">Act as company</h2>
+              <button type="button" onClick={() => setOpen(false)} aria-label="Close" className="cursor-pointer text-neutral-400 hover:text-neutral-900 p-1 rounded-lg hover:bg-neutral-100 transition-colors">
                 <X size={18} />
               </button>
             </div>
-            <p className="mb-4 text-xs text-neutral-600">
+            <p className="mb-4 text-xs text-neutral-500 leading-relaxed">
               Company data is only visible while acting as a company. Every session is audit-logged with your reason and expires automatically after 4 hours.
             </p>
-            <label className="mb-1 block text-xs font-semibold" htmlFor="act-as-company">Company</label>
-            <select
-              id="act-as-company"
-              value={companyId}
-              onChange={(e) => setCompanyId(e.target.value)}
-              className="mb-3 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
-              data-testid="act-as-company"
-            >
-              <option value="">Select a company…</option>
-              {companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.status})
-                </option>
-              ))}
-            </select>
-            <label className="mb-1 block text-xs font-semibold" htmlFor="act-as-reason">Reason (required)</label>
-            <textarea
-              id="act-as-reason"
-              value={reason}
-              onChange={(e) => setReason(e.target.value.slice(0, REASON_MAX))}
-              rows={3}
-              className="mb-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
-              placeholder="Why do you need to act as this company?"
-              data-testid="act-as-reason"
-            />
-            <div className="mb-3 text-right text-[11px] text-neutral-500">{reason.length}/{REASON_MAX}</div>
+
+            <div className="mb-4">
+              <label className="mb-1.5 block text-xs font-bold text-neutral-700" htmlFor="act-as-company-searchable">
+                Company
+              </label>
+              <SearchableSelect
+                id="act-as-company-searchable"
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                options={companyOptions}
+                placeholder={loadingCompanies && companies.length === 0 ? "Loading companies..." : "Select a company…"}
+                searchPlaceholder="Search company by name or slug..."
+                emptyText={loadingCompanies ? "Loading companies..." : "No companies found"}
+                disabled={loadingCompanies && companies.length === 0}
+                triggerClassName="w-full rounded-xl border border-neutral-300 bg-white text-sm shadow-2xs hover:border-neutral-400"
+              />
+              {/* Synchronized select for browser automation & accessibility */}
+              <select
+                id="act-as-company"
+                value={companyId}
+                onChange={(e) => setCompanyId(e.target.value)}
+                className="sr-only absolute h-0 w-0 opacity-0 pointer-events-none"
+                data-testid="act-as-company"
+                tabIndex={-1}
+                aria-hidden="true"
+              >
+                <option value="">Select a company…</option>
+                {companies.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="mb-2">
+              <label className="mb-1.5 block text-xs font-bold text-neutral-700" htmlFor="act-as-reason">
+                Reason (required)
+              </label>
+              <textarea
+                id="act-as-reason"
+                value={reason}
+                onChange={(e) => setReason(e.target.value.slice(0, REASON_MAX))}
+                rows={3}
+                className="w-full rounded-xl border border-neutral-300 p-3 text-sm focus:outline-none focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 transition-colors shadow-2xs"
+                placeholder="Why do you need to act as this company?"
+                data-testid="act-as-reason"
+              />
+              <div className="mt-1 text-right text-[11px] text-neutral-400">{reason.length}/{REASON_MAX}</div>
+            </div>
+
             {error && (
-              <p className="mb-3 rounded-md bg-red-50 px-3 py-2 text-xs text-red-700" role="alert" data-testid="act-as-error">
+              <p className="mb-3 rounded-xl bg-red-50 border border-red-200 px-3.5 py-2.5 text-xs text-red-700 font-medium" role="alert" data-testid="act-as-error">
                 {error}
               </p>
             )}
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2 text-sm font-semibold text-neutral-600 hover:bg-neutral-100 cursor-pointer">
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-neutral-100">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-xl px-4 py-2 text-sm font-semibold text-neutral-600 hover:bg-neutral-100 transition cursor-pointer"
+              >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={start}
                 disabled={!canStart}
-                className="rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 cursor-pointer"
+                className="rounded-xl bg-neutral-950 hover:bg-black px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 transition cursor-pointer shadow-xs"
                 data-testid="act-as-start"
               >
                 {busy ? "Starting…" : "Start session"}

@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
+import bcrypt from "bcryptjs";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Quotation } from "@/models";
 import { withPermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { invalidateSessionActor } from "@/lib/sessionGuard";
+import { runUnscoped } from "@/lib/tenant/context";
 import { z } from "zod";
-import { mobileSchema, optionalEmailSchema, optionalGstinSchema } from "@/lib/validation/fields";
+import { emailSchema, mobileSchema, optionalEmailSchema, optionalGstinSchema } from "@/lib/validation/fields";
 
 export const dynamic = "force-dynamic";
 
@@ -16,14 +18,20 @@ const patchDealerSchema = z.object({
   isActive: z.boolean().optional(),
   firstName: z.string().trim().max(60).optional(),
   lastName: z.string().trim().max(60).optional(),
+  email: emailSchema.optional(),
+  password: z.union([z.string().min(8, "Password must be at least 8 characters."), z.literal(""), z.null()]).optional(),
+  companyId: z.number().int().positive().optional(),
   contactNumber: mobileSchema.optional(),
   gstNumber: optionalGstinSchema,
   companyName: z
-    .union([z.string().trim().max(120), z.null()])
+    .union([z.string().trim().max(120), z.null(), z.literal("")])
     .optional()
     .transform((value) => (value === "" ? null : value)),
   businessEmail: optionalEmailSchema,
-  address: z.string().trim().max(500).optional(),
+  address: z
+    .union([z.string().trim().max(500), z.null(), z.literal("")])
+    .optional()
+    .transform((value) => (value === "" ? null : value)),
 }).strict();
 
 export async function GET(_req: Request, context: RouteContext) {
@@ -126,6 +134,33 @@ export async function PATCH(req: Request, context: RouteContext) {
         throw new ApiError("FORBIDDEN", "Only Super Admin can activate or deactivate dealer accounts.");
       }
       dealer.isActive = body.isActive;
+    }
+
+    // Email change with global uniqueness check
+    if (body.email !== undefined && body.email.trim().toLowerCase() !== dealer.email.toLowerCase()) {
+      const normalizedEmail = body.email.trim().toLowerCase();
+      const existing = await runUnscoped("auth-lookup", () =>
+        AdminUser.findOne({ email: normalizedEmail, _id: { $ne: dealerId } }).select("_id").lean()
+      );
+      if (existing) {
+        throw new ApiError("DUPLICATE_RECORD", "An account with this email already exists.", {
+          field: "email",
+        });
+      }
+      dealer.email = normalizedEmail;
+    }
+
+    // Password reset if provided
+    if (body.password && body.password.trim().length >= 8) {
+      dealer.passwordHash = await bcrypt.hash(body.password, 12);
+    }
+
+    // Company assignment update (Super Admin only)
+    if (body.companyId !== undefined) {
+      if (role !== "super_admin") {
+        throw new ApiError("FORBIDDEN", "Only Super Admin can reassign a dealer's company.");
+      }
+      dealer.companyId = body.companyId;
     }
 
     if (body.firstName !== undefined) dealer.firstName = body.firstName;

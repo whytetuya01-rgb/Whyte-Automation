@@ -65,7 +65,10 @@ export const authOptions = {
         const resolvedCompanyId = account.companyId;
         if (resolvedCompanyId !== null) {
           const company = await Company.findById(resolvedCompanyId).select("status registrationStatus").lean();
-          if (!company || company.status === "suspended") return null;
+          if (!company) return null;
+          // A deactivated company blocks every one of its users (owner, admins, dealers). The reason is shown
+          // only after the password matched, like the review states below.
+          if (company.status === "suspended") throw new Error("COMPANY_DEACTIVATED");
           // Self-registered companies cannot sign in until a Super Admin approves them. Reported only now, after
           // the password matched, so the review state is never revealed to someone who merely knows an email.
           const blocked = reviewBlockFor(company.registrationStatus);

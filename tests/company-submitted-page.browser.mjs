@@ -68,11 +68,11 @@ try {
 
   const nav = await open(sizes.desktop);
   await nav.page.getByRole("link", { name: "Back to Login" }).click();
-  await nav.page.waitForURL("**/admin/login");
+  await nav.page.waitForURL("**/login");
   await nav.context.close();
   const site = await open(sizes.desktop);
   assert.equal(await site.page.getByRole("link", { name: /Visit Our Website/ }).getAttribute("href"), "https://whyte.co.in/");
-  pass("'Back to Login' goes to /admin/login; 'Visit Our Website' points at the website");
+  pass("'Back to Login' goes to /login; 'Visit Our Website' points at the website");
 
   const colours = await site.page.evaluate(() => {
     const parse = (c) => c.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);

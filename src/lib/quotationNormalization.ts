@@ -233,6 +233,16 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
       }
     : null;
 
+  const isCustomPrice = Boolean(item.isCustomPrice);
+  const rawOriginalUnitPrice = item.originalUnitPrice !== undefined && item.originalUnitPrice !== null
+    ? (typeof item.originalUnitPrice === "object" && "$numberDecimal" in item.originalUnitPrice
+        ? Number(item.originalUnitPrice.$numberDecimal)
+        : Number(item.originalUnitPrice))
+    : null;
+  const originalUnitPrice = rawOriginalUnitPrice != null && !isNaN(rawOriginalUnitPrice)
+    ? rawOriginalUnitPrice.toFixed(2)
+    : null;
+
   return {
     ...item,
     id,
@@ -244,6 +254,8 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
     productVariant,
     quantity,
     unitPrice,
+    isCustomPrice,
+    originalUnitPrice,
     priceWithoutTax: isNaN(rawPriceWithoutTax) ? undefined : rawPriceWithoutTax.toFixed(2),
     taxPercent: isNaN(taxPercent) ? undefined : taxPercent.toFixed(2),
     taxAmount: isNaN(rawTaxAmount) ? undefined : rawTaxAmount.toFixed(2),

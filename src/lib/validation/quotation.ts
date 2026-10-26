@@ -212,6 +212,8 @@ export const updateQuotationItemSchema = strictObject({
       }
       return Math.round(parsed * 100) / 100;
     }),
+  resetToDefaultPrice: booleanField.optional(),
+  isCustomPrice: booleanField.optional(),
   sortOrder: intField(),
   quotationRoomId: numericIdSchema.optional(),
 });

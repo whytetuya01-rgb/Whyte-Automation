@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
-import { AlertCircle, Building, CheckCircle2, Clock, Eye, Mail, MapPin, Phone, RefreshCw, User, XCircle } from "lucide-react";
+import { AlertCircle, Building, CheckCircle2, Clock, Eye, Mail, MapPin, Phone, Power, PowerOff, RefreshCw, User, XCircle } from "lucide-react";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import notify from "@/lib/notify";
 import PageHeader from "@/components/admin/PageHeader";
@@ -34,12 +34,19 @@ function formatDate(value: string | null): string {
   return new Date(value).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function StatusPill({ status }: { status: RegistrationListItem["registrationStatus"] }) {
+function StatusPill({ status, deactivated = false }: { status: RegistrationListItem["registrationStatus"]; deactivated?: boolean }) {
   const style = STATUS_STYLE[status];
   return (
-    <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold", style.className)} data-testid="registration-status">
-      {style.label}
-    </span>
+    <>
+      <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold", style.className)} data-testid="registration-status">
+        {style.label}
+      </span>
+      {deactivated && (
+        <span className="inline-flex items-center gap-1 rounded-full border border-neutral-300 bg-neutral-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-700" data-testid="deactivated-pill">
+          <PowerOff size={11} /> Deactivated
+        </span>
+      )}
+    </>
   );
 }
 
@@ -75,7 +82,7 @@ export default function CompaniesPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [details, setDetails] = useState<RegistrationListItem | null>(null);
-  const [confirm, setConfirm] = useState<{ kind: "approve" | "reject"; item: RegistrationListItem } | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: "approve" | "reject" | "deactivate" | "reactivate"; item: RegistrationListItem } | null>(null);
   const [rejectNote, setRejectNote] = useState("");
   const [notifyOwner, setNotifyOwner] = useState(false);
 
@@ -95,7 +102,7 @@ export default function CompaniesPage() {
     void load(tab);
   }, [tab, load]);
 
-  const openConfirm = (kind: "approve" | "reject", item: RegistrationListItem) => {
+  const openConfirm = (kind: "approve" | "reject" | "deactivate" | "reactivate", item: RegistrationListItem) => {
     setRejectNote("");
     setNotifyOwner(false);
     setConfirm({ kind, item });
@@ -113,15 +120,18 @@ export default function CompaniesPage() {
         } else {
           notify.success(result.changed ? "Company approved" : "Already approved", result.changed ? `${item.name} can now sign in.` : undefined);
         }
-      } else {
+      } else if (kind === "reject") {
         await apiJson.post(`/api/platform/company-registrations/${item.id}/reject`, { note: rejectNote.trim() || undefined, notifyOwner });
         notify.success("Request rejected", `${item.name} cannot sign in.`);
+      } else {
+        await apiJson.post(`/api/platform/company-registrations/${item.id}/${kind}`);
+        notify.success(kind === "deactivate" ? "Company deactivated" : "Company reactivated", kind === "deactivate" ? `No one from ${item.name} can sign in now.` : `${item.name} can sign in again.`);
       }
       setConfirm(null);
       setDetails(null);
       await load(tab);
     } catch (error) {
-      notify.error(kind === "approve" ? "Could not approve" : "Could not reject", toErrorMessage(error));
+      notify.error(`Could not ${kind}`, toErrorMessage(error));
       await load(tab);
       setConfirm(null);
     } finally {
@@ -148,7 +158,7 @@ export default function CompaniesPage() {
   const items = listing?.items ?? [];
 
   return (
-    <div className="max-w-5xl">
+    <div className="w-full">
       <PageHeader
         title="Companies"
         icon={Building}
@@ -206,7 +216,7 @@ export default function CompaniesPage() {
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-base font-bold text-gray-950">{item.name}</h3>
-                    <StatusPill status={item.registrationStatus} />
+                    <StatusPill status={item.registrationStatus} deactivated={item.companyStatus === "suspended"} />
                     {item.origin === "platform" && <span className="text-xs text-gray-400">Existing company</span>}
                   </div>
                   <div className="grid gap-x-6 gap-y-1 text-sm text-gray-600 sm:grid-cols-2">
@@ -222,6 +232,17 @@ export default function CompaniesPage() {
                   <Button type="button" variant="outline" size="sm" onClick={() => setDetails(item)}>
                     <Eye size={14} /> View details
                   </Button>
+                  {item.registrationStatus === "approved" && (
+                    item.companyStatus === "suspended" ? (
+                      <Button type="button" size="sm" disabled={busyId !== null} onClick={() => openConfirm("reactivate", item)} data-testid="reactivate-button">
+                        <Power size={14} /> Reactivate
+                      </Button>
+                    ) : (
+                      <Button type="button" variant="outline" size="sm" disabled={busyId !== null} onClick={() => openConfirm("deactivate", item)} data-testid="deactivate-button">
+                        <PowerOff size={14} /> Deactivate
+                      </Button>
+                    )
+                  )}
                   {item.registrationStatus === "pending_review" && (
                     <>
                       <Button type="button" size="sm" disabled={busyId !== null} onClick={() => openConfirm("approve", item)} data-testid="approve-button">
@@ -245,7 +266,7 @@ export default function CompaniesPage() {
             <div className="flex items-center gap-4">
               <CompanyLogo item={details} size={72} />
               <div>
-                <StatusPill status={details.registrationStatus} />
+                <StatusPill status={details.registrationStatus} deactivated={details.companyStatus === "suspended"} />
                 <p className="mt-1 text-xs text-gray-500">Submitted {formatDate(details.submittedAt)}</p>
               </div>
             </div>
@@ -281,6 +302,19 @@ export default function CompaniesPage() {
                 )}
               </div>
             )}
+            {details.registrationStatus === "approved" && (
+              <div className="flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-4">
+                {details.companyStatus === "suspended" ? (
+                  <Button type="button" disabled={busyId !== null} onClick={() => openConfirm("reactivate", details)}>
+                    <Power size={14} /> Reactivate company
+                  </Button>
+                ) : (
+                  <Button type="button" variant="outline" disabled={busyId !== null} onClick={() => openConfirm("deactivate", details)}>
+                    <PowerOff size={14} /> Deactivate company
+                  </Button>
+                )}
+              </div>
+            )}
             {details.registrationStatus === "pending_review" && (
               <div className="flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-4">
                 <Button type="button" variant="outline" disabled={busyId !== null} onClick={() => openConfirm("reject", details)}>
@@ -298,7 +332,9 @@ export default function CompaniesPage() {
       <Modal
         isOpen={confirm !== null}
         onClose={() => (busyId === null ? setConfirm(null) : undefined)}
-        title={confirm?.kind === "approve" ? "Approve this company?" : "Reject this request?"}
+        title={
+          confirm?.kind === "approve" ? "Approve this company?" : confirm?.kind === "reject" ? "Reject this request?" : confirm?.kind === "deactivate" ? "Deactivate this company?" : "Reactivate this company?"
+        }
         size="md"
       >
         {confirm && (
@@ -306,7 +342,11 @@ export default function CompaniesPage() {
             <p className="text-gray-600">
               {confirm.kind === "approve"
                 ? `${confirm.item.name} will be able to sign in, and its owner will receive an approval email.`
-                : `${confirm.item.name} will not be able to sign in.`}
+                : confirm.kind === "reject"
+                  ? `${confirm.item.name} will not be able to sign in.`
+                  : confirm.kind === "deactivate"
+                    ? `No one from ${confirm.item.name} will be able to sign in: not the owner, not its admins, not its dealers. People who are signed in are logged out on their next request. Nothing is deleted, and you can reactivate it at any time.`
+                    : `Everyone from ${confirm.item.name} will be able to sign in again.`}
             </p>
             {confirm.kind === "reject" && (
               <>
@@ -331,7 +371,7 @@ export default function CompaniesPage() {
                 Cancel
               </Button>
               <Button type="button" loading={busyId !== null} onClick={() => void decide()} data-testid="confirm-button">
-                {confirm.kind === "approve" ? "Yes, approve" : "Yes, reject"}
+                {confirm.kind === "approve" ? "Yes, approve" : confirm.kind === "reject" ? "Yes, reject" : confirm.kind === "deactivate" ? "Yes, deactivate" : "Yes, reactivate"}
               </Button>
             </div>
           </div>

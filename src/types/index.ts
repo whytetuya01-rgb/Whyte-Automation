@@ -162,6 +162,8 @@ export interface QuotationItem {
   sbNumber: string | null;
   quantity: number;
   unitPrice: string;
+  isCustomPrice?: boolean;
+  originalUnitPrice?: string | null;
   priceWithoutTax?: string;
   taxPercent?: string;
   taxAmount?: string;

@@ -267,6 +267,65 @@ export async function rejectCompany(
   return { registration: await getRegistration(companyId), changed: true };
 }
 
+/**
+ * Deactivates a company: every user of it (owner, admins, dealers) is refused at sign-in and any open session stops
+ * working on its next request. The previous status is remembered so reactivating restores exactly it (a `pending`
+ * company such as Whyte is never silently promoted to `active`). Idempotent. Companies still waiting for review, or
+ * rejected, are handled by approve / reject instead.
+ */
+export async function deactivateCompany(companyId: number, actor: ReviewActor): Promise<DecisionResult> {
+  await connectMongoDB();
+  const now = new Date();
+  const updated = await Company.findOneAndUpdate(
+    { _id: companyId, status: { $ne: "suspended" }, registrationStatus: { $nin: ["pending_review", "rejected"] } },
+    [
+      {
+        $set: {
+          suspendedFromStatus: "$status",
+          status: "suspended",
+          statusChangedAt: now,
+          statusChangedBy: actor.id,
+          statusChangedByName: actor.name,
+          updatedAt: now,
+        },
+      },
+    ],
+    { new: true, updatePipeline: true }
+  ).lean<LeanCompany | null>();
+
+  if (updated) return { registration: await getRegistration(companyId), changed: true };
+  const existing = await Company.findById(companyId).lean<LeanCompany | null>();
+  if (!existing) throw new ApiError("NOT_FOUND", "Company not found.");
+  if (existing.status === "suspended") return { registration: await getRegistration(companyId), changed: false };
+  throw new ApiError("CONFLICT", "This request has not been approved, so it is reviewed with Approve or Reject instead.");
+}
+
+export async function reactivateCompany(companyId: number, actor: ReviewActor): Promise<DecisionResult> {
+  await connectMongoDB();
+  const now = new Date();
+  const updated = await Company.findOneAndUpdate(
+    { _id: companyId, status: "suspended" },
+    [
+      {
+        $set: {
+          status: { $ifNull: ["$suspendedFromStatus", "active"] },
+          statusChangedAt: now,
+          statusChangedBy: actor.id,
+          statusChangedByName: actor.name,
+          updatedAt: now,
+        },
+      },
+      { $unset: "suspendedFromStatus" },
+    ],
+    { new: true, updatePipeline: true }
+  ).lean<LeanCompany | null>();
+
+  if (updated) return { registration: await getRegistration(companyId), changed: true };
+  const existing = await Company.findById(companyId).lean<LeanCompany | null>();
+  if (!existing) throw new ApiError("NOT_FOUND", "Company not found.");
+  return { registration: await getRegistration(companyId), changed: false };
+}
+
 /** How long an email stuck in `pending` is left alone before another attempt may claim it. */
 const STALE_PENDING_MS = 2 * 60 * 1000;
 

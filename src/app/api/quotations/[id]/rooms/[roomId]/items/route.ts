@@ -175,6 +175,8 @@ export async function PATCH(req: Request, context: RouteContext) {
           itemData.priceWithoutTax = mongoose.Types.Decimal128.fromString(variantPricing.priceWithoutTax.toFixed(2));
           itemData.taxAmount = mongoose.Types.Decimal128.fromString(variantPricing.taxAmount.toFixed(2));
           itemData.taxPercent = mongoose.Types.Decimal128.fromString(variantPricing.taxPercent.toFixed(2));
+          itemData.isCustomPrice = false;
+          itemData.originalUnitPrice = null;
 
           const tierLbl = formatTierLabel(matchedVariant.automationTier);
           const finishLbl = formatFinishLabel(matchedVariant.surfaceFinish);

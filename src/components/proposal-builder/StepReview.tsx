@@ -18,6 +18,9 @@ import {
   ChevronLeft,
   ChevronRight,
   SlidersHorizontal,
+  Edit3,
+  RotateCcw,
+  Check,
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, EditorCatalogProduct, Category } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
@@ -110,6 +113,97 @@ export default function StepReview({
   // Room-wise Mass Edit state
   const [massEditRoom, setMassEditRoom] = useState<QuotationRoom | null>(null);
 
+  // Custom unit price editing state
+  const [editingItemId, setEditingItemId] = useState<number | null>(null);
+  const [editPriceInput, setEditPriceInput] = useState<string>("");
+  const [editPriceError, setEditPriceError] = useState<string | null>(null);
+  const [isSavingPrice, setIsSavingPrice] = useState<number | null>(null);
+
+  const getCatalogDefaultPrice = useCallback(
+    (item: QuotationItem): number | null => {
+      if (item.originalUnitPrice) {
+        const parsed = Number(item.originalUnitPrice);
+        if (!Number.isNaN(parsed) && parsed >= 0) return parsed;
+      }
+      if (item.productVariantId && products && products.length > 0) {
+        const prod = products.find((p) => Number(p.id ?? (p as any)._id) === Number(item.productId));
+        if (prod && Array.isArray(prod.variants)) {
+          const v = prod.variants.find((v) => Number(v.id ?? (v as any)._id) === Number(item.productVariantId));
+          if (v && v.price !== undefined && v.price !== null) {
+            const vp = Number(v.price);
+            if (!Number.isNaN(vp)) return vp;
+          }
+        }
+      }
+      return null;
+    },
+    [products]
+  );
+
+  const handleStartEditPrice = (item: QuotationItem) => {
+    const itemId = Number(item.id ?? (item as any)._id);
+    setEditingItemId(itemId);
+    setEditPriceInput(Number(item.unitPrice || 0).toString());
+    setEditPriceError(null);
+  };
+
+  const handleCancelEditPrice = () => {
+    setEditingItemId(null);
+    setEditPriceInput("");
+    setEditPriceError(null);
+  };
+
+  const handleSaveCustomPrice = async (item: QuotationItem) => {
+    const itemId = Number(item.id ?? (item as any)._id);
+    const trimmed = editPriceInput.trim();
+    if (trimmed === "") {
+      setEditPriceError("Price is required.");
+      return;
+    }
+    const parsed = Number(trimmed);
+    if (Number.isNaN(parsed) || !Number.isFinite(parsed)) {
+      setEditPriceError("Please enter a valid number.");
+      return;
+    }
+    if (parsed < 0) {
+      setEditPriceError("Price cannot be negative.");
+      return;
+    }
+    const parts = trimmed.split(".");
+    if (parts.length > 1 && parts[1].length > 2) {
+      setEditPriceError("Maximum 2 decimal places allowed.");
+      return;
+    }
+
+    const rounded = Math.round(parsed * 100) / 100;
+
+    setIsSavingPrice(itemId);
+    setEditPriceError(null);
+    try {
+      const success = await onUpdateItem(itemId, { unitPrice: rounded });
+      if (success !== false) {
+        setEditingItemId(null);
+        setEditPriceInput("");
+      }
+    } finally {
+      setIsSavingPrice(null);
+    }
+  };
+
+  const handleResetToDefault = async (itemId: number) => {
+    setIsSavingPrice(itemId);
+    try {
+      const success = await onUpdateItem(itemId, { resetToDefaultPrice: true });
+      if (success !== false && editingItemId === itemId) {
+        setEditingItemId(null);
+        setEditPriceInput("");
+        setEditPriceError(null);
+      }
+    } finally {
+      setIsSavingPrice(null);
+    }
+  };
+
 
   const rooms = quotation.rooms || [];
   const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
@@ -201,11 +295,11 @@ export default function StepReview({
   const discountLimitMessage =
     discountType === "percentage"
       ? customerDiscountError({
-          hasDealer,
-          allocatedPercent,
-          customerPercent: discountVal,
-          actorIsDealer,
-        })
+        hasDealer,
+        allocatedPercent,
+        customerPercent: discountVal,
+        actorIsDealer,
+      })
       : null;
   const discountExceedsAllocation = discountLimitMessage !== null;
 
@@ -443,8 +537,8 @@ export default function StepReview({
                                 onRename={
                                   onUpdateRoom
                                     ? async (roomId, customName) => {
-                                        await onUpdateRoom(roomId, { customName });
-                                      }
+                                      await onUpdateRoom(roomId, { customName });
+                                    }
                                     : undefined
                                 }
                                 disabled={isLocked}
@@ -608,10 +702,142 @@ export default function StepReview({
                                         )}
                                       </div>
 
-                                      {/* Unit Price */}
-                                      <p className="text-xs font-medium text-gray-500 font-mono">
-                                        {qty > 1 ? `Qty: ${qty} · ` : ""}{formatCurrency(unitPrice)} each
-                                      </p>
+                                      {/* Unit Price & Custom Price Controls */}
+                                      {editingItemId === itemId ? (
+                                        <div className="mt-2 p-2.5 rounded-xl bg-amber-50/80 border border-amber-200 space-y-2 max-w-sm">
+                                          <div className="flex items-center justify-between">
+                                            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-900">
+                                              Custom Unit Price
+                                            </span>
+                                            <span className="text-[10px] text-amber-700 font-medium">
+                                              This quotation only
+                                            </span>
+                                          </div>
+
+                                          {(() => {
+                                            const catalogPrice = getCatalogDefaultPrice(item);
+                                            return catalogPrice != null ? (
+                                              <div className="text-[11px] text-gray-500 font-mono">
+                                                Catalog price: <span className="font-semibold text-gray-800">{formatCurrency(catalogPrice)}</span>
+                                              </div>
+                                            ) : null;
+                                          })()}
+
+                                          <div className="flex items-center gap-1.5">
+                                            <div className="relative flex-1">
+                                              <span className="absolute inset-y-0 left-0 pl-2.5 flex items-center text-xs font-semibold text-gray-500 font-mono">
+                                                ₹
+                                              </span>
+                                              <input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                value={editPriceInput}
+                                                onChange={(e) => {
+                                                  setEditPriceInput(e.target.value);
+                                                  if (editPriceError) setEditPriceError(null);
+                                                }}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === "Enter") {
+                                                    e.preventDefault();
+                                                    handleSaveCustomPrice(item);
+                                                  } else if (e.key === "Escape") {
+                                                    handleCancelEditPrice();
+                                                  }
+                                                }}
+                                                autoFocus
+                                                disabled={isSavingPrice === itemId}
+                                                className="w-full pl-6 pr-2 py-1 text-xs font-mono font-bold bg-white text-gray-950 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                                                placeholder="0.00"
+                                              />
+                                            </div>
+
+                                            <button
+                                              type="button"
+                                              disabled={isSavingPrice === itemId}
+                                              onClick={() => handleSaveCustomPrice(item)}
+                                              className="px-2.5 py-1 bg-gray-950 text-white rounded-lg text-xs font-semibold hover:bg-black transition disabled:opacity-50 active:scale-95 shadow-2xs"
+                                            >
+                                              {isSavingPrice === itemId ? "Saving..." : "Save"}
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              disabled={isSavingPrice === itemId}
+                                              onClick={handleCancelEditPrice}
+                                              className="px-2 py-1 bg-white border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 transition active:scale-95"
+                                            >
+                                              Cancel
+                                            </button>
+                                          </div>
+
+                                          {editPriceError && (
+                                            <p className="text-[11px] font-semibold text-red-600">
+                                              {editPriceError}
+                                            </p>
+                                          )}
+
+                                          {item.isCustomPrice && (
+                                            <div className="pt-1 border-t border-amber-200/50 flex justify-end">
+                                              <button
+                                                type="button"
+                                                disabled={isSavingPrice === itemId}
+                                                onClick={() => handleResetToDefault(itemId)}
+                                                className="text-[11px] font-semibold text-amber-800 hover:text-amber-950 underline flex items-center gap-1"
+                                              >
+                                                <RotateCcw size={10} />
+                                                <span>Reset to catalog price</span>
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 pt-0.5">
+                                          <p className="text-xs font-medium text-gray-500 font-mono">
+                                            {qty > 1 ? `Qty: ${qty} · ` : ""}{formatCurrency(unitPrice)} each
+                                          </p>
+
+                                          {item.isCustomPrice && (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase bg-amber-50 text-amber-800 border border-amber-200/80 shadow-2xs">
+                                              Custom Price
+                                            </span>
+                                          )}
+
+                                          {item.isCustomPrice && (() => {
+                                            const catPrice = getCatalogDefaultPrice(item);
+                                            return catPrice != null ? (
+                                              <span className="text-[11px] text-gray-400 font-mono line-through" title="Catalog price reference">
+                                                Catalog: {formatCurrency(catPrice)}
+                                              </span>
+                                            ) : null;
+                                          })()}
+
+                                          {!isLocked && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleStartEditPrice(item)}
+                                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-accent hover:text-accent-foreground underline hover:no-underline transition"
+                                              title="Set custom unit price for this quotation"
+                                            >
+                                              <Edit3 size={11} />
+                                              <span>{item.isCustomPrice ? "Change Price" : "Edit Price"}</span>
+                                            </button>
+                                          )}
+
+                                          {!isLocked && item.isCustomPrice && (
+                                            <button
+                                              type="button"
+                                              disabled={isSavingPrice === itemId}
+                                              onClick={() => handleResetToDefault(itemId)}
+                                              className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-gray-900 transition underline"
+                                              title="Reset to default catalog price"
+                                            >
+                                              <RotateCcw size={10} />
+                                              <span>Reset to Default</span>
+                                            </button>
+                                          )}
+                                        </div>
+                                      )}
                                     </div>
                                   </div>
 

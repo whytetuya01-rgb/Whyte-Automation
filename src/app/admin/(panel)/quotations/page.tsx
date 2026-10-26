@@ -479,8 +479,12 @@ function QuotationsPageContent() {
                   </tr>
                 ) : (
                   quotations.map((q) => (
-                    <tr key={q.id} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="px-4 py-3 font-mono font-semibold text-gray-900 text-sm">
+                    <tr
+                      key={q.id}
+                      className="group hover:bg-gray-50/80 transition-colors duration-150 cursor-pointer"
+                      onClick={() => router.push(`/quotation/${q.id}`)}
+                    >
+                      <td className="px-4 py-3 font-mono font-semibold text-gray-950 text-sm group-hover:text-admin-primary transition-colors">
                         {q.quotationNumber}
                       </td>
                       <td className="px-4 py-3">
@@ -501,7 +505,7 @@ function QuotationsPageContent() {
                           {q.rooms?.length ?? 0} room{(q.rooms?.length ?? 0) !== 1 ? "s" : ""}
                         </span>
                       </td>
-                      <td className="px-4 py-3.5">
+                      <td className="px-4 py-3.5" onClick={(e) => e.stopPropagation()}>
                         <CustomDropdown
                           value={q.status}
                           onChange={(val) => handleStatusChange(q, val as QuotationStatus)}
@@ -509,7 +513,7 @@ function QuotationsPageContent() {
                           ariaLabel="Change quotation status"
                         />
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end gap-1">
                           <Link
                             href={`/quotation/${q.id}`}
@@ -542,7 +546,11 @@ function QuotationsPageContent() {
               </div>
             ) : (
               quotations.map((q) => (
-                <div key={q.id} className="p-4 space-y-3">
+                <div
+                  key={q.id}
+                  className="p-4 space-y-3 hover:bg-gray-50/80 transition-colors cursor-pointer"
+                  onClick={() => router.push(`/quotation/${q.id}`)}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
                       <p className="font-mono font-semibold text-gray-900 text-sm">{q.quotationNumber}</p>
@@ -556,7 +564,10 @@ function QuotationsPageContent() {
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-gray-50">
+                  <div
+                    className="flex items-center justify-between gap-2 pt-2 border-t border-gray-50"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <div className="flex items-center gap-2">
                       <CustomDropdown
                         value={q.status}

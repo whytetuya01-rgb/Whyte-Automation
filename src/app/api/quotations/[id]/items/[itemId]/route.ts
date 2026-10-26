@@ -1,6 +1,6 @@
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
-import { Quotation, QuotationItem, QuotationRoom, Product } from "@/models";
+import { Quotation, QuotationItem, QuotationRoom, Product, ProductVariant } from "@/models";
 import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationItemSchema } from "@/lib/validation/quotation";
@@ -36,9 +36,9 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const parsed = updateQuotationItemSchema.parse(await readJsonBody(req));
-    const { unitPrice, ...rest } = parsed;
+    const { unitPrice, resetToDefaultPrice, isCustomPrice, ...rest } = parsed;
 
-    if (Object.keys(rest).length === 0 && unitPrice === undefined) {
+    if (Object.keys(rest).length === 0 && unitPrice === undefined && !resetToDefaultPrice) {
       throw new ApiError("VALIDATION_ERROR", "No editable fields were supplied.");
     }
 
@@ -54,13 +54,67 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     const data: Record<string, unknown> = { ...rest };
 
-    if (unitPrice !== undefined) {
+    const getCatalogDefaultPricing = async () => {
+      const variantId = (existingItem as any).productVariantId;
+      if (variantId) {
+        const v = await ProductVariant.findById(variantId).lean();
+        if (v) {
+          return resolveVariantPricing({
+            price: v.price,
+            priceWithoutTax: v.priceWithoutTax,
+            taxPercent: v.taxPercent,
+          });
+        }
+      }
+      return null;
+    };
+
+    if (resetToDefaultPrice) {
+      const defaultPricing = await getCatalogDefaultPricing();
+      if (defaultPricing) {
+        data.unitPrice = mongoose.Types.Decimal128.fromString(defaultPricing.price.toFixed(2));
+        data.priceWithoutTax = mongoose.Types.Decimal128.fromString(defaultPricing.priceWithoutTax.toFixed(2));
+        data.taxAmount = mongoose.Types.Decimal128.fromString(defaultPricing.taxAmount.toFixed(2));
+        data.taxPercent = mongoose.Types.Decimal128.fromString(defaultPricing.taxPercent.toFixed(2));
+        data.isCustomPrice = false;
+        data.originalUnitPrice = null;
+      } else {
+        const originalPriceNum = (existingItem as any).originalUnitPrice
+          ? Number(String((existingItem as any).originalUnitPrice))
+          : null;
+        if (originalPriceNum !== null) {
+          const existingTax = (existingItem as any)?.taxPercent;
+          const taxPercent = existingTax ? Number(String(existingTax)) : 18;
+          const { priceWithoutTax, taxAmount } = calculateFromTaxInclusivePrice(originalPriceNum, taxPercent);
+          data.unitPrice = mongoose.Types.Decimal128.fromString(originalPriceNum.toFixed(2));
+          data.priceWithoutTax = mongoose.Types.Decimal128.fromString(priceWithoutTax.toFixed(2));
+          data.taxAmount = mongoose.Types.Decimal128.fromString(taxAmount.toFixed(2));
+          data.isCustomPrice = false;
+          data.originalUnitPrice = null;
+        }
+      }
+    } else if (unitPrice !== undefined) {
+      const defaultPricing = await getCatalogDefaultPricing();
       const existingTax = (existingItem as any)?.taxPercent;
-      const taxPercent = existingTax ? Number(String(existingTax)) : 18;
+      const taxPercent = defaultPricing?.taxPercent ?? (existingTax ? Number(String(existingTax)) : 18);
       const { priceWithoutTax, taxAmount } = calculateFromTaxInclusivePrice(unitPrice, taxPercent);
       data.unitPrice = mongoose.Types.Decimal128.fromString(unitPrice.toFixed(2));
       data.priceWithoutTax = mongoose.Types.Decimal128.fromString(priceWithoutTax.toFixed(2));
       data.taxAmount = mongoose.Types.Decimal128.fromString(taxAmount.toFixed(2));
+
+      const catalogPrice =
+        defaultPricing?.price ??
+        ((existingItem as any).originalUnitPrice
+          ? Number(String((existingItem as any).originalUnitPrice))
+          : Number(String((existingItem as any).unitPrice || 0)));
+
+      if (Math.abs(unitPrice - catalogPrice) > 0.001) {
+        data.isCustomPrice = true;
+        data.originalUnitPrice = mongoose.Types.Decimal128.fromString(catalogPrice.toFixed(2));
+      } else {
+        data.isCustomPrice = false;
+        data.originalUnitPrice = null;
+      }
     }
 
     // Moving an item to another room is only allowed inside the same quotation.
@@ -140,6 +194,8 @@ export async function PATCH(req: Request, context: RouteContext) {
         data.priceWithoutTax = mongoose.Types.Decimal128.fromString(variantPricing.priceWithoutTax.toFixed(2));
         data.taxAmount = mongoose.Types.Decimal128.fromString(variantPricing.taxAmount.toFixed(2));
         data.taxPercent = mongoose.Types.Decimal128.fromString(variantPricing.taxPercent.toFixed(2));
+        data.isCustomPrice = false;
+        data.originalUnitPrice = null;
 
         const tierLbl = formatTierLabel(match.automationTier);
         const finishLbl = formatFinishLabel(match.surfaceFinish);

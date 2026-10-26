@@ -235,6 +235,24 @@ export async function registerCompany(input: CompanyRegistrationInput, logo: Log
       throw error;
     }
 
+    // Fail closed. If the running process uses an outdated Company schema, Mongoose drops `registrationStatus` on
+    // save and the company would be treated as an already-approved legacy company. Read the stored row back, and
+    // if the review state is missing undo the registration instead of leaving an unreviewed company with access.
+    const stored = await Company.collection.findOne({ _id: companyId as unknown as never }, { projection: { registrationStatus: 1 } });
+    if ((stored as { registrationStatus?: string } | null)?.registrationStatus !== "pending_review") {
+      console.error("[company-registration] The review status was not stored; rolling the registration back. Restart the server so it loads the current Company model.");
+      if (logoPublicId) {
+        try {
+          await deleteImage(logoPublicId);
+        } catch {
+          /* best effort; the caller still gets the error below */
+        }
+      }
+      await AdminUser.collection.deleteOne({ _id: ownerId as unknown as never });
+      await Company.collection.deleteOne({ _id: companyId as unknown as never });
+      throw new ApiError("INTERNAL_SERVER_ERROR", "Registration could not be completed safely. Please try again in a moment.");
+    }
+
     return { companyId, slug, name: input.companyName, status: "pending_review", ownerId, ownerEmail: input.ownerEmail, logoUrl };
   });
 }

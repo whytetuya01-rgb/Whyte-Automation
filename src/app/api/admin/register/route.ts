@@ -37,15 +37,11 @@ const registrationSchema = z.object({
 
 export async function POST(request: Request) {
   try {
-    const rateLimitKey = `register:${clientIpFromRequest(request)}`;
-    const { limited, retryAfterSeconds } = checkRateLimit(rateLimitKey, REGISTER_RATE_LIMIT);
-    if (limited) {
-      throw new ApiError("RATE_LIMITED", "Too many registration attempts. Please try again later.", {
-        details: { retryAfterSeconds },
-      });
-    }
-
-    const parsed = registrationSchema.safeParse(await readJsonBody(request));
+    throw new ApiError(
+      "FORBIDDEN",
+      "Dealer self-registration is discontinued. Dealer accounts must be provisioned directly by an administrator from the Dealer Management screen.",
+      { status: 403 }
+    );
     if (!parsed.success) return handleApiError(parsed.error, { logPrefix: "POST /api/admin/register" });
 
     await connectMongoDB();

@@ -1170,7 +1170,7 @@ export default function StepProposalPreview({
                   /* 1. COVER (PAGE 1) */
                   if (section.type === "cover") {
                     return (
-                      <div key={sIdx} className="space-y-6">
+                      <div key={sIdx} className="space-y-4">
                         {/* Header Brand Bar */}
                         <div className="flex items-start justify-between">
                           <WhyteLogo
@@ -1194,27 +1194,10 @@ export default function StepProposalPreview({
                           </div>
                         </div>
 
-                        {/*
-                          Title + Hero zone, laid out against fixed pixel coordinates (not
-                          percentages) matching the reference's A4 composition 1:1 — the page
-                          itself is a fixed 794x1123 canvas (the A4-at-96dpi equivalent of
-                          595.28x841.89pt), so these px values ARE the A4 coordinate system:
-
-                            title column : 320px wide, at the content's left edge
-                            title type   : 56px/line, extrabold (not black — lighter,
-                                           editorial weight), 3 stacked lines
-                            hero image   : 600px wide (~86% of the 698px content width),
-                                           pulled up -140px so the phone sits beside the
-                                           title's lower two lines and the house reaches
-                                           toward the page's horizontal center — safe,
-                                           because the source PNG is transparent at its own
-                                           top-left (the phone only starts ~49% into the
-                                           image, the house only starts ~31% down), so
-                                           nothing solid ever reaches the title's text column
-                        */}
+                        {/* Title + Hero zone */}
                         <div>
-                          <div className="w-[320px] space-y-2.5 pt-1">
-                            <h1 className="text-[56px] font-extrabold leading-[1.0] tracking-tight text-gray-950">
+                          <div className="w-[320px] space-y-2 pt-1">
+                            <h1 className="text-[54px] font-extrabold leading-[1.0] tracking-tight text-gray-950">
                               Smart
                               <br />
                               Automation
@@ -1222,7 +1205,7 @@ export default function StepProposalPreview({
                               <span className="text-accent">Proposal</span>
                             </h1>
                             <div className="h-[3px] w-[130px] rounded-full bg-gradient-to-r from-accent to-accent/0" />
-                            <p className="text-[13px] font-bold uppercase tracking-widest text-gray-500">
+                            <p className="text-[12px] font-bold uppercase tracking-widest text-gray-500">
                               Next-Gen <span className="text-gray-950">Smart Living</span> Ecosystems
                             </p>
                           </div>
@@ -1236,60 +1219,79 @@ export default function StepProposalPreview({
                           </div>
                         </div>
 
-                        {/* Project Reference Information Strip: ONE bordered container,
-                            four columns with visible vertical dividers between them. */}
-                        <div className="grid grid-cols-4 divide-x divide-gray-200 rounded-xl border border-gray-300 bg-white text-sm">
-                          <div className="px-4 py-3.5">
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                              Client
-                            </p>
-                            <p className="mt-0.5 truncate font-bold text-gray-950">
-                              {quotation.clientName}
-                            </p>
-                            {quotation.clientPhone && (
-                              <p className="mt-0.5 text-[13px] text-gray-500">
-                                {quotation.clientPhone}
-                              </p>
+                        {/* Project Overview: Compact & Premium 3-Row Layout */}
+                        <div className="overflow-hidden rounded-xl border border-gray-200/90 bg-white shadow-xs text-sm">
+                          {/* Row 1 — Client Information */}
+                          <div className="px-5 py-3 bg-white">
+                            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent">
+                                  PREPARED EXCLUSIVELY FOR
+                                </p>
+                                <h2 className="mt-0.5 text-lg font-bold tracking-tight text-gray-950 leading-snug break-words [overflow-wrap:anywhere]">
+                                  {quotation.clientName}
+                                </h2>
+                              </div>
+                              <div className="flex items-center gap-1.5 text-xs text-gray-600 shrink-0">
+                                <MapPin size={12} className="text-accent shrink-0" />
+                                <span className="font-medium text-gray-700 break-words">
+                                  {quotation.clientAddress || "Site Location"}
+                                </span>
+                              </div>
+                            </div>
+                            {(quotation.clientPhone || quotation.clientEmail) && (
+                              <div className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400">
+                                {quotation.clientPhone && (
+                                  <span>{quotation.clientPhone}</span>
+                                )}
+                                {quotation.clientPhone && quotation.clientEmail && (
+                                  <span>•</span>
+                                )}
+                                {quotation.clientEmail && (
+                                  <span className="break-all">{quotation.clientEmail}</span>
+                                )}
+                              </div>
                             )}
-                            {quotation.clientEmail && (
-                              <p className="mt-0.5 text-[13px] text-gray-500 truncate">
-                                {quotation.clientEmail}
-                              </p>
-                            )}
                           </div>
 
-                          <div className="px-4 py-3.5">
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                              Project Location
-                            </p>
-                            <p className="mt-0.5 line-clamp-2 font-semibold text-gray-900">
-                              {quotation.clientAddress || "Site Location"}
-                            </p>
+                          {/* Row 2 — Project Information (Compact 3-Column Layout) */}
+                          <div className="grid grid-cols-3 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50/50 py-2">
+                            <div className="px-5 min-w-0">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                                Project Type
+                              </span>
+                              <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
+                                {quotation.houseType?.name ?? "Residential Smart Home"}
+                              </span>
+                            </div>
+
+                            <div className="px-5 min-w-0">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                                Automation Type
+                              </span>
+                              <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
+                                Whyte Smart Living Ecosystem
+                              </span>
+                            </div>
+
+                            <div className="px-5 min-w-0">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                                Project Scope
+                              </span>
+                              <span className="mt-0.5 text-xs font-semibold text-gray-900 block">
+                                {renderableRooms.length} {renderableRooms.length === 1 ? "Space" : "Spaces"} · {totalProducts} {totalProducts === 1 ? "Device" : "Devices"}
+                              </span>
+                            </div>
                           </div>
 
-                          <div className="px-4 py-3.5">
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                              Project Type
-                            </p>
-                            <p className="mt-0.5 font-semibold text-gray-900">
-                              {quotation.houseType?.name ??
-                                "Residential Smart Home"}
-                            </p>
-                            <p className="mt-0.5 text-[11px] text-gray-400">
-                              Custom Automation
-                            </p>
-                          </div>
-
-                          <div className="px-4 py-3.5">
-                            <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
-                              Total Investment
-                            </p>
-                            <p className="mt-0.5 font-black font-mono text-base text-accent">
+                          {/* Row 3 — Slim Investment Strip */}
+                          <div className="px-5 py-2.5 bg-pink-50/40 border-t border-pink-100/70 flex items-center justify-between">
+                            <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-700">
+                              TOTAL INVESTMENT
+                            </span>
+                            <span className="text-lg font-black font-mono tracking-tight text-accent leading-none">
                               {formatCurrency(grandTotal, { decimals: 2 })}
-                            </p>
-                            <p className="mt-0.5 text-[11px] text-gray-500">
-                              {renderableRooms.length} Spaces • {totalProducts} Devices
-                            </p>
+                            </span>
                           </div>
                         </div>
                       </div>

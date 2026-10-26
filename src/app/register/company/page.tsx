@@ -264,8 +264,8 @@ export default function CompanyRegisterPage() {
                 <span className="text-neutral-500">
                   Already registered? <Link href="/admin/login" className="font-medium text-neutral-900 underline underline-offset-4">Sign in</Link>
                 </span>
-                <span className="text-neutral-500">
-                  Registering as a dealer? <Link href="/register" className="font-medium text-neutral-900 underline underline-offset-4">Create a Dealer account</Link>
+                <span className="text-xs text-neutral-400">
+                  Dealer accounts are provisioned by company administrators.
                 </span>
               </div>
           </>

@@ -83,6 +83,7 @@ try {
       { _id: 1, email: "super@example.com", role: "super_admin", name: "Super Admin" },
       { _id: 2, email: "owner1@example.com", role: "company_owner", name: "Whyte Owner", companyId: 1 },
       { _id: 3, email: "dealer1@example.com", role: "dealer", name: "Whyte Dealer", companyId: 1 },
+      { _id: 4, email: "admin1@example.com", role: "admin", name: "Whyte Admin", companyId: 1 },
     ],
     { production: true }
   );
@@ -90,7 +91,7 @@ try {
   const now = new Date();
   // Whyte exactly as it is in production: status "pending", no review fields at all.
   await db.collection("companies").insertOne({ _id: 1, name: "Whyte Automations", slug: "whyte-automations", status: "pending", phone: "9898234336", address: "Gandhinagar", gstNumber: null, email: "sales@whyte.co.in", logoUrl: null, tagline: null, createdAt: now, updatedAt: now });
-  await db.collection("counters").insertMany([{ _id: "adminUser", seq: 3 }, { _id: "company", seq: 1 }]);
+  await db.collection("counters").insertMany([{ _id: "adminUser", seq: 4 }, { _id: "company", seq: 1 }]);
   const whyteBefore = JSON.stringify(await db.collection("companies").findOne({ _id: 1 }));
   const superCookie = await login("super@example.com", "admin");
 
@@ -464,6 +465,65 @@ try {
 
   assert.equal(JSON.stringify(await db.collection("companies").findOne({ _id: 1 })), whyteBefore, "the Whyte company record is byte-for-byte unchanged by the whole run");
   pass("the existing Whyte company record is unchanged after every registration, approval and rejection");
+
+  // ═══ 13b. deactivating a company locks out everyone in it ════════════
+  const deactivate = (id, cookie = superCookie) => api(cookie, "POST", `/api/platform/company-registrations/${id}/deactivate`);
+  const reactivate = (id, cookie = superCookie) => api(cookie, "POST", `/api/platform/company-registrations/${id}/reactivate`);
+  const whyteAdmin = await login("admin1@example.com", "admin");
+  const liveWhyte = { owner: whyteOwner, dealer: whyteDealer, admin: whyteAdmin };
+  for (const [who, cookie] of Object.entries(liveWhyte)) assert.equal((await api(cookie, "GET", "/api/company")).status, 200, `${who} works before deactivation`);
+
+  const off = await deactivate(1);
+  assert.equal(off.status, 200, off.text);
+  assert.equal(off.data.changed, true);
+  const suspendedWhyte = await db.collection("companies").findOne({ _id: 1 });
+  assert.equal(suspendedWhyte.status, "suspended");
+  assert.equal(suspendedWhyte.suspendedFromStatus, "pending", "the previous status is remembered");
+  assert.equal(suspendedWhyte.statusChangedBy, 1);
+  assert.equal((await deactivate(1)).data.changed, false, "deactivating twice changes nothing");
+  for (const [who, cookie] of Object.entries(liveWhyte)) {
+    assert.equal((await api(cookie, "GET", "/api/company")).status, 401, `${who} is signed out on the next request`);
+  }
+  const blocked = [
+    ["owner1@example.com", "admin"], ["admin1@example.com", "admin"], ["dealer1@example.com", "user"],
+  ];
+  for (const [email, portal] of blocked) {
+    const attempt = await attemptLogin(email, "Password123!", portal);
+    assert.equal(attempt.signedIn, false, `${email} cannot sign in`);
+    assert.equal(attempt.error, "COMPANY_DEACTIVATED", `${email} is told why`);
+  }
+  assert.notEqual((await attemptLogin("owner1@example.com", "wrong-password")).error, "COMPANY_DEACTIVATED", "the reason is shown only after a correct password");
+  assert.equal((await attemptLogin("owner1@acme.example", PASSWORD)).signedIn, true, "other companies are not affected");
+  assert.equal((await attemptLogin("super@example.com", "Password123!")).signedIn, true, "the Super Admin is not affected");
+  assert.equal((await deactivate(1, whyteOwner)).status, 401);
+  const acmeOwner = (await attemptLogin("owner1@acme.example", PASSWORD)).cookie;
+  assert.equal((await deactivate(1, acmeOwner)).status, 403, "a company owner cannot deactivate a company");
+  assert.equal((await reactivate(1, acmeOwner)).status, 403);
+  assert.equal((await deactivate(1, "")).status, 401);
+  assert.equal((await submit(goodFields(96))).status, 201);
+  const pendingCo = await findCompany("Acme Homes 96");
+  assert.equal((await deactivate(pendingCo._id)).status, 409, "a request still in review is approved or rejected, not deactivated");
+  assert.equal((await findCompany("Acme Homes 96")).status, "pending");
+
+  const on = await reactivate(1);
+  assert.equal(on.status, 200, on.text);
+  assert.equal(on.data.changed, true);
+  const restored = await db.collection("companies").findOne({ _id: 1 });
+  assert.equal(restored.status, "pending", "Whyte returns to exactly its previous status and is never promoted to active");
+  assert.equal(restored.suspendedFromStatus, undefined);
+  assert.equal((await reactivate(1)).data.changed, false);
+  for (const [email, portal] of blocked) assert.equal((await attemptLogin(email, "Password123!", portal)).signedIn, true, `${email} can sign in again`);
+
+  // a self-registered company goes back to "active"
+  const acme = await findCompany("Acme Homes 1");
+  assert.equal((await deactivate(acme._id)).status, 200);
+  assert.equal((await attemptLogin("owner1@acme.example", PASSWORD)).error, "COMPANY_DEACTIVATED");
+  assert.equal((await reactivate(acme._id)).status, 200);
+  assert.equal((await findCompany("Acme Homes 1")).status, "active");
+  assert.equal((await attemptLogin("owner1@acme.example", PASSWORD)).signedIn, true);
+  const listed = await api(superCookie, "GET", "/api/platform/company-registrations?status=approved");
+  assert.ok(listed.data.items.every((i) => typeof i.companyStatus === "string"), "the list reports each company's active / deactivated state");
+  pass("deactivating a company blocks its owner, admins and dealers at sign-in, logs out open sessions, spares other companies and the Super Admin, restores the exact previous status on reactivation, and only a Super Admin may do it");
 
   // ═══ 14. rate limit ════════════════════════════════════════════════
   let limited = false;
