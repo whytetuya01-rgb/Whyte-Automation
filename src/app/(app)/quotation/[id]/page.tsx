@@ -104,7 +104,10 @@ export default async function QuotationPage(props: PageProps) {
           })
           .lean({ virtuals: true }),
         RoomType.find({ isActive: true }).sort({ sortOrder: 1 }).lean({ virtuals: true }),
-        Company.findOne().lean(),
+        // Company is not tenant-scoped: look it up by the trusted server-side company id derived above (never the
+        // first company in the collection). No company resolves to null, so the client falls back to the scoped
+        // GET /api/company.
+        companyId === null ? Promise.resolve(null) : Company.findById(companyId).lean(),
       ]);
 
       if (!qDoc) {
