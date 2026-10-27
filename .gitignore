@@ -48,3 +48,6 @@ next-env.d.ts
 /src/generated/prisma
 .env*
 /scratch/
+
+# API request timing log (src/instrumentation.ts)
+/logs/
