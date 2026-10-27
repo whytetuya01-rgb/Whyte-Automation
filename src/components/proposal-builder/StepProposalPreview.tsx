@@ -32,6 +32,7 @@ import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import { isValidGstin } from "@/lib/validation/fields";
 import { resolvePlaceOfSupply } from "@/lib/gstPlaceOfSupply";
 import { eligibleItemsOfRoom, isProtectedQuotationStatus } from "@/lib/quotationAvailability";
+import { groupProposalItems, type ProposalGroupingOptions, type ProposalProductRow } from "@/lib/proposalItemGroups";
 import UnavailabilityWarning from "./UnavailabilityWarning";
 
 interface Props {
@@ -62,7 +63,8 @@ export interface ProposalPageSlice {
         type: "room";
         room: QuotationRoom;
         roomIndex: number;
-        items: QuotationItem[];
+        /** Display rows: entries of the same product in this room are grouped (see `@/lib/proposalItemGroups`). */
+        items: ProposalProductRow[];
         isContinuation: boolean;
         showSectionHeader?: boolean;
         showRoomHeader: boolean;
@@ -439,17 +441,49 @@ const ROOM_SUBTOTAL_PX = 56; // distinct subtotal strip + bottom border
 const ROOM_EXTRA_NOTE_PX = 30;
 const SECTION_TITLE_PX = 66;
 
+/** How the proposal tells whether two entries of a room are the same product row (see `@/lib/proposalItemGroups`). */
+function proposalGroupingOptions(quotation: Quotation): ProposalGroupingOptions {
+  return {
+    attributesOf: (item) => [
+      getItemModuleSize(item),
+      getItemFinish(item, quotation),
+      getItemColor(item),
+      getItemTier(item, quotation),
+      getItemConnectivity(item),
+    ],
+    locationOf: getItemLocation,
+  };
+}
+
+/** The line printed for one installation location of a grouped row ("Hall", or "Hall x 2" when several are listed). */
+function formatRowLocation(label: string | null, quantity: number, showQuantity: boolean): { prefix: string; text: string } {
+  const quantitySuffix = showQuantity ? ` × ${quantity}` : "";
+  return label === null
+    ? { prefix: "", text: `Location not specified${quantitySuffix}` }
+    : { prefix: "Location: ", text: `${label}${quantitySuffix}` };
+}
+
 /**
  * Rendered height of one product row, from what it will actually contain. A long name, many configuration chips
  * or a long location wrap onto extra lines; the pagination budget must grow with them or the page overflows its
- * fixed 1123px canvas.
+ * fixed 1123px canvas. A grouped row lists every distinct location of its entries on a line of its own.
  */
-function estimateProductRowHeight(item: QuotationItem, quotation: Quotation): number {
+function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation): number {
+  const item = row.item;
   const nameLines = Math.max(1, Math.ceil(formatProposalProductName(item.product?.name).length / 34));
   const chipCount = [getItemModuleSize(item), getItemFinish(item, quotation), getItemColor(item), getItemTier(item, quotation), getItemConnectivity(item)].filter(Boolean).length;
   const chipRows = chipCount ? Math.ceil(chipCount / 4) : 0;
-  const location = getItemLocation(item);
-  const locationLines = location ? Math.max(1, Math.ceil(location.length / 52)) : 0;
+  let locationLines = 0;
+  if (row.entries.length > 1) {
+    const showQuantity = row.locations.length > 1;
+    locationLines = row.locations.reduce((lines, location) => {
+      const { prefix, text } = formatRowLocation(location.label, location.quantity, showQuantity);
+      return lines + Math.max(1, Math.ceil((prefix.length + text.length) / 52));
+    }, 0);
+  } else {
+    const location = getItemLocation(item);
+    locationLines = location ? Math.max(1, Math.ceil(location.length / 52)) : 0;
+  }
   const textHeight = nameLines * 22 + chipRows * 28 + locationLines * 22 + 24;
   return Math.max(PRODUCT_ROW_MIN_PX, textHeight + 25);
 }
@@ -514,7 +548,8 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
 
   for (let rIdx = 0; rIdx < rooms.length; rIdx++) {
     const room = rooms[rIdx];
-    const itemsLeft = [...(room.items || [])];
+    // Entries of the same product in this room are shown as one row; the stored items are only read.
+    const itemsLeft = groupProposalItems(room.items || [], proposalGroupingOptions(quotation));
     let isFirstSlice = true;
 
     if (itemsLeft.length === 0) continue;
@@ -545,7 +580,7 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
       }
 
       // Pack as many product rows as fit; the subtotal travels with the last row.
-      const sliceItems: QuotationItem[] = [];
+      const sliceItems: ProposalProductRow[] = [];
       let sliceH = (currentSections.length > 0 ? ROOM_GAP_PX : 0) + sectionH + roomH;
 
       while (itemsLeft.length > 0) {
@@ -1856,7 +1891,9 @@ export default function StepProposalPreview({
 
                           {items.length > 0 && (
                             <div className="divide-y divide-gray-100 px-4">
-                              {items.map((item, itemIdx) => {
+                              {items.map((row, itemIdx) => {
+                                const item = row.item;
+                                const isGrouped = row.entries.length > 1;
                                 const unitPrice = Number(item.unitPrice || 0);
                                 const formattedName = formatProposalProductName(item.product?.name);
                                 const moduleSize = getItemModuleSize(item);
@@ -1873,7 +1910,7 @@ export default function StepProposalPreview({
 
                                 return (
                                   <div
-                                    key={item.id || itemIdx}
+                                    key={row.key || itemIdx}
                                     className="flex items-center gap-5 py-3"
                                     style={{ minHeight: PRODUCT_ROW_MIN_PX }}
                                   >
@@ -1929,7 +1966,7 @@ export default function StepProposalPreview({
                                         </div>
                                       )}
 
-                                      {location && (
+                                      {!isGrouped && location && (
                                         <p className="flex items-start gap-1.5 text-[13px] text-gray-600 break-words">
                                           <MapPin size={13} className="text-accent shrink-0 mt-0.5" />
                                           <span>
@@ -1938,12 +1975,38 @@ export default function StepProposalPreview({
                                           </span>
                                         </p>
                                       )}
+
+                                      {/* Several entries of this product in the room: every distinct location, with its units. */}
+                                      {isGrouped &&
+                                        row.locations.map((entryLocation, locationIdx) => {
+                                          const { prefix, text } = formatRowLocation(
+                                            entryLocation.label,
+                                            entryLocation.quantity,
+                                            row.locations.length > 1
+                                          );
+                                          return (
+                                            <p
+                                              key={`${row.key}-location-${locationIdx}`}
+                                              className="flex items-start gap-1.5 text-[13px] text-gray-600 break-words"
+                                            >
+                                              <MapPin size={13} className="text-accent shrink-0 mt-0.5" />
+                                              <span>
+                                                {prefix && <span className="text-gray-400">{prefix}</span>}
+                                                <span
+                                                  className={entryLocation.label === null ? "text-gray-400" : "font-semibold text-gray-900"}
+                                                >
+                                                  {text}
+                                                </span>
+                                              </span>
+                                            </p>
+                                          );
+                                        })}
                                     </div>
 
                                     {/* Quantity and unit price, right-aligned. Struck through when this item/room is excluded from the totals. */}
                                     <div className="shrink-0 w-32 text-right space-y-1">
                                       <p className="font-mono font-bold text-gray-500 text-sm leading-none">
-                                        Qty <span className="text-gray-950 text-lg font-extrabold">{item.quantity || 1}</span>
+                                        Qty <span className="text-gray-950 text-lg font-extrabold">{row.quantity}</span>
                                       </p>
                                       <p
                                         className={`font-mono font-extrabold text-lg leading-none ${
@@ -1953,6 +2016,17 @@ export default function StepProposalPreview({
                                         {formatCurrency(unitPrice)}
                                       </p>
                                       <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">per unit</p>
+                                      {/* Grouped entries: the sum of each entry's own line total. */}
+                                      {isGrouped && (
+                                        <p
+                                          className={`font-mono text-[13px] font-bold leading-none pt-0.5 ${
+                                            excluded ? "text-gray-400 line-through" : "text-gray-700"
+                                          }`}
+                                        >
+                                          <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Total </span>
+                                          {formatCurrency(row.lineTotal)}
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
                                 );

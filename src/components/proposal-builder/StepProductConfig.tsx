@@ -55,6 +55,9 @@ import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
 import ChangeProductModal from "./ChangeProductModal";
 
+/** The quantity of a new entry until the user types another one. */
+const DEFAULT_NEW_ENTRY_QUANTITY = "1";
+
 interface Props {
   quotation: Quotation;
   products: EditorCatalogProduct[];
@@ -385,7 +388,8 @@ export default function StepProductConfig({
     return filteredCatalog.map((r) => r.product);
   }, [filteredCatalog]);
 
-  // Add product handler - increments quantity if matching configuration is already in room, avoiding duplicates
+  // Add product handler. Every call creates a NEW, independent quotation item (its own id, quantity, installation
+  // location and variant), even when the same product / variant is already in the room: entries are never merged.
   const handleAddProduct = async (catItem: FilteredProductResult) => {
     if (!currentRoom) return;
     const roomId = Number(currentRoom.id ?? (currentRoom as any)._id);
@@ -396,20 +400,6 @@ export default function StepProductConfig({
 
     if (exactVariant) {
       const varId = Number(exactVariant.id ?? (exactVariant as any)._id);
-
-      // Check if this specific variant is already in the room
-      const existing = (currentRoom.items || []).find((i) => {
-        const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
-        const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
-        return pId === prodId && pvId === varId;
-      });
-
-      if (existing) {
-        const existingId = Number(existing.id ?? (existing as any)._id);
-        const curQty = Number(existing.quantity) || 1;
-        await onUpdateItem(existingId, { quantity: curQty + 1 });
-        return;
-      }
 
       const config: Record<string, string> = { ...(exactVariant.config || {}) };
       const vTier = getVariantTier(exactVariant);
@@ -436,42 +426,16 @@ export default function StepProductConfig({
     }
 
     // Flat product without variants
-    const existingFlat = (currentRoom.items || []).find((i) => {
-      const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
-      return pId === prodId;
-    });
-
-    if (existingFlat) {
-      const existingId = Number(existingFlat.id ?? (existingFlat as any)._id);
-      const curQty = Number(existingFlat.quantity) || 1;
-      await onUpdateItem(existingId, { quantity: curQty + 1 });
-      return;
-    }
-
     await onAddItem(roomId, prodId);
   };
 
-  // Add specific variant directly (or increment quantity if already in room)
+  // Add a specific variant directly. Always a new, independent entry (never merged into an existing line).
   const handleAddVariant = async (product: EditorCatalogProduct, variant: EditorCatalogVariant) => {
     if (!currentRoom) return;
     const roomId = Number(currentRoom.id ?? (currentRoom as any)._id);
     const prodId = Number(product.id ?? (product as any)._id);
     const varId = Number(variant.id ?? (variant as any)._id);
     if (!roomId || !prodId || !varId) return;
-
-    // Check if this specific variant is already in the room
-    const existing = (currentRoom.items || []).find((i) => {
-      const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
-      const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
-      return pId === prodId && pvId === varId;
-    });
-
-    if (existing) {
-      const existingId = Number(existing.id ?? (existing as any)._id);
-      const curQty = Number(existing.quantity) || 1;
-      await onUpdateItem(existingId, { quantity: curQty + 1 });
-      return;
-    }
 
     const config: Record<string, string> = { ...(variant.config || {}) };
     const vTier = getVariantTier(variant);
@@ -504,9 +468,10 @@ export default function StepProductConfig({
 
   const setQtyError = (key: string, message: string) => setQtyErrors((prev) => ({ ...prev, [key]: message }));
 
-  // "Add" with a typed quantity. The number in the stepper is the quantity wanted in this room: the difference to what
-  // is already there is added through the same create / increment calls as "+", so there is never a duplicate line.
-  const handleAddTypedQuantity = async (catItem: FilteredProductResult, inRoomCount: number) => {
+  // "Add" with a typed quantity. The number is the quantity of a NEW entry: every press of Add creates its own
+  // quotation item (own id, quantity, installation location and variant) and never touches an existing one, so the
+  // same product can sit in the same room several times, each entry managed on its own in "Added Products".
+  const handleAddTypedQuantity = async (catItem: FilteredProductResult) => {
     if (!currentRoom || isLocked) return;
     const roomId = Number(currentRoom.id);
     const { product, eligibleVariants, exactVariant } = catItem;
@@ -514,7 +479,7 @@ export default function StepProductConfig({
     const key = `${roomId}:${prodId}`;
     if (!roomId || !prodId || addInFlight.current.has(key)) return;
 
-    const parsed = parseQuantityInput(qtyDrafts[key] ?? String(inRoomCount));
+    const parsed = parseQuantityInput(qtyDrafts[key] ?? DEFAULT_NEW_ENTRY_QUANTITY);
     if (!parsed.ok) {
       setQtyError(key, parsed.message);
       return;
@@ -528,16 +493,6 @@ export default function StepProductConfig({
     }
     const varId = variant ? Number(variant.id) : null;
 
-    const existing = (currentRoom.items || []).find((i) => {
-      if (Number(i.productId) !== prodId) return false;
-      return varId === null || Number(i.productVariantId) === varId;
-    });
-    const existingQty = existing ? Number(existing.quantity) || 1 : 0;
-    if (parsed.value <= existingQty) {
-      setQtyError(key, `${existingQty} already in this room. Enter a higher quantity, or use − to remove.`);
-      return;
-    }
-
     addInFlight.current.add(key);
     setAddingKeys(new Set(addInFlight.current));
     setQtyErrors((prev) => {
@@ -547,25 +502,20 @@ export default function StepProductConfig({
       return next;
     });
     try {
-      let result: boolean | void;
-      if (existing) {
-        result = await onUpdateItem(Number(existing.id), { quantity: parsed.value });
-      } else {
-        const config: Record<string, string> = { ...(variant?.config || {}) };
-        if (variant) {
-          const vTier = getVariantTier(variant);
-          const vFinish = getVariantFinish(variant);
-          if (vTier) config.series = vTier;
-          if (vFinish) config.finish = vFinish;
-        }
-        result = await onAddItem(
-          roomId,
-          prodId,
-          varId ?? undefined,
-          Object.keys(config).length > 0 ? config : undefined,
-          parsed.value
-        );
+      const config: Record<string, string> = { ...(variant?.config || {}) };
+      if (variant) {
+        const vTier = getVariantTier(variant);
+        const vFinish = getVariantFinish(variant);
+        if (vTier) config.series = vTier;
+        if (vFinish) config.finish = vFinish;
       }
+      const result = await onAddItem(
+        roomId,
+        prodId,
+        varId ?? undefined,
+        Object.keys(config).length > 0 ? config : undefined,
+        parsed.value
+      );
       if (result === false) {
         setQtyError(key, "Could not add. Your quantity was kept; please try again.");
         return;
@@ -579,14 +529,15 @@ export default function StepProductConfig({
     }
   };
 
-  // Remove one instance of product/variant in current room (decrement quantity or delete)
+  // Take one unit off the most recently added entry of this product/variant in the current room (delete the entry
+  // when it is down to one). Only that one quotation item is touched; other entries of the same product stay as they are.
   const handleRemoveProductInstance = async (catItem: FilteredProductResult) => {
     if (!currentRoom) return;
     const { product, exactVariant } = catItem;
     const prodId = Number(product.id ?? (product as any)._id);
     const exactVarId = exactVariant ? Number(exactVariant.id ?? (exactVariant as any)._id) : null;
 
-    const matchingItem = (currentRoom.items || []).find((i) => {
+    const matchingItems = (currentRoom.items || []).filter((i) => {
       const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
       if (pId !== prodId) return false;
       if (exactVarId !== null) {
@@ -595,6 +546,7 @@ export default function StepProductConfig({
       }
       return true;
     });
+    const matchingItem = matchingItems[matchingItems.length - 1];
 
     if (!matchingItem) return;
     const itemId = Number(matchingItem.id ?? (matchingItem as any)._id);
@@ -1196,14 +1148,31 @@ export default function StepProductConfig({
 
                   const cardRoomId = currentRoom ? Number(currentRoom.id) : 0;
                   const cardKey = `${cardRoomId}:${prodId}`;
-                  const draftValue = qtyDrafts[cardKey] ?? String(inRoomCount);
+                  const entriesInRoom = roomItems.filter((i) => {
+                    const pId = Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id);
+                    if (pId !== prodId) return false;
+                    if (exactVarId !== null) {
+                      const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
+                      return pvId === exactVarId;
+                    }
+                    if (eligibleVariants.length > 0) {
+                      const pvId = Number(i.productVariantId ?? (i as any).productVariant?.id ?? (i as any).productVariant?._id);
+                      return eligibleVariants.some((v) => Number(v.id ?? (v as any)._id) === pvId);
+                    }
+                    return true;
+                  }).length;
+                  const draftValue = qtyDrafts[cardKey] ?? DEFAULT_NEW_ENTRY_QUANTITY;
                   const cardError = qtyErrors[cardKey];
                   const isAdding = addingKeys.has(cardKey);
                   const draftParsed = cardKey in qtyDrafts ? parseQuantityInput(draftValue) : null;
                   const needsVariantChoice = !exactVariant && eligibleVariants.length > 1;
                   const addHint =
-                    !cardError && draftParsed?.ok && !needsVariantChoice && draftParsed.value > inRoomCount
-                      ? `Adds ${draftParsed.value - inRoomCount} more (${draftParsed.value} in this room)`
+                    !cardError && !needsVariantChoice
+                      ? inRoomCount > 0
+                        ? `${inRoomCount} in this room (${entriesInRoom} ${entriesInRoom === 1 ? "entry" : "entries"}). Add creates a new entry${
+                            draftParsed?.ok ? ` of ${draftParsed.value}` : ""
+                          }.`
+                        : null
                       : null;
 
                   return (
@@ -1384,7 +1353,7 @@ export default function StepProductConfig({
                                           title={`Add ${vLabel} to ${getRoomDisplayName(currentRoom, rooms)}`}
                                         >
                                           <Plus size={10} strokeWidth={2.5} />
-                                          <span>{vCount > 0 ? `+1 (${vCount})` : "Add"}</span>
+                                          <span>{vCount > 0 ? `Add (${vCount} in room)` : "Add"}</span>
                                         </button>
                                       </div>
                                     );
@@ -1431,7 +1400,7 @@ export default function StepProductConfig({
                                 ? "hover:bg-white/20 text-white"
                                 : "hover:bg-gray-100 text-gray-600"
                             }`}
-                            title="Remove one instance"
+                            title="Remove one unit from the latest entry"
                           >
                             <Minus size={12} />
                           </button>
@@ -1444,7 +1413,7 @@ export default function StepProductConfig({
                             value={draftValue}
                             maxLength={6}
                             disabled={isAdding || isLocked}
-                            aria-label={`Quantity of ${prod.name} in this room`}
+                            aria-label={`Quantity for the next ${prod.name} entry`}
                             aria-invalid={cardError ? true : undefined}
                             onChange={(event) => {
                               const next = event.target.value;
@@ -1460,7 +1429,7 @@ export default function StepProductConfig({
                             onKeyDown={(event) => {
                               if (event.key === "Enter") {
                                 event.preventDefault();
-                                void handleAddTypedQuantity(catItem, inRoomCount);
+                                void handleAddTypedQuantity(catItem);
                               }
                             }}
                             className={`w-10 bg-transparent text-center text-xs font-mono outline-none focus:ring-1 focus:ring-accent/60 disabled:opacity-60 ${
@@ -1498,10 +1467,10 @@ export default function StepProductConfig({
                         <button
                           type="button"
                           disabled={isAdding || isLocked}
-                          onClick={() => void handleAddTypedQuantity(catItem, inRoomCount)}
+                          onClick={() => void handleAddTypedQuantity(catItem)}
                           aria-busy={isAdding}
                           className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-xs font-bold text-white shadow-xs transition hover:bg-accent-hover active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                          title="Add the quantity typed above to this room"
+                          title="Add a new entry with the quantity typed above"
                         >
                           {isAdding ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} strokeWidth={2.5} />}
                           <span>{isAdding ? "Adding…" : "Add"}</span>

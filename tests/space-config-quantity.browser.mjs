@@ -81,7 +81,7 @@ try {
     return { context, page };
   };
   const shot = async (page, name) => { if (shotDir) await page.screenshot({ path: `${shotDir}/${name}.png`, fullPage: true }); };
-  const items = (quotationId) => db.collection("quotationitems").find({ quotationRoomId: { $in: flat.id === quotationId ? flat.rooms.map((r) => r.id) : villa.rooms.map((r) => r.id) } }).toArray();
+  const items = (quotationId) => db.collection("quotationitems").find({ isDeleted: { $ne: true }, quotationRoomId: { $in: flat.id === quotationId ? flat.rooms.map((r) => r.id) : villa.rooms.map((r) => r.id) } }).toArray();
   const until = async (condition, what) => {
     for (let i = 0; i < 150; i++) {
       if (await condition()) return;
@@ -91,8 +91,10 @@ try {
   };
   // The field mirrors the stored quantity, so wait on the database, not on what was typed.
   const qtyIs = (expected) => until(async () => (await items(flat.id))[0]?.quantity === expected, `stored quantity ${expected}`);
-  const card = (page, name) => page.locator("div.group", { has: page.locator(`h4:text-is("${name}"), p:text-is("${name}"), :text-is("${name}")`) }).filter({ has: page.locator(`input[aria-label="Quantity of ${name} in this room"]:visible`) }).first();
-  const qtyInput = (page, name) => page.locator(`input[aria-label="Quantity of ${name} in this room"]:visible`);
+  const entriesAre = (expected) => until(async () => (await items(flat.id)).length === expected, `${expected} stored entries`);
+  const quantities = async () => (await items(flat.id)).sort((a, b) => a._id - b._id).map((i) => i.quantity);
+  const card = (page, name) => page.locator("div.group", { has: page.locator(`h4:text-is("${name}"), p:text-is("${name}"), :text-is("${name}")`) }).filter({ has: page.locator(`input[aria-label="Quantity for the next ${name} entry"]:visible`) }).first();
+  const qtyInput = (page, name) => page.locator(`input[aria-label="Quantity for the next ${name} entry"]:visible`);
 
   // ═══ Flat: no floor labels ══════════════════════════════════════════
   const { context, page } = await newPage({ width: 1280, height: 900 });
@@ -142,8 +144,8 @@ try {
   await page.goto(`${baseUrl}/quotation/${flat.id}?step=3`, { waitUntil: "domcontentloaded" });
   const input = qtyInput(page, "Smart Switch");
   await input.waitFor();
-  // pick a room that has no switch yet: the first room card is active by default
-  assert.equal(await input.inputValue(), "0");
+  // the field is the quantity of the NEXT entry: it starts at 1
+  assert.equal(await input.inputValue(), "1");
   const writes = [];
   page.on("request", (r) => { if (/\/api\/quotations\/[^/]+\/items/.test(r.url()) && ["POST", "PATCH"].includes(r.method())) writes.push(r.method()); });
 
@@ -160,13 +162,12 @@ try {
   pass("typing 5 and pressing Add adds exactly 5 units; the field, room count and totals update");
 
   await card(page, "Smart Switch").getByTitle(/Add .*to room|Add device to room/).click();
-  await qtyIs(6);
-  assert.equal((await items(flat.id))[0].quantity, 6, "+ still adds one");
-  await card(page, "Smart Switch").getByTitle("Remove one instance").click();
-  await qtyIs(5);
-  assert.equal((await items(flat.id))[0].quantity, 5, "- still removes one");
-  assert.equal((await items(flat.id)).length, 1, "no duplicate line");
-  pass("the + and - controls still work and stay in sync with the typed field");
+  await entriesAre(2);
+  assert.deepEqual(await quantities(), [5, 1], "+ creates a NEW entry of 1 and leaves the first entry at 5");
+  await card(page, "Smart Switch").getByTitle("Remove one unit from the latest entry").click();
+  await entriesAre(1);
+  assert.deepEqual(await quantities(), [5], "- takes the latest entry (1 unit) away and leaves the first entry alone");
+  pass("+ creates a new one-unit entry and - removes one unit from the latest entry; the first entry is never touched");
 
   const before = JSON.stringify(await items(flat.id));
   const writesBefore = writes.length;
@@ -178,38 +179,40 @@ try {
   }
   assert.equal(JSON.stringify(await items(flat.id)), before, "invalid quantities write nothing");
   assert.equal(writes.length, writesBefore, "invalid quantities send no request");
+  pass("empty, zero, negative, decimal, text and oversize quantities show a clear message and send no request");
+
+  // the same quantity again is a valid, separate entry (there is no "already in this room" any more)
   await input.fill("5");
   await addBtn().click();
-  await card(page, "Smart Switch").locator('[role="alert"]').filter({ hasText: /already in this room/i }).waitFor();
-  pass("empty, zero, negative, decimal, text and oversize quantities show a clear message and send no request");
+  await entriesAre(2);
+  assert.deepEqual(await quantities(), [5, 5], "typing 5 again creates a second, independent entry of 5");
+  pass("adding the same product and quantity again creates a second entry instead of being refused or merged");
 
   // double click on Add sends a single request
   await input.fill("8");
   const sentBefore = writes.length;
   await addBtn().dblclick();
-  await qtyIs(8);
+  await entriesAre(3);
   await page.waitForTimeout(500);
   assert.equal(writes.length - sentBefore, 1, "a double click sends exactly one request");
-  rows = await items(flat.id);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].quantity, 8, "5 -> 8: the difference was added once");
-  pass("double-clicking Add sends one request and the quantity is 8, not doubled");
+  assert.deepEqual(await quantities(), [5, 5, 8], "one new entry of 8 was created, not two");
+  pass("double-clicking Add sends one request and creates a single new entry of 8");
 
   // keyboard: Enter adds
   await input.fill("9");
   await input.press("Enter");
-  await qtyIs(9);
-  assert.equal((await items(flat.id))[0].quantity, 9);
-  pass("pressing Enter in the field adds, like the Add button");
+  await entriesAre(4);
+  assert.deepEqual(await quantities(), [5, 5, 8, 9]);
+  pass("pressing Enter in the field adds a new entry, like the Add button");
 
   // API failure keeps the typed value and reports an error
-  await page.route("**/api/quotations/*/items/*", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ success: false, error: { code: "INTERNAL_SERVER_ERROR", message: "boom" } }) }));
+  await page.route("**/api/quotations/*/items", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ success: false, error: { code: "INTERNAL_SERVER_ERROR", message: "boom" } }) }));
   await input.fill("12");
   await addBtn().click();
   await card(page, "Smart Switch").locator('[role="alert"]').filter({ hasText: /could not add/i }).waitFor();
   assert.equal(await input.inputValue(), "12", "the typed quantity survives a failed request");
-  assert.equal((await items(flat.id))[0].quantity, 9, "nothing changed in the database");
-  await page.unroute("**/api/quotations/*/items/*");
+  assert.deepEqual(await quantities(), [5, 5, 8, 9], "nothing changed in the database");
+  await page.unroute("**/api/quotations/*/items");
   pass("on API failure the typed quantity is kept, an error is shown and nothing is saved");
 
   // a product with several variants must make the dealer choose

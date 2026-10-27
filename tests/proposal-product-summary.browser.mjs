@@ -84,7 +84,9 @@ try {
   await add(roomOf(3), 5, 3);
   await add(roomOf(3), 6, 1);
   await add(roomOf(3), 1, 1, { sbNumber: "SB04", notes: "Bed Side" });
-  for (let i = 0; i < 10; i++) await add(roomOf(4), [1, 2, 3, 4, 5, 6][i % 6], 1 + (i % 3));
+  // Distinct SB numbers keep these ten entries ten rows: entries of the same product with identical specifications
+  // would otherwise be grouped into one row by the proposal (covered by tests/independent-quotation-items.browser.mjs).
+  for (let i = 0; i < 10; i++) await add(roomOf(4), [1, 2, 3, 4, 5, 6][i % 6], 1 + (i % 3), { sbNumber: `SBD${String(i + 1).padStart(2, "0")}` });
 
   const storedBefore = JSON.stringify((await db.collection("quotationitems").find({}).sort({ _id: 1 }).toArray()).map((i) => [i._id, i.quantity, i.unitPrice.toString(), i.productId]));
   const apiBefore = (await api(dealer, "GET", `/api/quotations/${qid}`)).data;
