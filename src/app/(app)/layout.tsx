@@ -8,6 +8,7 @@ import SiteFooter from "@/components/shared/SiteFooter";
 import { getFooterCompany } from "@/lib/footerCompany";
 import { Plus, FileText, LayoutDashboard, User, Wallet } from "lucide-react";
 import { isSessionActorStillValid } from "@/lib/sessionGuard";
+import OfflineStatusPill from "@/components/offline/OfflineStatusPill";
 
 const ALLOWED_APP_ROLES = new Set(["dealer", "super_admin", "admin"]);
 
@@ -100,6 +101,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
           {/* Right: Actions + User */}
           <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+            <OfflineStatusPill />
             <Link
               href="/quotation/new"
               className="inline-flex items-center gap-1.5 bg-gray-950 hover:bg-gray-800 text-white text-xs font-semibold px-3 py-1.5 rounded-xl shadow-2xs hover:shadow-xs transition-all duration-150 border border-gray-900"

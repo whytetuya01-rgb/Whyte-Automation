@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { AlertTriangle, ArrowLeft, Check, Clock, Home, Save, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Clock, Home, Save, X, WifiOff, Database } from "lucide-react";
 import {
   Quotation,
   EditorCatalogProduct,
@@ -33,6 +33,13 @@ import {
 } from "@/lib/quotationNormalization";
 import { isMultiFloorHouseType } from "@/lib/roomUtils";
 import { calculateIntelligentDefaultFloor } from "@/lib/floorAssignment";
+import {
+  saveOfflineDraft,
+  offlineDraftToQuotation,
+  quotationToOfflineDraft,
+} from "@/lib/offline/draftStore";
+import { useOfflineDraftAutosave } from "@/lib/offline/useOfflineDraftAutosave";
+import type { OfflineQuotationDraft } from "@/lib/offline/db";
 
 function extractErrorMessage(err: any, fallback: string): string {
   if (!err) return fallback;
@@ -53,6 +60,8 @@ interface Props {
   initialRoomTypes?: RoomType[];
   initialCompany?: Company | null;
   initialStep?: ProposalStep;
+  isOfflineDraft?: boolean;
+  initialOfflineDraft?: OfflineQuotationDraft | null;
 }
 
 export default function ProposalBuilder({
@@ -63,6 +72,8 @@ export default function ProposalBuilder({
   initialRoomTypes = [],
   initialCompany = null,
   initialStep = 1,
+  isOfflineDraft = false,
+  initialOfflineDraft = null,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -155,16 +166,37 @@ export default function ProposalBuilder({
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  // Offline Draft & Autosave state
+  const [offlineDraft, setOfflineDraft] = useState<OfflineQuotationDraft | null>(initialOfflineDraft);
+
+  const {
+    status: draftAutosaveStatus,
+    triggerAutosave,
+    flushNow: flushDraftAutosave,
+  } = useOfflineDraftAutosave(offlineDraft, {
+    debounceMs: 700,
+    onSaved: () => {
+      setSaveStatus("saved");
+    },
+    onError: (err) => {
+      setSaveStatus("unsaved");
+      toast.error(`Local save error: ${err}`);
+    },
+  });
+
   // Keep URL updated with current step
   const navigateToStep = useCallback(
     (step: ProposalStep) => {
       setCurrentStep(step);
-      if (quotationId) {
+      if (isOfflineDraft && (offlineDraft?.id || quotationId)) {
+        flushDraftAutosave();
+        window.history.pushState(null, "", `/quotation/draft/${offlineDraft?.id || quotationId}?step=${step}`);
+      } else if (quotationId) {
         window.history.pushState(null, "", `/quotation/${quotationId}?step=${step}`);
       }
       window.scrollTo({ top: 0, behavior: "smooth" });
     },
-    [quotationId]
+    [quotationId, isOfflineDraft, offlineDraft?.id, flushDraftAutosave]
   );
 
   // Refetch latest quotation data from API
@@ -271,6 +303,7 @@ export default function ProposalBuilder({
 
   // Load auxiliary data with step-aware prioritization and deduplication
   useEffect(() => {
+    if (isOfflineDraft) return;
     // 1. Data needed for early steps (House types for Step 1/2, Room types for Step 2)
     if (houseTypes.length === 0 && !fetchStatusRef.current.houseTypes) {
       fetchStatusRef.current.houseTypes = true;
@@ -343,6 +376,31 @@ export default function ProposalBuilder({
       const notesWithProject = formData.projectName.trim()
         ? `Project: ${formData.projectName.trim()}${formData.notes.trim() ? `\n${formData.notes.trim()}` : ""}`
         : formData.notes.trim() || null;
+
+      if (isOfflineDraft && offlineDraft) {
+        const nextQuote: any = {
+          ...(quotation || {}),
+          clientName: formData.clientName.trim(),
+          clientAddress: formData.location.trim() || null,
+          clientPhone: formData.clientPhone.trim() || null,
+          clientEmail: formData.clientEmail.trim() || null,
+          clientGstNumber: formData.clientGstNumber.trim() || null,
+          houseTypeId: formData.houseTypeId,
+          notes: notesWithProject,
+        };
+        const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+        setOfflineDraft(nextDraft);
+        const norm = offlineDraftToQuotation(nextDraft, products, roomTypes);
+        setQuotation(norm);
+        if (norm.rooms?.length > 0) {
+          setActiveRoomId(norm.rooms[0].id);
+        }
+        await saveOfflineDraft(nextDraft);
+        setSaveStatus("saved");
+        toast.success("Project details saved locally");
+        navigateToStep(2);
+        return;
+      }
 
       if (!quotation?.id) {
         // Create new quotation via POST /api/quotations
@@ -474,6 +532,34 @@ export default function ProposalBuilder({
       explicitFloorContext: subArea,
     });
 
+    if (isOfflineDraft && offlineDraft) {
+      const newRoomId = Date.now();
+      const newRoomObj: any = {
+        id: newRoomId,
+        _id: newRoomId,
+        quotationId: quotation.id,
+        roomTypeId,
+        roomType: roomTypes.find((r) => Number(r.id ?? (r as any)._id) === Number(roomTypeId)),
+        customName: customName || null,
+        subArea: finalFloor,
+        sortOrder: (quotation.rooms?.length ?? 0) * 10,
+        items: [],
+      };
+
+      const nextQuote = {
+        ...quotation,
+        rooms: [...(quotation.rooms || []), newRoomObj],
+      };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      const converted = offlineDraftToQuotation(nextDraft, products, roomTypes);
+      setQuotation(converted);
+      setActiveRoomId(newRoomId);
+      triggerAutosave();
+      toast.success(`Space "${roomName || "Room"}" added`);
+      return;
+    }
+
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/rooms`, {
         method: "POST",
@@ -517,6 +603,18 @@ export default function ProposalBuilder({
   ) => {
     if (!quotation?.id) return;
 
+    if (isOfflineDraft && offlineDraft) {
+      const nextRooms = (quotation.rooms || []).map((r) =>
+        Number(r.id ?? (r as any)._id) === Number(roomId) ? { ...r, ...data } : r
+      );
+      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      return;
+    }
+
     // Optimistically update local quotation state for immediate UI regrouping
     setQuotation((prev) => {
       if (!prev) return prev;
@@ -555,6 +653,19 @@ export default function ProposalBuilder({
 
   const handleDeleteRoom = async (roomId: number) => {
     if (!quotation?.id) return;
+    if (isOfflineDraft && offlineDraft) {
+      const nextRooms = (quotation.rooms || []).filter((r) => Number(r.id ?? (r as any)._id) !== Number(roomId));
+      if (activeRoomId === roomId) {
+        setActiveRoomId(nextRooms[0]?.id ?? null);
+      }
+      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      toast.success("Space removed");
+      return;
+    }
     setSaveStatus("saving");
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/rooms/${roomId}`, {
@@ -596,6 +707,50 @@ export default function ProposalBuilder({
       toast.error("Please select a space before adding devices");
       return false;
     }
+
+    if (isOfflineDraft && offlineDraft) {
+      const prod = products.find((p) => p.id === productId);
+      const variant = prod?.variants?.find((v) => v.id === productVariantId);
+      const unitPrice = variant?.price ? String(variant.price) : String(prod?.price || 0);
+
+      // Every Add is its own entry, so the new id must differ from every item already in the quotation.
+      const takenItemIds = new Set(
+        (quotation.rooms || []).flatMap((room) => (room.items || []).map((existing) => Number(existing.id ?? (existing as any)._id)))
+      );
+      let newItemId = Date.now() + Math.floor(Math.random() * 1000);
+      while (takenItemIds.has(newItemId)) newItemId += 1;
+      const newItem: any = {
+        id: newItemId,
+        _id: newItemId,
+        quotationRoomId: targetRoomId,
+        productId,
+        productVariantId: productVariantId ?? null,
+        product: prod,
+        productVariant: variant,
+        variantLabel: variant?.automationTier || prod?.name || "Standard",
+        variantConfig: variantConfig ?? null,
+        quantity,
+        unitPrice,
+        originalUnitPrice: unitPrice,
+        isCustomPrice: false,
+        taxPercent: 18,
+        sortOrder: 0,
+      };
+
+      const nextRooms = (quotation.rooms || []).map((room) => {
+        if (Number(room.id ?? (room as any)._id) !== targetRoomId) return room;
+        return { ...room, items: [...(room.items || []), newItem] };
+      });
+
+      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      toast.success(quantity > 1 ? `${quantity} devices added to space` : "Device added to space");
+      return true;
+    }
+
     setSaveStatus("saving");
 
     try {
@@ -630,6 +785,36 @@ export default function ProposalBuilder({
 
   const handleUpdateItem = async (itemId: number, data: any): Promise<boolean> => {
     if (!quotation?.id) return false;
+
+    if (isOfflineDraft && offlineDraft) {
+      const nextRooms = (quotation.rooms || []).map((room) => {
+        const nextItems = (room.items || []).map((item) => {
+          if (Number(item.id ?? (item as any)._id) !== Number(itemId)) return item;
+          let updated = { ...item, ...data };
+          if (data.resetToDefaultPrice) {
+            const prod = products.find((p) => p.id === item.productId);
+            const variant = prod?.variants?.find((v) => v.id === item.productVariantId);
+            const defaultPrice = variant?.price ? String(variant.price) : String(prod?.price || item.originalUnitPrice || item.unitPrice);
+            updated.unitPrice = defaultPrice;
+            updated.isCustomPrice = false;
+            delete (updated as any).resetToDefaultPrice;
+          } else if (data.unitPrice !== undefined) {
+            updated.unitPrice = String(data.unitPrice);
+            updated.isCustomPrice = true;
+          }
+          return updated;
+        });
+        return { ...room, items: nextItems };
+      });
+
+      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      return true;
+    }
+
     setSaveStatus("saving");
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/items/${itemId}`, {
@@ -662,6 +847,38 @@ export default function ProposalBuilder({
     variantLabel?: string
   ) => {
     if (!quotation?.id) return;
+
+    if (isOfflineDraft && offlineDraft) {
+      const prod = products.find((p) => p.id === productId);
+      const variant = prod?.variants?.find((v) => v.id === productVariantId);
+      const price = unitPrice !== undefined ? String(unitPrice) : variant?.price ? String(variant.price) : String(prod?.price || 0);
+
+      const nextRooms = (quotation.rooms || []).map((room) => {
+        const nextItems = (room.items || []).map((item) => {
+          if (Number(item.id ?? (item as any)._id) !== Number(itemId)) return item;
+          return {
+            ...item,
+            productId,
+            productVariantId: productVariantId ?? null,
+            product: prod,
+            productVariant: variant,
+            variantConfig: variantConfig ?? null,
+            unitPrice: price,
+            variantLabel: variantLabel || variant?.automationTier || prod?.name || "Standard",
+          };
+        });
+        return { ...room, items: nextItems };
+      });
+
+      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      toast.success("Product replaced");
+      return;
+    }
+
     setSaveStatus("saving");
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/items/${itemId}`, {
@@ -730,6 +947,20 @@ export default function ProposalBuilder({
 
   const handleDeleteItem = async (itemId: number) => {
     if (!quotation?.id) return;
+    if (isOfflineDraft && offlineDraft) {
+      const nextRooms = (quotation.rooms || []).map((room) => ({
+        ...room,
+        items: (room.items || []).filter((i) => Number(i.id ?? (i as any)._id) !== Number(itemId)),
+      }));
+      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      toast.success("Device removed");
+      return;
+    }
+
     setSaveStatus("saving");
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/items/${itemId}`, {
@@ -751,6 +982,19 @@ export default function ProposalBuilder({
 
   const handleUpdateRoomNotes = async (roomId: number, notes: string) => {
     if (!quotation?.id) return;
+    if (isOfflineDraft && offlineDraft) {
+      const nextRooms = (quotation.rooms || []).map((r) =>
+        Number(r.id ?? (r as any)._id) === Number(roomId) ? { ...r, notes: notes || null } : r
+      );
+      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      toast.success("Notes saved");
+      return;
+    }
+
     setSaveStatus("saving");
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/rooms/${roomId}`, {
@@ -779,6 +1023,21 @@ export default function ProposalBuilder({
     value: number
   ) => {
     if (!quotation?.id) return;
+    if (isOfflineDraft && offlineDraft) {
+      const nextQuote = {
+        ...quotation,
+        discountType: type,
+        discountValue: value,
+        customerDiscountPercent: type === "percentage" ? value : 0,
+      };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      toast.success("Discount updated");
+      return;
+    }
+
     setSaveStatus("saving");
     try {
       const res = await fetch(`/api/quotations/${quotation.id}`, {
@@ -908,7 +1167,7 @@ export default function ProposalBuilder({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
         <div className="flex items-center gap-3 min-w-0">
           <Link
-            href="/"
+            href={isOfflineDraft ? "/quotations" : "/"}
             className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-500 hover:text-gray-900 transition shrink-0"
             title="Exit proposal builder"
           >
@@ -918,21 +1177,49 @@ export default function ProposalBuilder({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="font-mono font-bold text-gray-950 text-sm">
-                {quotation?.quotationNumber ?? "New Proposal"}
+                {isOfflineDraft ? (offlineDraft?.id ?? "draft_local") : (quotation?.quotationNumber ?? "New Proposal")}
               </span>
-              {quotation?.status && (
-                <StatusBadge status={quotation.status as QuotationStatus} />
+              {isOfflineDraft ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold tracking-wide uppercase bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
+                  <WifiOff size={11} className="text-amber-600" />
+                  <span>Offline Draft</span>
+                </span>
+              ) : (
+                quotation?.status && (
+                  <StatusBadge status={quotation.status as QuotationStatus} />
+                )
               )}
             </div>
             <p className="text-xs text-gray-500 truncate font-medium">
-              {quotation?.clientName ? quotation.clientName : "WHYTE Smart Automation Proposal Builder"}
+              {quotation?.clientName ? quotation.clientName : isOfflineDraft ? "Offline Smart Automation Draft" : "WHYTE Smart Automation Proposal Builder"}
             </p>
           </div>
         </div>
 
         {/* Auto-save Status & Actions */}
         <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
-          {quotation?.id && (
+          {isOfflineDraft ? (
+            <div className="flex items-center gap-1.5 text-xs text-gray-600">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  draftAutosaveStatus === "saving"
+                    ? "bg-amber-400 animate-pulse"
+                    : draftAutosaveStatus === "saved"
+                    ? "bg-emerald-500"
+                    : draftAutosaveStatus === "error"
+                    ? "bg-red-400"
+                    : "bg-emerald-500"
+                }`}
+              />
+              <span className="font-medium text-[11px]">
+                {draftAutosaveStatus === "saving"
+                  ? "Saving locally..."
+                  : draftAutosaveStatus === "error"
+                  ? "Save Failed"
+                  : "Saved Locally (IndexedDB)"}
+              </span>
+            </div>
+          ) : quotation?.id ? (
             <div className="flex items-center gap-1.5 text-xs text-gray-500">
               <span
                 className={`w-2 h-2 rounded-full ${
@@ -947,16 +1234,33 @@ export default function ProposalBuilder({
                 {saveStatus === "saving" ? "Saving..." : saveStatus === "saved" ? "Auto-saved" : "Unsaved"}
               </span>
             </div>
-          )}
+          ) : null}
 
           <Link
-            href="/"
+            href={isOfflineDraft ? "/quotations" : "/"}
             className="px-3.5 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
           >
             Save & Exit
           </Link>
         </div>
       </div>
+
+      {/* Offline Draft Banner */}
+      {isOfflineDraft && (
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500/10 via-amber-50/50 to-emerald-500/10 border border-amber-200/80 rounded-2xl text-xs">
+          <div className="flex items-center gap-2 text-amber-900 font-medium">
+            <Database size={14} className="text-amber-600 shrink-0" />
+            <span>
+              <strong>Offline Draft Mode:</strong> Working offline using cached catalog. All calculations are local estimates. Server synchronization and official quotation numbering will occur online in Phase 5.
+            </span>
+          </div>
+          {offlineDraft?.catalogVersion && (
+            <span className="text-[11px] font-mono text-gray-500 bg-white/80 px-2 py-0.5 rounded-md border border-gray-200/60">
+              Catalog: {offlineDraft.catalogVersion.slice(0, 10)}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Step Indicator Progress Bar */}
       <StepIndicator

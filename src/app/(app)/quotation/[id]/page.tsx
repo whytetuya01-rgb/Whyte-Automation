@@ -36,6 +36,12 @@ export default async function QuotationPage(props: PageProps) {
   const { id } = await props.params;
   const searchParams = await props.searchParams;
 
+  // Seamless routing: Redirect offline draft IDs to client draft builder
+  if (id.startsWith("draft_")) {
+    const stepQuery = searchParams?.step ? `?step=${searchParams.step}` : "";
+    redirect(`/quotation/draft/${id}${stepQuery}`);
+  }
+
   await connectMongoDB();
 
   const userRole = (session.user as any)?.role;

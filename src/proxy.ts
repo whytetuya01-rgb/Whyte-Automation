@@ -25,7 +25,7 @@ import { UNAUTHENTICATED_MESSAGE } from "@/lib/api-response";
  */
 
 /** Public auth screens. Matched exactly, or as a parent path segment. */
-const PUBLIC_PAGES = ["/login", "/register", "/admin/login", "/admin/register"];
+const PUBLIC_PAGES = ["/login", "/register", "/admin/login", "/admin/register", "/offline.html"];
 
 /** NextAuth framework endpoints that must stay reachable to sign in. */
 const PUBLIC_API_PREFIX = "/api/auth";
@@ -144,6 +144,6 @@ export async function proxy(request: NextRequest) {
 export const config = {
   // Everything except Next internals and static files.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:png|jpg|jpeg|svg|webp|avif|gif|ico|woff|woff2|ttf|css|js|map|txt|xml|json)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|robots.txt|sitemap.xml|.*\\.(?:png|jpg|jpeg|svg|webp|avif|gif|ico|woff|woff2|ttf|css|js|map|txt|xml|json|html)$).*)",
   ],
 };

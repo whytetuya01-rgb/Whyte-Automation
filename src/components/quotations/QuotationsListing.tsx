@@ -20,6 +20,7 @@ import {
   Layers,
   ShoppingBag,
   X,
+  Database,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
@@ -28,6 +29,7 @@ import { QuotationStatus, HouseType } from "@/types";
 import { Select } from "@/components/ui/Select";
 import { Check, Truck, Wallet } from "lucide-react";
 import Pagination from "@/components/shared/Pagination";
+import OfflineDraftsModal from "@/components/offline/OfflineDraftsModal";
 
 /** Pre-aggregated summary over the FULL filtered set (not just the current page). */
 export interface QuotationSummaryMetrics {
@@ -139,6 +141,7 @@ export default function QuotationsListing({
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [transitioningId, setTransitioningId] = useState<string | null>(null);
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null);
+  const [offlineDraftsModalOpen, setOfflineDraftsModalOpen] = useState(false);
   const confirm = useConfirm();
 
   // Computed summary metrics from real database data. When the server already
@@ -305,13 +308,33 @@ export default function QuotationsListing({
             Create, manage and track smart automation proposals for your clients.
           </p>
         </div>
-        <Link
-          href="/quotation/new"
-          className="group inline-flex items-center justify-center gap-2 px-5 py-3 bg-gray-950 text-white rounded-2xl font-semibold text-sm hover:bg-gray-800 active:scale-[0.98] transition-all shadow-lg shadow-gray-900/20 shrink-0 border border-gray-900"
-        >
-          <Plus size={16} className="group-hover:rotate-90 transition-transform duration-200" />
-          New Quotation
-        </Link>
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setOfflineDraftsModalOpen(true)}
+            className="inline-flex items-center justify-center gap-2 px-4 py-3 bg-white text-gray-700 hover:text-gray-900 rounded-2xl font-semibold text-sm hover:bg-gray-50 active:scale-[0.98] transition-all shadow-2xs border border-gray-200"
+            title="Manage Offline Quotation Drafts"
+          >
+            <Database size={16} className="text-gray-500" />
+            <span>Offline Drafts</span>
+          </button>
+          <Link
+            href="/quotation/draft/new"
+            prefetch={true}
+            className="hidden pointer-events-none"
+            aria-hidden="true"
+            tabIndex={-1}
+          >
+            Prefetch
+          </Link>
+          <Link
+            href="/quotation/new"
+            className="group inline-flex items-center justify-center gap-2 px-5 py-3 bg-gray-950 text-white rounded-2xl font-semibold text-sm hover:bg-gray-800 active:scale-[0.98] transition-all shadow-lg shadow-gray-900/20 border border-gray-900"
+          >
+            <Plus size={16} className="group-hover:rotate-90 transition-transform duration-200" />
+            New Quotation
+          </Link>
+        </div>
       </div>
 
       {/* ── KPI Cards ──────────────────────────────────────────────── */}
@@ -921,6 +944,10 @@ export default function QuotationsListing({
       )}
 
       {/* Delete confirmation is raised through the global ConfirmProvider portal. */}
+      <OfflineDraftsModal
+        isOpen={offlineDraftsModalOpen}
+        onClose={() => setOfflineDraftsModalOpen(false)}
+      />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { signOut } from "next-auth/react";
 import { LogOut } from "lucide-react";
 import toast from "react-hot-toast";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
+import { clearOfflineIdentity } from "@/lib/offline/identity";
 
 /**
  * Returns a function that asks for confirmation and then signs the user out.
@@ -31,6 +32,7 @@ export function useConfirmSignOut(callbackUrl: string) {
         onConfirm: async () => {
           try {
             beforeSignOut?.();
+            clearOfflineIdentity();
             await signOut({ callbackUrl });
           } catch (error) {
             console.error("Sign out failed:", error);
