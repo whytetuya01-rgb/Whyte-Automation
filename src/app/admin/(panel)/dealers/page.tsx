@@ -35,6 +35,7 @@ import { useConfirm } from "@/components/providers/ConfirmProvider";
 import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
+import Pagination from "@/components/shared/Pagination";
 import { Input, Button, Select, Textarea } from "@/components/ui";
 import { SearchableSelect, type SelectOption } from "@/components/ui/SearchableSelect";
 import Link from "next/link";
@@ -464,6 +465,7 @@ export default function DealersPage() {
                   gstNumber: "",
                   address: "",
                   discountAllocationPercent: 0,
+                  companyId: 0,
                 });
                 setShowPassword(false);
                 setIsCreateModalOpen(true);

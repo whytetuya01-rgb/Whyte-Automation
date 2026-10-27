@@ -115,7 +115,7 @@ const mockRoomTypes: RoomType[] = [
   { id: 7, name: "Guest Room", isActive: true, sortOrder: 7 },
   { id: 8, name: "Study Room", isActive: true, sortOrder: 8 },
   { id: 9, name: "Servant Room", isActive: true, sortOrder: 9 },
-];
+] as any;
 
 const mockHouseType: HouseType = {
   id: 101,
@@ -125,7 +125,7 @@ const mockHouseType: HouseType = {
     { roomTypeId: 2, defaultCount: 1 },
     { roomTypeId: 3, defaultCount: 1 },
   ],
-};
+} as any;
 
 const resolved = resolveRoomPresets({ houseType: mockHouseType, allRoomTypes: mockRoomTypes });
 assert.equal(resolved.recommendedPresets.length, 3, "House type should resolve 3 recommended presets");
@@ -140,7 +140,7 @@ console.log("\n--- Section 2: Exclusivity & Separation Tests ---");
 let rooms: QuotationRoom[] = [
   { id: 10, quotationId: 1, roomTypeId: 1, roomType: mockRoomTypes[0], items: [] },
   { id: 11, quotationId: 1, roomTypeId: 2, roomType: mockRoomTypes[1], items: [] },
-];
+] as any;
 
 let res = classifySpaces({
   existingRooms: rooms,
@@ -169,7 +169,7 @@ console.log("\n--- Section 3: Adding Non-Recommended Spaces (Selected Other Spac
 rooms = [
   ...rooms,
   { id: 12, quotationId: 1, roomTypeId: 6, roomType: mockRoomTypes[5], items: [] }, // Bedroom
-];
+] as any;
 
 res = classifySpaces({
   existingRooms: rooms,
@@ -190,7 +190,7 @@ rooms = [
   ...rooms,
   { id: 13, quotationId: 1, roomTypeId: 7, roomType: mockRoomTypes[6], items: [] }, // Guest Room
   { id: 14, quotationId: 1, roomTypeId: null, customName: "Wine Cellar", items: [] }, // Custom space
-];
+] as any;
 
 res = classifySpaces({
   existingRooms: rooms,
@@ -256,7 +256,7 @@ console.log("\n--- Section 5: Quotation-Specific Renaming & Immutability ---");
 rooms = [
   { id: 10, quotationId: 1, roomTypeId: 1, roomType: mockRoomTypes[0], customName: "Main Hall", items: [] }, // Renamed recommended
   { id: 15, quotationId: 1, roomTypeId: 6, roomType: mockRoomTypes[5], customName: "Person A Room", items: [] }, // Renamed non-recommended
-];
+] as any;
 
 res = classifySpaces({
   existingRooms: rooms,

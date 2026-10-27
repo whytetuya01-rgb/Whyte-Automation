@@ -161,7 +161,7 @@ export async function getSuperAdminDashboardData(): Promise<SuperAdminDashboardD
         status: { $ne: "suspended" },
       }),
       Company.countDocuments({ registrationStatus: "rejected" }),
-      Company.countDocuments({ status: { $in: ["suspended", "deactivated"] } }),
+      Company.countDocuments({ status: "suspended" }),
       Company.find({ registrationStatus: "pending_review" })
         .sort({ registrationSubmittedAt: -1, createdAt: -1 })
         .limit(5)

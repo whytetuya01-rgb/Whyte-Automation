@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { AnimatePresence, MotionConfig, motion, type PanInfo } from "motion/react";
 import AdminSidebar from "./AdminSidebar";
 import ActAsCompanyControl from "./ActAsCompanyControl";
+import OfflineStatusPill from "@/components/offline/OfflineStatusPill";
 import { ArrowUpRight, Shield } from "lucide-react";
 import Link from "next/link";
 import { WhyteContentLoader, WhyteFullScreenLoader } from "@/components/shared/WhyteLoader";
@@ -114,7 +115,10 @@ export default function AdminLayoutWrapper({
           </span> */}
           </div>
 
-          <ActAsCompanyControl />
+          <div className="flex items-center gap-2">
+            <OfflineStatusPill />
+            <ActAsCompanyControl />
+          </div>
 
           {/* <div className="flex items-center gap-2.5">
           <Link
