@@ -30,6 +30,8 @@ export interface Category {
   products?: Product[];
   variantTiers?: VariantOption[] | null;
   variantFinishes?: VariantOption[] | null;
+  /** Top-level categories only: shown as a product series (see src/lib/productSeries.ts). */
+  series?: import("@/lib/productSeries").CategorySeries | null;
 }
 
 /**

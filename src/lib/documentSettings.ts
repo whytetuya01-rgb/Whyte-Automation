@@ -115,6 +115,8 @@ export const DOCUMENT_LABEL_DEFAULTS = {
   tierLabel: "Specified Automation Tier",
   finishLabel: "Specified Surface Finish",
   scopeLine3: "Product-specific installation location references recorded for on-site implementation.",
+  seriesEyebrow: "Product Range",
+  seriesTitle: "Our Product Series",
 } as const;
 
 export type DocumentLabelKey = keyof typeof DOCUMENT_LABEL_DEFAULTS;
@@ -185,6 +187,8 @@ export const DOCUMENT_LABEL_LIMITS: Record<DocumentLabelKey, number> = {
   tierLabel: 40,
   finishLabel: 40,
   scopeLine3: 140,
+  seriesEyebrow: 40,
+  seriesTitle: 50,
 };
 
 /** How the editor groups the labels, in document order. */
@@ -204,7 +208,7 @@ export const DOCUMENT_LABEL_GROUPS: ReadonlyArray<{ title: string; keys: readonl
   { title: "Terms & next steps", keys: ["includesTitle", "termsTitle", "validityLabel", "termsLabel", "remarksLabel", "nextStepsTitle"] },
   {
     title: "Introduction & project overview pages",
-    keys: ["aboutEyebrow", "overviewEyebrow", "overviewTitle", "overviewIntro", "dealerLabel", "gstinLabel", "spacesTitle", "spaceSingular", "spacePlural", "noSpaces", "scopeTitle", "scopeLine1", "scopeLine2", "automatedSpaces", "tierLabel", "finishLabel", "scopeLine3"],
+    keys: ["aboutEyebrow", "overviewEyebrow", "overviewTitle", "overviewIntro", "dealerLabel", "gstinLabel", "spacesTitle", "spaceSingular", "spacePlural", "noSpaces", "scopeTitle", "scopeLine1", "scopeLine2", "automatedSpaces", "tierLabel", "finishLabel", "scopeLine3", "seriesEyebrow", "seriesTitle"],
   },
   { title: "Every page", keys: ["connectWith", "pageLabel", "pageOf"] },
 ];
@@ -273,6 +277,8 @@ export const DOCUMENT_LABEL_NAMES: Record<DocumentLabelKey, string> = {
   tierLabel: "Tier line label",
   finishLabel: "Finish line label",
   scopeLine3: "Scope line 3",
+  seriesEyebrow: "Product series page eyebrow",
+  seriesTitle: "Product series page title",
 };
 
 export interface NextStep {

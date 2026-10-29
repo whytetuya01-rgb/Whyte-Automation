@@ -20,6 +20,7 @@ import {
   ChevronRight,
   MoreHorizontal,
   Tag,
+  Layers,
 } from "lucide-react";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
@@ -27,6 +28,7 @@ import { confirmDeletionWithImpact } from "@/lib/deletionImpactClient";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
+import SeriesSettingsModal from "@/components/admin/categories/SeriesSettingsModal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useCategories, useAdminProducts } from "@/lib/swr";
 import { Input, Button } from "@/components/ui";
@@ -36,9 +38,11 @@ import { Input, Button } from "@/components/ui";
 // ─────────────────────────────────────────────────────────────────────────────
 function CategoryMenu({
   onEdit,
+  onSeries,
   onDelete,
 }: {
   onEdit: () => void;
+  onSeries: () => void;
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -71,6 +75,13 @@ function CategoryMenu({
             className="flex items-center gap-2 w-full px-3 py-2 text-neutral-700 hover:bg-neutral-50 transition-colors"
           >
             <Pencil size={13} className="text-neutral-400" /> Edit
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onSeries(); }}
+            className="flex items-center gap-2 w-full px-3 py-2 text-neutral-700 hover:bg-neutral-50 transition-colors"
+          >
+            <Layers size={13} className="text-neutral-400" /> Series settings
           </button>
           <div className="my-1 border-t border-neutral-100" />
           <button
@@ -209,6 +220,8 @@ export default function CategoriesPage() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const confirm = useConfirm();
+  // Top-level category whose product-series settings are open.
+  const [seriesCategory, setSeriesCategory] = useState<Category | null>(null);
 
   const refreshAll = () => { mutateCategories(); mutateProducts(); };
 
@@ -435,6 +448,16 @@ export default function CategoriesPage() {
                       <h3 className="text-[15px] font-bold text-neutral-900 leading-tight truncate">
                         {cat.name}
                       </h3>
+                      {cat.series?.enabled && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1" data-testid="series-badges">
+                          <span className="inline-flex items-center gap-1 rounded-md border border-accent-border bg-accent-light px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-accent-foreground">
+                            <Layers size={10} /> Series
+                          </span>
+                          {cat.series.showOnPdf && (
+                            <span className="rounded-md border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-600">On PDF</span>
+                          )}
+                        </div>
+                      )}
                       <div className="flex items-center gap-1.5 mt-1">
                         {count > 0 ? (
                           <>
@@ -450,6 +473,7 @@ export default function CategoriesPage() {
                     </div>
                     <CategoryMenu
                       onEdit={() => handleEditOpen(cat)}
+                      onSeries={() => setSeriesCategory(cat)}
                       onDelete={() => handleDelete(cat)}
                     />
                   </div>
@@ -528,6 +552,8 @@ export default function CategoriesPage() {
       )}
 
       {/* ── ADD MODAL ───────────────────────────────────────────────────────── */}
+      <SeriesSettingsModal category={seriesCategory} onClose={() => setSeriesCategory(null)} onSaved={refreshAll} />
+
       <Modal
         isOpen={showAddModal}
         onClose={() => { setShowAddModal(false); setAddName(""); setAddNameError(null); setAddTiers([]); setAddFinishes([]); }}

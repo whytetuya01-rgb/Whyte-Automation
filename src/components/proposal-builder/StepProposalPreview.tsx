@@ -34,9 +34,13 @@ import {
   ProposalLogo,
   ProposalNextSteps,
   ProposalPageFooter,
+  ProposalSeriesCards,
   proposalValidityText,
 } from "@/components/proposal/ProposalDocumentParts";
 import { resolveProposalContent, type IntroPageMode } from "@/lib/documentSettings";
+import useSWR from "swr";
+import { swrFetcher } from "@/lib/swr";
+import { SERIES_PER_PAGE, seriesForDocument, type CompanySeriesCatalog } from "@/lib/productSeries";
 import QuotationDeliveryModal from "@/components/proposal-builder/QuotationDeliveryModal";
 import { useCompanyBranding } from "@/components/providers/BrandingProvider";
 import { QUOTATION_CGST_PERCENT, QUOTATION_SGST_PERCENT, calculateQuotationGst } from "@/lib/pricing";
@@ -62,6 +66,7 @@ export interface ProposalPageSlice {
     | { type: "about_whyte" }
     | { type: "about_company" }
     | { type: "project_overview_and_scope" }
+    | { type: "product_series"; start: number }
     | {
         type: "switchboard_config_room";
         room: QuotationRoom;
@@ -503,7 +508,7 @@ function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation)
 /**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  */
-function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, showOverview: boolean): ProposalPageSlice[] {
+function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, showOverview: boolean, seriesCount: number): ProposalPageSlice[] {
   const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
 
@@ -543,6 +548,10 @@ function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, show
   }
   if (showOverview) {
     pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "project_overview_and_scope" }] });
+  }
+  // The product series the quotation uses (marked "show on PDF"), a fixed number per page.
+  for (let start = 0; start < seriesCount; start += SERIES_PER_PAGE) {
+    pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "product_series", start }] });
   }
 
   let currentPage = pages.length + 1;
@@ -859,9 +868,17 @@ export default function StepProposalPreview({
       : { color: "var(--accent)", opacity: 0.1 };
   const hasIncludes = content.includes.length > 0 || configuredTiers.length > 0 || configuredFinishes.length > 0;
 
+  // Product series used by this quotation (top-level categories marked "show on PDF"). Not loadable (offline draft,
+  // platform context) simply means no series page.
+  const { data: seriesCatalog } = useSWR<CompanySeriesCatalog>("/api/catalog/series", swrFetcher, { revalidateOnFocus: false, shouldRetryOnError: false });
+  const documentSeries = useMemo(
+    () => seriesForDocument(renderableRooms.flatMap((room) => eligibleItemsOfRoom(room, room.items, isLocked)), seriesCatalog),
+    [renderableRooms, isLocked, seriesCatalog]
+  );
+
   const proposalPages = useMemo(() => {
-    return paginateQuotation(quotation, content.introPages, content.showOverview);
-  }, [quotation, content.introPages, content.showOverview]);
+    return paginateQuotation(quotation, content.introPages, content.showOverview, documentSeries.length);
+  }, [quotation, content.introPages, content.showOverview, documentSeries.length]);
 
   const A4_WIDTH_MM = 210;
   const A4_HEIGHT_MM = 297;
@@ -1522,6 +1539,18 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                           </div>
                         </div>
                       </div>
+                    );
+                  }
+
+                  /* 2c. PRODUCT SERIES used by this quotation */
+                  if (section.type === "product_series") {
+                    return (
+                      <ProposalSeriesCards
+                        key={sIdx}
+                        series={documentSeries.slice(section.start, section.start + SERIES_PER_PAGE)}
+                        eyebrow={content.text.seriesEyebrow}
+                        title={content.text.seriesTitle}
+                      />
                     );
                   }
 

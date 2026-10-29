@@ -2,6 +2,7 @@ import { Globe, Mail, Phone } from "lucide-react";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import SocialLinks from "@/components/shared/SocialLinks";
 import type { ProposalContent } from "@/lib/documentSettings";
+import type { DocumentSeries } from "@/lib/productSeries";
 
 type AboutContent = NonNullable<ProposalContent["about"]>;
 
@@ -102,6 +103,36 @@ export function ProposalPageFooter({ content, pageNumber, totalPages }: { conten
       <span className="font-mono tracking-wider text-gray-400">
         {content.text.pageLabel} {pageNumber} {content.text.pageOf} {totalPages}
       </span>
+    </div>
+  );
+}
+
+/**
+ * The product series a quotation uses (top-level categories marked "show on PDF"): image, name and description, up to
+ * SERIES_PER_PAGE per page. The image is optional; the description keeps the company's line breaks.
+ */
+export function ProposalSeriesCards({ series, eyebrow, title }: { series: DocumentSeries[]; eyebrow: string; title: string }) {
+  return (
+    <div className="space-y-5" data-testid="proposal-series">
+      <div>
+        <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">{eyebrow}</span>
+        <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">{title}</h2>
+        <div className="h-[3px] w-[130px] rounded-full bg-gradient-to-r from-accent to-accent/0 mt-2" />
+      </div>
+      {series.map((item) => (
+        <div key={item.id} className="flex items-stretch gap-5 rounded-2xl border border-gray-200 border-l-4 border-l-accent bg-white p-4" data-testid="proposal-series-card">
+          {item.imageUrl && (
+            <div className="flex h-36 w-52 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-50">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={item.imageUrl} alt={`${item.name} series`} className="max-h-full max-w-full object-contain" />
+            </div>
+          )}
+          <div className="min-w-0 space-y-1.5">
+            <p className="text-xl font-black tracking-tight text-gray-950">{item.name}</p>
+            {item.description && <p className="text-sm leading-relaxed text-gray-600 whitespace-pre-line">{item.description}</p>}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

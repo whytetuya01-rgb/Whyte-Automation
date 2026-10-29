@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 import { tenantScopePlugin } from "@/lib/tenant/plugin";
+import { SERIES_LIMITS, type CategorySeries } from "@/lib/productSeries";
 
 export interface ICategory extends SoftDeleteFields {
   _id: number;
@@ -15,6 +16,8 @@ export interface ICategory extends SoftDeleteFields {
   createdAt: Date;
   variantTiers: unknown | null;
   variantFinishes: unknown | null;
+  /** Top-level categories only: presented as a product series (absent on every category never marked). */
+  series?: CategorySeries | null;
 }
 
 export interface ICategoryDocument extends Omit<ICategory, "id">, Document<number> {
@@ -32,6 +35,19 @@ const CategorySchema = new Schema<ICategoryDocument>(
     createdAt: { type: Date, default: Date.now },
     variantTiers: { type: mongoose.Schema.Types.Mixed, default: null },
     variantFinishes: { type: mongoose.Schema.Types.Mixed, default: null },
+    series: {
+      type: new Schema(
+        {
+          enabled: { type: Boolean, default: false },
+          description: { type: String, default: null, maxlength: SERIES_LIMITS.description },
+          imageUrl: { type: String, default: null },
+          imagePublicId: { type: String, default: null },
+          showOnPdf: { type: Boolean, default: false },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
   },
   {
     _id: false,
@@ -93,6 +109,13 @@ CategorySchema.index({ companyId: 1, parentId: 1, sortOrder: 1 });
 // on this fresh Schema instance, before the model below compiles it.
 softDeletePlugin(CategorySchema, { blockHardDelete: true });
 tenantScopePlugin(CategorySchema);
+
+// Next dev hot reload keeps an older compiled schema in mongoose.models, and Mongoose silently drops fields it does not
+// know: rebuild a cached model that predates the series block so saving a series is never lost.
+const cachedCategory = mongoose.models.Category;
+if (cachedCategory && !cachedCategory.schema.path("series.enabled")) {
+  mongoose.deleteModel("Category");
+}
 
 export const Category: Model<ICategoryDocument> =
   mongoose.models.Category || mongoose.model<ICategoryDocument>("Category", CategorySchema);
