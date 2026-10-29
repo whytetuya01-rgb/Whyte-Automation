@@ -265,8 +265,8 @@ export default function CompaniesPage() {
                       <Button
                         type="button"
                         size="sm"
-                        disabled={busyId !== null || item.ownerEmailVerified === false}
-                        title={item.ownerEmailVerified === false ? "The owner has not verified their email address yet." : undefined}
+                        disabled={busyId !== null || item.approvalWaitsForVerification}
+                        title={item.approvalWaitsForVerification ? "The owner has not verified their email address yet." : undefined}
                         onClick={() => openConfirm("approve", item)}
                         data-testid="approve-button"
                       >

@@ -58,6 +58,8 @@ try {
     SESSION_ACTOR_CACHE_TTL_MS: "0",
     COMPANY_REGISTER_RATE_LIMIT_MAX: "100",
   });
+  // This suite checks the approval gate itself, which is off by default until the sending domain's DNS is ready.
+  process.env.REQUIRE_OWNER_EMAIL_VERIFICATION = "true";
   server = await startIsolatedServer("onboarding", [
     { _id: 1, email: "super@example.com", role: "super_admin", name: "Super" },
     { _id: 2, email: "owner.a@example.com", role: "company_owner", name: "Owner A", companyId: 10 },

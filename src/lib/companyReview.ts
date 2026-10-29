@@ -1,4 +1,4 @@
-import { isVerificationPending, type OwnerEmailVerification } from "@/lib/ownerEmailVerification";
+import { isOwnerEmailVerificationRequired, isVerificationPending, type OwnerEmailVerification } from "@/lib/ownerEmailVerification";
 import { z } from "zod";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Company } from "@/models";
@@ -58,6 +58,8 @@ export interface RegistrationListItem {
   owner: RegistrationOwner | null;
   /** true / false for self-registrations; null for companies that predate email verification. */
   ownerEmailVerified: boolean | null;
+  /** Approval is held back until the owner verifies (only while REQUIRE_OWNER_EMAIL_VERIFICATION is on). */
+  approvalWaitsForVerification: boolean;
 }
 
 type LeanCompany = {
@@ -129,6 +131,7 @@ function toItem(company: LeanCompany, owner: RegistrationOwner | null): Registra
       : null,
     owner,
     ownerEmailVerified: company.ownerEmailVerification ? Boolean(company.ownerEmailVerification.verifiedAt) : null,
+    approvalWaitsForVerification: isOwnerEmailVerificationRequired() && isVerificationPending(company.ownerEmailVerification),
   };
 }
 
@@ -218,8 +221,11 @@ async function describeBlockedTransition(companyId: number, wanted: "approved" |
 
 export async function approveCompany(companyId: number, actor: ReviewActor): Promise<DecisionResult> {
   await connectMongoDB();
-  // A self-registration can be approved only once its owner has verified the email address.
-  const current = await Company.findById(companyId).select("registrationStatus ownerEmailVerification").lean<LeanCompany | null>();
+  // While verification is required (REQUIRE_OWNER_EMAIL_VERIFICATION), a self-registration can be approved only once
+  // its owner has verified the email address; otherwise verification is information only.
+  const current = isOwnerEmailVerificationRequired()
+    ? await Company.findById(companyId).select("registrationStatus ownerEmailVerification").lean<LeanCompany | null>()
+    : null;
   if (current?.registrationStatus === "pending_review" && isVerificationPending(current.ownerEmailVerification)) {
     throw new ApiError("CONFLICT", "The owner has not verified their email address yet. Ask them to open the link we emailed, or resend it.", { details: { reason: "email_unverified" } });
   }

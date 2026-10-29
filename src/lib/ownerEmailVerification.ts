@@ -38,6 +38,16 @@ export function newVerification(): { token: string; record: OwnerEmailVerificati
 }
 
 /** True while a self-registration still waits for its owner to verify the email (false for legacy companies). */
+/**
+ * Whether approving a self-registration waits for the owner's email verification. Off unless
+ * REQUIRE_OWNER_EMAIL_VERIFICATION is "true": the verification emails need the sending domain's DNS records, and
+ * until those exist a mandatory check would leave new companies impossible to approve. While it is off, the
+ * verification email, the verified badge and "Resend verification" keep working as information only.
+ */
+export function isOwnerEmailVerificationRequired(): boolean {
+  return process.env.REQUIRE_OWNER_EMAIL_VERIFICATION === "true";
+}
+
 export function isVerificationPending(verification: OwnerEmailVerification | null | undefined): boolean {
   return Boolean(verification) && !verification?.verifiedAt;
 }

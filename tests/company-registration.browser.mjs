@@ -65,6 +65,8 @@ try {
     RESEND_API_BASE_URL: `http://127.0.0.1:${port}`,
     SESSION_ACTOR_CACHE_TTL_MS: "0",
   });
+  // This suite checks the "Approve waits for email verification" UI, which is off by default until the DNS is ready.
+  process.env.REQUIRE_OWNER_EMAIL_VERIFICATION = "true";
   server = await startIsolatedServer(
     "company-reg-ui",
     [{ _id: 1, email: "super@example.com", role: "super_admin", name: "Super Admin" }],
