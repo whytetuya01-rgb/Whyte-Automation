@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import {
   Users,
@@ -32,12 +32,12 @@ import notify from "@/lib/notify";
 import { apiJson, notifyApiError, safeMessage } from "@/lib/apiClient";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
+import { useCompanyBranding } from "@/components/providers/BrandingProvider";
 import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Pagination from "@/components/shared/Pagination";
 import { Input, Button, Select, Textarea } from "@/components/ui";
-import { SearchableSelect, type SelectOption } from "@/components/ui/SearchableSelect";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -139,35 +139,9 @@ export default function DealersPage() {
     companyId: 0,
   });
 
-  // Multi-tenant companies list for Super Admin
-  const [platformCompanies, setPlatformCompanies] = useState<Array<{ id: number; name: string; slug: string }>>([]);
-
-  useEffect(() => {
-    if (isSuperAdmin) {
-      fetch("/api/platform/companies")
-        .then((res) => res.json())
-        .then((json) => {
-          if (json?.data) setPlatformCompanies(json.data);
-        })
-        .catch(() => {});
-    }
-  }, [isSuperAdmin]);
-
-  // Memoized company options for SearchableSelect with primary default option
-  const companySelectOptions: SelectOption[] = useMemo(() => {
-    return [
-      {
-        value: "0",
-        label: "Default Company (Whyte Automations)",
-        subLabel: "Primary system tenant",
-      },
-      ...platformCompanies.map((c) => ({
-        value: String(c.id),
-        label: `${c.name} (ID: ${c.id})`,
-        subLabel: c.slug,
-      })),
-    ];
-  }, [platformCompanies]);
+  // Dealers always belong to the company being worked in: a company admin's own, or the one a Super Admin is
+  // acting as. In platform mode (no company selected) dealers cannot be added.
+  const hasCompany = useCompanyBranding().companyId !== null;
 
   // Keep selectedDealer in sync when dealers data is updated/refreshed
   useEffect(() => {
@@ -326,9 +300,6 @@ export default function DealersPage() {
         payload.password = editForm.password;
       }
 
-      if (isSuperAdmin && editForm.companyId > 0) {
-        payload.companyId = editForm.companyId;
-      }
 
       await apiJson.patch(`/api/admin/dealers/${editDealer.id}`, payload);
       notify.success(
@@ -402,9 +373,6 @@ export default function DealersPage() {
         discountAllocationPercent: Number(createForm.discountAllocationPercent) || 0,
       };
 
-      if (isSuperAdmin && createForm.companyId > 0) {
-        payload.companyId = createForm.companyId;
-      }
 
       const res = await apiJson.post<{ data: DealerItem }>("/api/admin/dealers", payload);
       notify.success(
@@ -470,7 +438,9 @@ export default function DealersPage() {
                 setShowPassword(false);
                 setIsCreateModalOpen(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gray-900 rounded-xl hover:bg-black transition shadow-2xs cursor-pointer"
+              disabled={!hasCompany}
+              title={hasCompany ? undefined : "Act as a company to add its dealers"}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-gray-900 rounded-xl hover:bg-black transition shadow-2xs cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
             >
               <UserPlus size={14} />
               <span>Create Dealer</span>
@@ -478,6 +448,12 @@ export default function DealersPage() {
           </div>
         }
       />
+
+      {!hasCompany && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status" data-testid="dealers-platform-notice">
+          You are in platform mode. Use <strong>Act as company</strong> to choose a company, then add or edit its dealers.
+        </p>
+      )}
 
       {/* Filters Bar */}
       <div className="flex flex-col md:flex-row items-stretch md:items-center gap-3 bg-white p-3.5 rounded-2xl border border-gray-200/80 shadow-2xs">
@@ -1006,26 +982,6 @@ export default function DealersPage() {
                 rows={2}
               />
 
-              {/* Super Admin: Organization Reassignment */}
-              {isSuperAdmin && (
-                <div className="pt-2 border-t border-gray-100">
-                  <SearchableSelect
-                    label="Assigned Tenant Organization (Super Admin Control)"
-                    value={String(editForm.companyId || "0")}
-                    onChange={(e) =>
-                      setEditForm({
-                        ...editForm,
-                        companyId: Number(e.target.value) || 0,
-                      })
-                    }
-                    options={companySelectOptions}
-                    placeholder="Select tenant organization"
-                    searchPlaceholder="Search company by name or ID..."
-                    helperText="Reassigning tenant organization moves this dealer under another company."
-                    direction="auto"
-                  />
-                </div>
-              )}
             </div>
 
             {/* Bottom Actions */}
@@ -1426,26 +1382,6 @@ export default function DealersPage() {
                 rows={2}
               />
 
-              {/* Super Admin: Organization Assignment */}
-              {isSuperAdmin && (
-                <div className="pt-2 border-t border-gray-100">
-                  <SearchableSelect
-                    label="Assigned Tenant Organization (Super Admin Control)"
-                    value={String(createForm.companyId || "0")}
-                    onChange={(e) =>
-                      setCreateForm({
-                        ...createForm,
-                        companyId: Number(e.target.value) || 0,
-                      })
-                    }
-                    options={companySelectOptions}
-                    placeholder="Select tenant organization"
-                    searchPlaceholder="Search company by name or ID..."
-                    helperText="Select which company organization this dealer will be created under."
-                    direction="auto"
-                  />
-                </div>
-              )}
             </div>
 
             {/* Bottom Actions */}

@@ -10,7 +10,6 @@ import { parseSearchQueryParam, parseStringQueryParam } from "@/lib/validation/c
 import { emailSchema, mobileSchema, optionalEmailSchema, optionalGstinSchema } from "@/lib/validation/fields";
 import { getNextSequence } from "@/lib/counter";
 import { runUnscoped } from "@/lib/tenant/context";
-import { DEFAULT_COMPANY_SLUG } from "@/lib/tenant/constants";
 
 export const dynamic = "force-dynamic";
 
@@ -164,7 +163,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    return await withPermission("dealers:manage", async ({ userId, session, companyId, role }) => {
+    return await withPermission("dealers:manage", async ({ userId, session, companyId }) => {
       const parsed = createDealerSchema.safeParse(await readJsonBody(req));
       if (!parsed.success) {
         return handleApiError(parsed.error, { logPrefix: "POST /api/admin/dealers" });
@@ -186,6 +185,16 @@ export async function POST(req: Request) {
         companyId: requestedCompanyId,
       } = parsed.data;
 
+      // A dealer always belongs to the caller's active company: a company admin's own company, or the company a
+      // Super Admin is acting as. The tenant layer only creates records in that company, so anything else is
+      // refused here with a clear message instead of failing later.
+      if (companyId === null) {
+        throw new ApiError("FORBIDDEN", "Use \"Act as company\" to choose a company, then add its dealers.");
+      }
+      if (requestedCompanyId !== undefined && requestedCompanyId !== companyId) {
+        throw new ApiError("VALIDATION_ERROR", "A dealer is added to the company you are working in. Switch company with \"Act as company\" to add dealers elsewhere.", { field: "companyId" });
+      }
+
       const normalizedEmail = email.trim().toLowerCase();
 
       // Email uniqueness is global across all companies
@@ -199,14 +208,7 @@ export async function POST(req: Request) {
         });
       }
 
-      // Determine target companyId:
-      // 1. Super Admin can assign explicitly via requestedCompanyId or fallback to act-as companyId
-      // 2. Regular Company Admin is always bound to their own companyId
-      let targetCompanyId = role === "super_admin" && requestedCompanyId ? requestedCompanyId : companyId;
-      if (!targetCompanyId) {
-        const defaultCompany = await Company.findOne({ slug: DEFAULT_COMPANY_SLUG }).select("_id").lean();
-        targetCompanyId = defaultCompany?._id ?? 1;
-      }
+      const targetCompanyId = companyId;
 
       const passwordHash = await bcrypt.hash(password, 12);
       const newId = await getNextSequence("adminUser", AdminUser);

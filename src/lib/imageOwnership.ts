@@ -2,13 +2,17 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Company } from "@/models";
 import { ApiError } from "@/lib/api-response";
 import { canManageImage } from "@/lib/uploadPaths";
+import { DEFAULT_COMPANY_SLUG } from "@/lib/tenant/constants";
 
 /**
  * The company that owns the legacy flat `whyte/products/` assets: the default
- * company the Phase 1 migration created (slug `whyte`). `null` if there isn't
+ * company the Phase 1 migration created, the same one the tenant backfill
+ * classifies them under. It must be the shared default slug: a separate literal
+ * ("whyte") left Whyte unable to manage its own legacy images and would hand them
+ * to any company that self-registered under that name. `null` if there isn't
  * one — in which case no company owns legacy assets and none can manage them.
  */
-export const LEGACY_ASSET_OWNER_SLUG = "whyte";
+export const LEGACY_ASSET_OWNER_SLUG = DEFAULT_COMPANY_SLUG;
 
 export async function resolveLegacyOwnerCompanyId(): Promise<number | null> {
   await connectMongoDB();

@@ -155,12 +155,10 @@ export async function PATCH(req: Request, context: RouteContext) {
       dealer.passwordHash = await bcrypt.hash(body.password, 12);
     }
 
-    // Company assignment update (Super Admin only)
-    if (body.companyId !== undefined) {
-      if (role !== "super_admin") {
-        throw new ApiError("FORBIDDEN", "Only Super Admin can reassign a dealer's company.");
-      }
-      dealer.companyId = body.companyId;
+    // A dealer's company never changes after creation (the tenant layer makes companyId immutable and the dealer's
+    // quotations stay with that company). Sending the current company is accepted as a no-op.
+    if (body.companyId !== undefined && body.companyId !== dealer.companyId) {
+      throw new ApiError("VALIDATION_ERROR", "A dealer's company cannot be changed. Add a new dealer account in the other company instead.", { field: "companyId" });
     }
 
     if (body.firstName !== undefined) dealer.firstName = body.firstName;
