@@ -39,10 +39,9 @@ import {
 import { resolveProposalContent, type IntroPageMode } from "@/lib/documentSettings";
 import QuotationDeliveryModal from "@/components/proposal-builder/QuotationDeliveryModal";
 import { useCompanyBranding } from "@/components/providers/BrandingProvider";
-import { calculateQuotationGst } from "@/lib/pricing";
+import { QUOTATION_CGST_PERCENT, QUOTATION_SGST_PERCENT, calculateQuotationGst } from "@/lib/pricing";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import { isValidGstin } from "@/lib/validation/fields";
-import { resolvePlaceOfSupply } from "@/lib/gstPlaceOfSupply";
 import { eligibleItemsOfRoom, isProtectedQuotationStatus } from "@/lib/quotationAvailability";
 import { groupProposalItems, type ProposalGroupingOptions, type ProposalProductRow } from "@/lib/proposalItemGroups";
 import UnavailabilityWarning from "./UnavailabilityWarning";
@@ -504,7 +503,7 @@ function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation)
 /**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  */
-function paginateQuotation(quotation: Quotation, introPages: IntroPageMode): ProposalPageSlice[] {
+function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, showOverview: boolean): ProposalPageSlice[] {
   const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
 
@@ -534,13 +533,16 @@ function paginateQuotation(quotation: Quotation, introPages: IntroPageMode): Pro
     sections: [{ type: "cover" }],
   });
 
-  // Introduction pages depend on the company's document settings: the built-in Whyte About + Overview pages
-  // (default company only), one custom About page, or none.
+  // Introduction pages depend on the company's document settings: the built-in Whyte About page (default company
+  // only) or one custom About page, then the Project Overview page when the company includes it (the standard
+  // pages always do).
   if (introPages === "standard") {
-    pages.push({ pageNumber: 2, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_whyte" }] });
-    pages.push({ pageNumber: 3, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "project_overview_and_scope" }] });
+    pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_whyte" }] });
   } else if (introPages === "custom") {
-    pages.push({ pageNumber: 2, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_company" }] });
+    pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_company" }] });
+  }
+  if (showOverview) {
+    pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "project_overview_and_scope" }] });
   }
 
   let currentPage = pages.length + 1;
@@ -805,17 +807,8 @@ export default function StepProposalPreview({
     grandTotal,
   } = gstCalculations;
 
-  // Display-only: whether the tax breakdown shows as CGST+SGST (same state
-  // as the supplier) or a single IGST line (different state). The total GST
-  // amount is identical either way — only how it's split/labelled changes.
-  const placeOfSupply = useMemo(() => {
-    return resolvePlaceOfSupply({
-      supplierGstin: company?.gstNumber,
-      clientGstin: quotation.clientGstNumber,
-      clientAddress: quotation.clientAddress,
-    });
-  }, [company?.gstNumber, quotation.clientGstNumber, quotation.clientAddress]);
-  const isInterState = placeOfSupply.type === "inter";
+  // The 18% on the net subtotal is shown as one line, the company's own charge (product prices already include GST),
+  // so the document no longer splits it into CGST + SGST or IGST by place of supply. Same amount as before.
   const igstAmount = cgstAmount + sgstAmount;
 
   const authorizedDealer = useMemo(() => getAuthorizedDealer(quotation), [quotation]);
@@ -867,8 +860,8 @@ export default function StepProposalPreview({
   const hasIncludes = content.includes.length > 0 || configuredTiers.length > 0 || configuredFinishes.length > 0;
 
   const proposalPages = useMemo(() => {
-    return paginateQuotation(quotation, content.introPages);
-  }, [quotation, content.introPages]);
+    return paginateQuotation(quotation, content.introPages, content.showOverview);
+  }, [quotation, content.introPages, content.showOverview]);
 
   const A4_WIDTH_MM = 210;
   const A4_HEIGHT_MM = 297;
@@ -1343,7 +1336,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                   behind all content. Never a status/DRAFT/DUPLICATE stamp: the document's
                   actual Draft/Sent/Approved/etc. status is shown elsewhere in the app UI,
                   not altered here, and never rendered as a warning-style stamp on the PDF. */}
-              {!page.isFirstPage && (
+              {!page.isFirstPage && content.showWatermark && (
                 <div
                   aria-hidden="true"
                   className="pointer-events-none absolute inset-0 flex items-center justify-center select-none"
@@ -1519,7 +1512,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                           </div>
 
                           {/* Row 3 — Slim Investment Strip */}
-                          <div className="px-5 py-2.5 bg-pink-50/40 border-t border-pink-100/70 flex items-center justify-between">
+                          <div className="px-5 py-2.5 bg-accent-light/40 border-t border-accent-border/50 flex items-center justify-between">
                             <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-700">
                               {content.text.totalInvestment}
                             </span>
@@ -1534,7 +1527,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
 
                   /* 2b. ABOUT THE COMPANY (custom introduction page written in the company's settings) */
                   if (section.type === "about_company" && content.about) {
-                    return <ProposalAboutCompany key={sIdx} about={content.about} />;
+                    return <ProposalAboutCompany key={sIdx} about={content.about} eyebrow={content.text.aboutEyebrow} />;
                   }
 
                   /* 2. ABOUT WHYTE (PAGE 2) */
@@ -1737,23 +1730,26 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                       <div key={sIdx} className="space-y-6">
                         {/* Section Header */}
                         <div
-                          className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-pink-50 via-white to-slate-100"
+                          className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-accent-light via-white to-slate-100"
                           style={{ minHeight: 200 }}
                         >
-                          <img
-                            src="/proposal/whyte/overview-hero.webp"
-                            alt=""
-                            className="absolute right-0 top-0 h-full w-auto max-w-none object-cover object-right"
-                          />
-                          <div className="relative z-10 w-[55%] p-6">
+                          {/* Whyte's own product photo on its document; another company's cover picture, or none. */}
+                          {(content.isDefaultCompany || content.coverImageUrl) && (
+                            <img
+                              src={content.isDefaultCompany ? "/proposal/whyte/overview-hero.webp" : (content.coverImageUrl as string)}
+                              alt=""
+                              className="absolute right-0 top-0 h-full w-auto max-w-[45%] object-cover object-right"
+                            />
+                          )}
+                          <div className={`relative z-10 p-6 ${content.isDefaultCompany || content.coverImageUrl ? "w-[55%]" : "w-full"}`}>
                             <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                              Specification & Scope
+                              {content.text.overviewEyebrow}
                             </span>
                             <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
-                              Your Project Overview
+                              {content.text.overviewTitle}
                             </h2>
                             <p className="text-sm text-gray-700 mt-1">
-                              Tailored smart automation configuration designed for{" "}
+                              {content.text.overviewIntro}{" "}
                               <strong className="text-gray-950">
                                 {quotation.clientName}
                               </strong>
@@ -1778,7 +1774,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                   </div>
                                   <div>
                                     <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
-                                      Authorized Dealer
+                                      {content.text.dealerLabel}
                                     </p>
                                     <p className="text-base font-black text-gray-950 tracking-tight mt-0.5">
                                       {authorizedDealer.companyName || authorizedDealer.name}
@@ -1792,7 +1788,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                 </div>
                                 {authorizedDealer.gstNumber && (
                                   <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-bold text-gray-600 tracking-wide shrink-0">
-                                    GSTIN {authorizedDealer.gstNumber}
+                                    {content.text.gstinLabel} {authorizedDealer.gstNumber}
                                   </span>
                                 )}
                               </div>
@@ -1825,8 +1821,8 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                         {/* Selected Automated Spaces */}
                         <div className="space-y-2.5">
                           <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
-                            Configured Spaces ({renderableRooms.length}{" "}
-                            {renderableRooms.length === 1 ? "Space" : "Spaces"})
+                            {content.text.spacesTitle} ({renderableRooms.length}{" "}
+                            {renderableRooms.length === 1 ? content.text.spaceSingular : content.text.spacePlural})
                           </h3>
                           {renderableRooms.length > 0 ? (
                             <div className="flex flex-wrap gap-2">
@@ -1849,7 +1845,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                       {getRoomFullTitle(r, renderableRooms, isMultiFloorHouseType(quotation.houseType))}
                                     </span>
                                     <span className="font-mono text-[11px] bg-accent-light text-accent-foreground border border-accent-border/60 px-1.5 py-0.5 rounded font-bold">
-                                      {count} {count === 1 ? "device" : "devices"}
+                                      {count} {count === 1 ? content.text.deviceSingular : content.text.devicePlural}
                                     </span>
                                   </div>
                                 );
@@ -1857,7 +1853,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                             </div>
                           ) : (
                             <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-400 italic">
-                              No spaces configured with active products
+                              {content.text.noSpaces}
                             </div>
                           )}
                         </div>
@@ -1865,29 +1861,24 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                         {/* Automation Scope */}
                         <div className="space-y-2 pt-1">
                           <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
-                            Automation Scope
+                            {content.text.scopeTitle}
                           </h3>
                           <div className="p-4 rounded-xl bg-gray-50/70 border border-gray-200 text-sm space-y-1.5 text-gray-700">
                             <p className="flex items-center gap-2 font-medium">
                               <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                              <span>
-                                Smart switching and touch control automation
-                                across all designated living spaces.
-                              </span>
+                              <span>{content.text.scopeLine1}</span>
                             </p>
                             <p className="flex items-center gap-2 font-medium">
                               <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
                               <span>
-                                Individual room-wise product specification and
-                                quantity mapping ({renderableRooms.length} automated
-                                spaces).
+                                {content.text.scopeLine2} ({renderableRooms.length} {content.text.automatedSpaces}).
                               </span>
                             </p>
                             {configuredTiers.length > 0 && (
                               <p className="flex items-center gap-2 font-medium">
                                 <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
                                 <span>
-                                  Specified Automation Tier:{" "}
+                                  {content.text.tierLabel}:{" "}
                                   <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[13px]">
                                     {configuredTiers.join(", ")}
                                   </strong>
@@ -1898,7 +1889,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                               <p className="flex items-center gap-2 font-medium">
                                 <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
                                 <span>
-                                  Specified Surface Finish:{" "}
+                                  {content.text.finishLabel}:{" "}
                                   <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[13px]">
                                     {configuredFinishes.join(", ")}
                                   </strong>
@@ -1907,15 +1898,13 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                             )}
                             <p className="flex items-center gap-2 font-medium">
                               <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                              <span>
-                                Product-specific installation location references
-                                recorded for on-site implementation.
-                              </span>
+                              <span>{content.text.scopeLine3}</span>
                             </p>
                           </div>
                         </div>
 
-                        {/* Official Whyte Tactus Features */}
+                        {/* Official Whyte Tactus Features: Whyte's own product line, on its own document only */}
+                        {content.isDefaultCompany && (
                         <div className="space-y-2.5 pt-1">
                           <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
                             Whyte Tactus Touch Series Technology
@@ -1982,6 +1971,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                             </div>
                           </div>
                         </div>
+                        )}
                       </div>
                     );
                   }
@@ -2061,7 +2051,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                               <p className="shrink-0 text-right leading-none">
                                 <span className="block font-mono text-2xl font-black text-accent">{deviceCount}</span>
                                 <span className="block mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                                  {deviceCount === 1 ? "device" : "devices"}
+                                  {deviceCount === 1 ? content.text.deviceSingular : content.text.devicePlural}
                                 </span>
                               </p>
                             </div>
@@ -2321,39 +2311,29 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                               </span>
                             </div>
 
-                            {/* Tax Summary Box */}
+                            {/* Additional charges box (the company's own 18% charge; product prices already include GST) */}
                             <div className="p-3 rounded-lg bg-white border border-gray-200/80 space-y-1.5">
                               <div className="flex items-center justify-between pb-1 border-b border-gray-100">
                                 <span className="text-[11px] uppercase font-bold tracking-wider text-gray-500">
                                   {content.text.taxSummary}
                                 </span>
                                 <span className="text-[11px] font-mono font-bold text-accent px-1.5 py-0.5 rounded bg-accent/5 border border-accent/20">
-                                  GST
+                                  {QUOTATION_CGST_PERCENT + QUOTATION_SGST_PERCENT}%
                                 </span>
                               </div>
                               <div className="space-y-1 text-sm">
-                                {isInterState ? (
-                                  <div className="flex justify-between items-center text-gray-600">
-                                    <span className="text-gray-700 font-medium">IGST @ 18%</span>
-                                    <span className="font-mono font-semibold text-gray-900">
-                                      {formatCurrency(igstAmount, { decimals: 2 })}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <div className="flex justify-between items-center text-gray-600">
-                                      <span className="text-gray-700 font-medium">CGST @ 9%</span>
-                                      <span className="font-mono font-semibold text-gray-900">
-                                        {formatCurrency(cgstAmount, { decimals: 2 })}
-                                      </span>
-                                    </div>
-                                    <div className="flex justify-between items-center text-gray-600">
-                                      <span className="text-gray-700 font-medium">SGST/UTGST @ 9%</span>
-                                      <span className="font-mono font-semibold text-gray-900">
-                                        {formatCurrency(sgstAmount, { decimals: 2 })}
-                                      </span>
-                                    </div>
-                                  </>
+                                {/* One line: the company's own charge on the net subtotal (product prices already include
+                                    GST). igstAmount is the existing CGST + SGST total, the same amount either way. */}
+                                <div className="flex justify-between items-center text-gray-600">
+                                  <span className="text-gray-700 font-medium">
+                                    {content.text.serviceCharge} ({QUOTATION_CGST_PERCENT + QUOTATION_SGST_PERCENT}%)
+                                  </span>
+                                  <span className="font-mono font-semibold text-gray-900">
+                                    {formatCurrency(igstAmount, { decimals: 2 })}
+                                  </span>
+                                </div>
+                                {content.text.pricesIncludeGst && (
+                                  <p className="text-[11px] text-gray-400">{content.text.pricesIncludeGst}</p>
                                 )}
                               </div>
                             </div>

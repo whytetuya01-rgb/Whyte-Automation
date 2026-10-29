@@ -109,6 +109,10 @@ export const documentSettingsSchema = z
       .nullable()
       .optional(),
     defaultTerms: paragraph("Default terms", DOCUMENT_LIMITS.defaultTerms).optional(),
+    headerLabel: line("Header label", DOCUMENT_LIMITS.headerLabel).optional(),
+    watermarkText: line("Watermark text", DOCUMENT_LIMITS.watermarkText).optional(),
+    showWatermark: z.boolean({ message: "Show watermark must be true or false." }).nullable().optional(),
+    overviewPage: z.boolean({ message: "Project overview page must be true or false." }).nullable().optional(),
   })
   .strict();
 

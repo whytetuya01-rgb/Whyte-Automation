@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Plus, RotateCcw, Trash2 } from "lucide-react";
-import { Button, Input, Textarea } from "@/components/ui";
+import { Button, Checkbox, Input, Textarea } from "@/components/ui";
 import {
   ProposalAboutCompany,
   ProposalContactCard,
@@ -52,11 +52,16 @@ interface Draft {
   nextSteps: Array<{ title: string; text: string }>;
   validityDays: string;
   defaultTerms: string;
+  /** "" = the automatic label (tagline / automation type) and watermark (company name). */
+  headerLabel: string;
+  watermarkText: string;
+  showWatermark: boolean;
+  overviewPage: boolean;
 }
 
 type Errors = Partial<
   Record<
-    "legalName" | "website" | "footerText" | "automationType" | "aboutBody" | "aboutTitle" | "highlights" | "includes" | "nextSteps" | "validityDays" | "defaultTerms" | SocialNetwork | `label.${DocumentLabelKey}`,
+    "legalName" | "website" | "footerText" | "automationType" | "aboutBody" | "aboutTitle" | "highlights" | "includes" | "nextSteps" | "validityDays" | "defaultTerms" | "headerLabel" | "watermarkText" | SocialNetwork | `label.${DocumentLabelKey}`,
     string
   >
 >;
@@ -96,6 +101,10 @@ function initialDraft(company: DocumentCompanyInput): Draft {
     nextSteps: Array.isArray(saved?.nextSteps) ? saved.nextSteps.map((step) => ({ title: step.title, text: step.text })) : DEFAULT_NEXT_STEPS.map((step) => ({ ...step })),
     validityDays: saved?.defaultValidityDays ? String(saved.defaultValidityDays) : "",
     defaultTerms: saved?.defaultTerms ?? "",
+    headerLabel: saved?.headerLabel ?? "",
+    watermarkText: saved?.watermarkText ?? "",
+    showWatermark: saved?.showWatermark !== false,
+    overviewPage: saved?.overviewPage === true,
   };
 }
 
@@ -131,6 +140,10 @@ function toSettings(draft: Draft): DocumentSettings {
     aboutTitle: blankToNull(draft.aboutTitle),
     aboutBody: blankToNull(draft.aboutBody),
     aboutHighlights: draft.highlights.filter((item) => item.title.trim() && item.text.trim()).map((item) => ({ title: item.title.trim(), text: item.text.trim() })),
+    headerLabel: blankToNull(draft.headerLabel),
+    watermarkText: blankToNull(draft.watermarkText),
+    showWatermark: draft.showWatermark,
+    overviewPage: draft.overviewPage,
     ...documentTextSettings(draft),
   };
 }
@@ -161,6 +174,8 @@ function validate(draft: Draft): Errors {
   if (draft.legalName.length > DOCUMENT_LIMITS.legalName) errors.legalName = `Legal name must be ${DOCUMENT_LIMITS.legalName} characters or fewer.`;
   if (draft.website.trim() && !safeHttpsUrl(draft.website)) errors.website = "Website must start with https://";
   if (draft.footerText.length > DOCUMENT_LIMITS.footerText) errors.footerText = `Footer text must be ${DOCUMENT_LIMITS.footerText} characters or fewer.`;
+  if (draft.headerLabel.trim().length > DOCUMENT_LIMITS.headerLabel) errors.headerLabel = `The header label must be ${DOCUMENT_LIMITS.headerLabel} characters or fewer.`;
+  if (draft.watermarkText.trim().length > DOCUMENT_LIMITS.watermarkText) errors.watermarkText = `The watermark must be ${DOCUMENT_LIMITS.watermarkText} characters or fewer.`;
   if (draft.automationType.length > DOCUMENT_LIMITS.automationType) errors.automationType = `Automation type must be ${DOCUMENT_LIMITS.automationType} characters or fewer.`;
   for (const network of SOCIAL_NETWORKS) {
     const value = draft.socials[network].trim();
@@ -239,7 +254,14 @@ export default function DocumentContentEditor({ company, saving, onSave }: Docum
           <Input label="Footer text (every page)" value={draft.footerText} onChange={(e) => update({ footerText: e.target.value })} placeholder="www.yourcompany.com" error={fieldError("footerText")} />
           <Input label="Automation type (cover page)" value={draft.automationType} onChange={(e) => update({ automationType: e.target.value })} placeholder="Smart Home Automation" error={fieldError("automationType")} />
         </div>
-        <p className="text-xs text-gray-500">Phone, email, address and tagline come from the Company Profile tab.</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input label="Header label (beside the logo on every page)" value={draft.headerLabel} onChange={(e) => update({ headerLabel: e.target.value })} placeholder={resolveProposalContent({ ...company, documentSettings: null }).headerLabel} error={fieldError("headerLabel")} maxLength={DOCUMENT_LIMITS.headerLabel} />
+          <div className="space-y-2">
+            <Input label="Watermark text (behind content pages)" value={draft.watermarkText} onChange={(e) => update({ watermarkText: e.target.value })} placeholder={resolveProposalContent({ ...company, documentSettings: null }).watermark} error={fieldError("watermarkText")} maxLength={DOCUMENT_LIMITS.watermarkText} disabled={!draft.showWatermark} />
+            <Checkbox label="Show the watermark" checked={draft.showWatermark} onChange={(e) => update({ showWatermark: e.target.checked })} />
+          </div>
+        </div>
+        <p className="text-xs text-gray-500">Phone, email, address and tagline come from the Company Profile tab. Blank fields use the text shown in grey.</p>
       </div>
 
       <div className="space-y-3">
@@ -272,6 +294,17 @@ export default function DocumentContentEditor({ company, saving, onSave }: Docum
             </button>
           ))}
         </div>
+        {draft.introPages === "standard" ? (
+          <p className="text-xs text-gray-500" data-testid="overview-page-note">The standard pages include the Project Overview page.</p>
+        ) : (
+          <Checkbox
+            label="Include the Project Overview page"
+            description="Your authorized dealer, the configured spaces with device counts, and the automation scope. Its headings are under Headings & labels."
+            checked={draft.overviewPage}
+            onChange={(e) => update({ overviewPage: e.target.checked })}
+            data-testid="overview-page-toggle"
+          />
+        )}
         {draft.introPages === "custom" && (
           <div className="space-y-3 rounded-xl border border-gray-200 p-4">
             <Input label="About title" value={draft.aboutTitle} onChange={(e) => update({ aboutTitle: e.target.value })} placeholder={`About ${company.name ?? "your company"}`} error={fieldError("aboutTitle")} />
@@ -408,7 +441,7 @@ export default function DocumentContentEditor({ company, saving, onSave }: Docum
       <div className="space-y-3" data-testid="document-live-preview">
         <p className="text-sm font-semibold text-gray-900">Live Preview</p>
         <div className="space-y-4 rounded-xl border border-gray-200 bg-gray-50 p-4">
-          {preview.about && <ProposalAboutCompany about={preview.about} />}
+          {preview.about && <ProposalAboutCompany about={preview.about} eyebrow={preview.text.aboutEyebrow} />}
           <div className="rounded-lg bg-white p-4" data-testid="document-preview-cover">
             <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold block">{preview.text.quotationReference}</span>
             <div className={preview.coverImageUrl ? "mt-2 flex flex-wrap items-start gap-4" : "mt-2"}>

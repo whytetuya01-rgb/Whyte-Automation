@@ -77,7 +77,7 @@ export function ProposalContactCard({ content }: { content: ProposalContent }) {
       </div>
       {content.socialLinks.length > 0 && (
         <div className="px-4 py-2 border-t border-gray-100 flex items-center justify-between gap-4">
-          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 shrink-0">Connect with {content.connectName}</span>
+          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 shrink-0">{content.text.connectWith} {content.connectName}</span>
           <SocialLinks variant="proposal-card" links={content.socialLinks} />
         </div>
       )}
@@ -100,18 +100,18 @@ export function ProposalPageFooter({ content, pageNumber, totalPages }: { conten
         <span />
       )}
       <span className="font-mono tracking-wider text-gray-400">
-        Page {pageNumber} of {totalPages}
+        {content.text.pageLabel} {pageNumber} {content.text.pageOf} {totalPages}
       </span>
     </div>
   );
 }
 
 /** The company-written introduction page (title, text and up to four highlights). */
-export function ProposalAboutCompany({ about }: { about: AboutContent }) {
+export function ProposalAboutCompany({ about, eyebrow }: { about: AboutContent; eyebrow: string }) {
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-pink-50 via-white to-slate-100 p-6">
-        <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">Company Profile</span>
+      <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-accent-light via-white to-slate-100 p-6">
+        <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">{eyebrow}</span>
         <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">{about.title}</h2>
         <p className="text-sm text-gray-700 mt-3 leading-relaxed whitespace-pre-line">{about.body}</p>
       </div>

@@ -77,8 +77,12 @@ export const DOCUMENT_LABEL_DEFAULTS = {
   subtotal: "Subtotal",
   discount: "Discount",
   netSubtotal: "Net Subtotal",
-  netSubtotalNote: "Taxable amount after discount",
-  taxSummary: "Tax Summary",
+  netSubtotalNote: "Amount after discount",
+  // The 18% line on the pricing page is the company's own charge (product prices already include GST), so it is
+  // never presented as GST.
+  taxSummary: "Additional Charges",
+  serviceCharge: "Service & Integration Charges",
+  pricesIncludeGst: "All product prices are inclusive of GST.",
   grandTotal: "Grand Total",
   grandTotalNote: "Total Investment (Incl. Taxes)",
   estimateTitle: "Estimated Project Investment",
@@ -89,6 +93,28 @@ export const DOCUMENT_LABEL_DEFAULTS = {
   termsLabel: "Terms",
   remarksLabel: "Remarks",
   nextStepsTitle: "Next Steps",
+  deviceSingular: "device",
+  devicePlural: "devices",
+  connectWith: "Connect with",
+  pageLabel: "Page",
+  pageOf: "of",
+  aboutEyebrow: "Company Profile",
+  overviewEyebrow: "Specification & Scope",
+  overviewTitle: "Your Project Overview",
+  overviewIntro: "Tailored smart automation configuration designed for",
+  dealerLabel: "Authorized Dealer",
+  gstinLabel: "GSTIN",
+  spacesTitle: "Configured Spaces",
+  spaceSingular: "Space",
+  spacePlural: "Spaces",
+  noSpaces: "No spaces configured with active products",
+  scopeTitle: "Automation Scope",
+  scopeLine1: "Smart switching and touch control automation across all designated living spaces.",
+  scopeLine2: "Individual room-wise product specification and quantity mapping",
+  automatedSpaces: "automated spaces",
+  tierLabel: "Specified Automation Tier",
+  finishLabel: "Specified Surface Finish",
+  scopeLine3: "Product-specific installation location references recorded for on-site implementation.",
 } as const;
 
 export type DocumentLabelKey = keyof typeof DOCUMENT_LABEL_DEFAULTS;
@@ -125,6 +151,8 @@ export const DOCUMENT_LABEL_LIMITS: Record<DocumentLabelKey, number> = {
   netSubtotal: 30,
   netSubtotalNote: 60,
   taxSummary: 30,
+  serviceCharge: 50,
+  pricesIncludeGst: 100,
   grandTotal: 30,
   grandTotalNote: 60,
   estimateTitle: 50,
@@ -135,6 +163,28 @@ export const DOCUMENT_LABEL_LIMITS: Record<DocumentLabelKey, number> = {
   termsLabel: 30,
   remarksLabel: 30,
   nextStepsTitle: 40,
+  deviceSingular: 15,
+  devicePlural: 15,
+  connectWith: 20,
+  pageLabel: 10,
+  pageOf: 6,
+  aboutEyebrow: 40,
+  overviewEyebrow: 40,
+  overviewTitle: 50,
+  overviewIntro: 90,
+  dealerLabel: 30,
+  gstinLabel: 12,
+  spacesTitle: 40,
+  spaceSingular: 15,
+  spacePlural: 15,
+  noSpaces: 80,
+  scopeTitle: 40,
+  scopeLine1: 140,
+  scopeLine2: 120,
+  automatedSpaces: 30,
+  tierLabel: 40,
+  finishLabel: 40,
+  scopeLine3: 140,
 };
 
 /** How the editor groups the labels, in document order. */
@@ -145,13 +195,18 @@ export const DOCUMENT_LABEL_GROUPS: ReadonlyArray<{ title: string; keys: readonl
   },
   {
     title: "Products section",
-    keys: ["productsEyebrow", "productsTitle", "productsSubtitle", "spaceCaption", "continuedBadge", "continuedNote", "spaceNote", "locationLabel", "perUnit", "lineTotal", "noImage"],
+    keys: ["productsEyebrow", "productsTitle", "productsSubtitle", "spaceCaption", "continuedBadge", "continuedNote", "spaceNote", "locationLabel", "perUnit", "lineTotal", "noImage", "deviceSingular", "devicePlural"],
   },
   {
     title: "Pricing page",
-    keys: ["closingEyebrow", "closingTitle", "financialSummary", "investmentOverview", "subtotal", "discount", "netSubtotal", "netSubtotalNote", "taxSummary", "grandTotal", "grandTotalNote", "estimateTitle", "estimateNote"],
+    keys: ["closingEyebrow", "closingTitle", "financialSummary", "investmentOverview", "subtotal", "discount", "netSubtotal", "netSubtotalNote", "taxSummary", "serviceCharge", "pricesIncludeGst", "grandTotal", "grandTotalNote", "estimateTitle", "estimateNote"],
   },
   { title: "Terms & next steps", keys: ["includesTitle", "termsTitle", "validityLabel", "termsLabel", "remarksLabel", "nextStepsTitle"] },
+  {
+    title: "Introduction & project overview pages",
+    keys: ["aboutEyebrow", "overviewEyebrow", "overviewTitle", "overviewIntro", "dealerLabel", "gstinLabel", "spacesTitle", "spaceSingular", "spacePlural", "noSpaces", "scopeTitle", "scopeLine1", "scopeLine2", "automatedSpaces", "tierLabel", "finishLabel", "scopeLine3"],
+  },
+  { title: "Every page", keys: ["connectWith", "pageLabel", "pageOf"] },
 ];
 
 export const DOCUMENT_LABEL_NAMES: Record<DocumentLabelKey, string> = {
@@ -183,7 +238,9 @@ export const DOCUMENT_LABEL_NAMES: Record<DocumentLabelKey, string> = {
   discount: "Discount label",
   netSubtotal: "Net subtotal label",
   netSubtotalNote: "Net subtotal note",
-  taxSummary: "Tax summary heading",
+  taxSummary: "Additional charges heading",
+  serviceCharge: "18% charge line (shown with its rate)",
+  pricesIncludeGst: "Note under the charges (blank keeps the default)",
   grandTotal: "Grand total label",
   grandTotalNote: "Grand total note",
   estimateTitle: "Estimate box heading",
@@ -194,6 +251,28 @@ export const DOCUMENT_LABEL_NAMES: Record<DocumentLabelKey, string> = {
   termsLabel: "Terms label",
   remarksLabel: "Remarks label",
   nextStepsTitle: "Next steps heading",
+  deviceSingular: "Device (one)",
+  devicePlural: "Devices (several)",
+  connectWith: "Connect-with label (before your name)",
+  pageLabel: "Page label",
+  pageOf: "Page 'of' word",
+  aboutEyebrow: "About page eyebrow",
+  overviewEyebrow: "Overview page eyebrow",
+  overviewTitle: "Overview page title",
+  overviewIntro: "Overview intro (before the client name)",
+  dealerLabel: "Dealer card label",
+  gstinLabel: "GSTIN label",
+  spacesTitle: "Configured spaces heading",
+  spaceSingular: "Space (one)",
+  spacePlural: "Spaces (several)",
+  noSpaces: "No-spaces message",
+  scopeTitle: "Scope heading",
+  scopeLine1: "Scope line 1",
+  scopeLine2: "Scope line 2 (followed by the space count)",
+  automatedSpaces: "Space count wording",
+  tierLabel: "Tier line label",
+  finishLabel: "Finish line label",
+  scopeLine3: "Scope line 3",
 };
 
 export interface NextStep {
@@ -239,6 +318,15 @@ export interface DocumentSettings {
   defaultValidityDays?: number | null;
   /** Terms shown when a quotation has no terms of its own. */
   defaultTerms?: string | null;
+  /** Small label beside the logo on every content page (blank = tagline / automation type). */
+  headerLabel?: string | null;
+  /** Faint text behind content pages (blank = the company name). */
+  watermarkText?: string | null;
+  /** false hides the watermark. */
+  showWatermark?: boolean | null;
+  /** true adds the Project Overview page (dealer, configured spaces, scope). The default company's standard pages
+   *  always include it. */
+  overviewPage?: boolean | null;
 }
 
 export const DOCUMENT_LIMITS = {
@@ -260,6 +348,8 @@ export const DOCUMENT_LIMITS = {
   validityDaysMin: 1,
   validityDaysMax: 365,
   defaultTerms: 600,
+  headerLabel: 40,
+  watermarkText: 14,
 } as const;
 
 export interface SocialLinkItem {
@@ -299,6 +389,9 @@ export interface ProposalContent {
   headerLabel: string;
   /** Large, very faint text behind content pages. */
   watermark: string;
+  showWatermark: boolean;
+  /** Whether the Project Overview page is part of the document. */
+  showOverview: boolean;
   /** Short name in "Connect with …" beside the social links. */
   connectName: string;
   socialLinks: SocialLinkItem[];
@@ -457,8 +550,12 @@ export function resolveProposalContent(company: DocumentCompanyInput | null | un
     website,
     footerText: clean(settings?.footerText) ?? (legacy && settings?.footerText === undefined ? legacy.footerText : null) ?? (website ? website.label : null),
     automationType: clean(settings?.automationType) ?? legacy?.automationType ?? NEUTRAL_AUTOMATION_TYPE,
-    headerLabel: legacy ? legacy.headerLabel : clean(company?.tagline) ?? clean(settings?.automationType) ?? NEUTRAL_AUTOMATION_TYPE,
-    watermark: legacy ? legacy.watermark : brandName.toUpperCase().slice(0, 14),
+    headerLabel:
+      clean(settings?.headerLabel)?.slice(0, DOCUMENT_LIMITS.headerLabel) ??
+      (legacy ? legacy.headerLabel : clean(company?.tagline) ?? clean(settings?.automationType) ?? NEUTRAL_AUTOMATION_TYPE),
+    watermark: clean(settings?.watermarkText)?.slice(0, DOCUMENT_LIMITS.watermarkText) ?? (legacy ? legacy.watermark : brandName.toUpperCase().slice(0, 14)),
+    showWatermark: settings?.showWatermark !== false,
+    showOverview: introPages === "standard" || settings?.overviewPage === true,
     connectName: legacy ? legacy.connectName : brandName,
     socialLinks: resolveSocialLinks(settings?.socialLinks, brandName, isDefaultCompany),
     introPages,

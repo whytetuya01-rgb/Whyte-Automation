@@ -251,6 +251,10 @@ const CompanySchema = new Schema<ICompanyDocument>(
           },
           defaultValidityDays: { type: Number, default: undefined, min: DOCUMENT_LIMITS.validityDaysMin, max: DOCUMENT_LIMITS.validityDaysMax },
           defaultTerms: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.defaultTerms },
+          headerLabel: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.headerLabel },
+          watermarkText: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.watermarkText },
+          showWatermark: { type: Boolean, default: undefined },
+          overviewPage: { type: Boolean, default: undefined },
         },
         { _id: false }
       ),
@@ -329,6 +333,8 @@ if (
   (!cachedCompany.schema.path("registrationStatus") ||
     !cachedCompany.schema.path("suspendedFromStatus") ||
     !cachedCompany.schema.path("documentSettings.socialLinks.whatsapp") ||
+    !cachedCompany.schema.path("documentSettings.overviewPage") ||
+    !cachedCompany.schema.path("documentSettings.labels.serviceCharge") ||
     SITE_THEME_IDS.some((id) => !cachedThemeEnum.includes(id)))
 ) {
   mongoose.deleteModel("Company");
