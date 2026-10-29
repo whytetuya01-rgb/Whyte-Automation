@@ -603,7 +603,7 @@ export default function StepProductConfig({
   }, [currentRoom, isLocked]);
 
   return (
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-6 pb-24 lg:pb-0">
       {/* 1. Step Header & Live Grand Total Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-gray-100">
         <div>
@@ -1796,7 +1796,7 @@ export default function StepProductConfig({
       </div>
 
       {/* Mobile Sticky Summary Bar */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 shadow-lg z-30 flex items-center justify-between">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 shadow-lg z-30 flex items-center justify-between pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <div>
           <p className="text-[10px] text-gray-400 font-semibold uppercase">Estimated Total</p>
           <p className="text-base font-extrabold font-mono text-gray-950">

@@ -1164,40 +1164,51 @@ export default function ProposalBuilder({
       )}
 
       {/* Top Header / Status Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-100">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex flex-col gap-2.5 pb-3 border-b border-gray-100 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center justify-between sm:justify-start gap-3 min-w-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <Link
+              href={isOfflineDraft ? "/quotations" : "/"}
+              className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-600 hover:text-gray-950 transition shrink-0 flex items-center justify-center min-w-[38px] min-h-[38px]"
+              title="Exit proposal builder"
+              aria-label="Exit proposal builder"
+            >
+              <ArrowLeft size={16} />
+            </Link>
+
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-mono font-bold text-gray-950 text-sm tracking-tight truncate max-w-[140px] xs:max-w-[190px] sm:max-w-none">
+                  {isOfflineDraft ? (offlineDraft?.id ?? "draft_local") : (quotation?.quotationNumber ?? "New Proposal")}
+                </span>
+                {isOfflineDraft ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold tracking-wide uppercase bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
+                    <WifiOff size={11} className="text-amber-600" />
+                    <span>Offline Draft</span>
+                  </span>
+                ) : (
+                  quotation?.status && (
+                    <StatusBadge status={quotation.status as QuotationStatus} />
+                  )
+                )}
+              </div>
+              <p className="text-xs text-gray-500 truncate font-medium mt-0.5">
+                {quotation?.clientName ? quotation.clientName : isOfflineDraft ? "Offline Smart Automation Draft" : "WHYTE Smart Automation Proposal Builder"}
+              </p>
+            </div>
+          </div>
+
+          {/* On mobile: Save & Exit placed top-right next to metadata */}
           <Link
             href={isOfflineDraft ? "/quotations" : "/"}
-            className="p-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-gray-500 hover:text-gray-900 transition shrink-0"
-            title="Exit proposal builder"
+            className="sm:hidden px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition shrink-0"
           >
-            <ArrowLeft size={16} />
+            Save & Exit
           </Link>
-
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="font-mono font-bold text-gray-950 text-sm">
-                {isOfflineDraft ? (offlineDraft?.id ?? "draft_local") : (quotation?.quotationNumber ?? "New Proposal")}
-              </span>
-              {isOfflineDraft ? (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold tracking-wide uppercase bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
-                  <WifiOff size={11} className="text-amber-600" />
-                  <span>Offline Draft</span>
-                </span>
-              ) : (
-                quotation?.status && (
-                  <StatusBadge status={quotation.status as QuotationStatus} />
-                )
-              )}
-            </div>
-            <p className="text-xs text-gray-500 truncate font-medium">
-              {quotation?.clientName ? quotation.clientName : isOfflineDraft ? "Offline Smart Automation Draft" : "WHYTE Smart Automation Proposal Builder"}
-            </p>
-          </div>
         </div>
 
-        {/* Auto-save Status & Actions */}
-        <div className="flex items-center gap-3 shrink-0 self-end sm:self-auto">
+        {/* Auto-save Status & Desktop Save & Exit */}
+        <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
           {isOfflineDraft ? (
             <div className="flex items-center gap-1.5 text-xs text-gray-600">
               <span
@@ -1238,7 +1249,7 @@ export default function ProposalBuilder({
 
           <Link
             href={isOfflineDraft ? "/quotations" : "/"}
-            className="px-3.5 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
+            className="hidden sm:inline-flex px-3.5 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
           >
             Save & Exit
           </Link>

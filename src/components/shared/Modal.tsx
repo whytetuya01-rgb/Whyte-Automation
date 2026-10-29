@@ -113,7 +113,7 @@ export default function Modal({
         aria-modal="true"
         aria-label={title}
         className={cn(
-          "relative w-full bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-neutral-200/80 max-h-[92vh] sm:max-h-[88vh] flex flex-col z-10 my-auto",
+          "relative w-full bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-neutral-200/80 max-h-[92vh] sm:max-h-[88vh] flex flex-col z-10 my-0 sm:my-auto",
           sizeClasses[size],
           className
         )}
@@ -130,7 +130,7 @@ export default function Modal({
             <X size={18} />
           </button>
         </div>
-        <div className="overflow-y-auto flex-1 p-4 sm:p-6 max-w-full">{children}</div>
+        <div className="overflow-y-auto flex-1 p-4 sm:p-6 max-w-full pb-[calc(1rem+env(safe-area-inset-bottom))] sm:pb-6">{children}</div>
       </div>
     </div>
   );

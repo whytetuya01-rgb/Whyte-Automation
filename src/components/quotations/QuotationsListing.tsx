@@ -855,7 +855,7 @@ export default function QuotationsListing({
                   </div>
 
                   <div
-                    className="flex items-center gap-2 pt-2 border-t border-gray-100"
+                    className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Link

@@ -38,16 +38,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     .slice(0, 2);
 
   return (
-    <div className="min-h-screen bg-[#f8f9fb] flex flex-col">
+    <div className="min-h-screen bg-[#f8f9fb] flex flex-col w-full overflow-x-hidden">
       {/* ── Header ───────────────────────────────────────────────── */}
-      <header className="bg-white border-b border-gray-100 shadow-xs sticky top-0 z-40">
-        <div className="max-w-[95%] 2xl:max-w-[1760px] mx-auto px-4 py-1.5 md:px-6 md:py-2 lg:px-8 flex items-center justify-between">
+      <header className="bg-white border-b border-gray-100 shadow-2xs sticky top-0 z-40 w-full">
+        <div className="w-full max-w-full sm:max-w-[95%] 2xl:max-w-[1760px] mx-auto px-3 sm:px-4 md:px-6 lg:px-8 py-2 md:py-2.5 flex items-center justify-between gap-2 sm:gap-4">
 
           {/* Left: Logo + Nav */}
-          <div className="flex items-center gap-4 sm:gap-5 min-w-0">
+          <div className="flex items-center gap-3 sm:gap-5 min-w-0">
             <Link
               href="/"
-              className="inline-flex items-center rounded-xl px-1.5 py-0.5 hover:bg-gray-50 transition shrink-0"
+              className="inline-flex items-center rounded-xl p-0.5 sm:px-1.5 sm:py-0.5 hover:bg-gray-50 transition shrink-0 max-w-[105px] xs:max-w-[125px] sm:max-w-none"
               aria-label="Go to home"
             >
               {/* The company's own logo (Whyte's when it has none); see DealerHeaderLogo. */}
@@ -96,24 +96,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           </div>
 
           {/* Right: Actions + User */}
-          <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <OfflineStatusPill />
             <Link
               href="/quotation/new"
-              className="inline-flex items-center gap-1.5 bg-gray-950 hover:bg-gray-800 text-white text-xs font-semibold px-3 py-1.5 rounded-xl shadow-2xs hover:shadow-xs transition-all duration-150 border border-gray-900"
+              className="inline-flex items-center gap-1 sm:gap-1.5 bg-gray-950 hover:bg-gray-800 text-white text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl shadow-2xs hover:shadow-xs transition-all duration-150 border border-gray-900 shrink-0"
             >
-              <Plus size={14} />
-              <span>New Quotation</span>
+              <Plus size={14} className="shrink-0" />
+              <span className="hidden xs:inline">New Quotation</span>
+              <span className="xs:hidden">New</span>
             </Link>
 
-            {/* Avatar / user */}
+            {/* Avatar / user (Dealer or Admin) */}
             {role === "dealer" ? (
               <Link
                 href="/profile"
                 className="hidden md:flex items-center gap-2 pl-1.5 group hover:opacity-90 transition cursor-pointer"
                 title="View Profile"
               >
-                {/* Avatar circle */}
                 <div className="w-7.5 h-7.5 rounded-full bg-gray-950 border border-gray-800 flex items-center justify-center text-white text-[11px] font-bold shrink-0 group-hover:bg-gray-800 transition">
                   {initials}
                 </div>
@@ -146,7 +146,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         </div>
 
         {/* Mobile secondary nav */}
-        <div className="sm:hidden flex items-center gap-1 px-4 py-1.5 border-t border-gray-100 bg-gray-50/50 overflow-x-auto">
+        <div className="sm:hidden flex items-center gap-1.5 px-3 py-1.5 border-t border-gray-100 bg-gray-50/70 overflow-x-auto touch-pan-x [scrollbar-width:none] [-webkit-overflow-scrolling:touch]">
           <Link
             href="/"
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-gray-700 hover:text-gray-950 hover:bg-gray-200/60 transition shrink-0"
@@ -172,11 +172,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               </Link>
             </>
           )}
+          {(role === "super_admin" || role === "admin") && (
+            <Link
+              href="/admin/dashboard"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-700 hover:text-purple-950 hover:bg-purple-100/60 transition shrink-0"
+            >
+              <LayoutDashboard size={13} />
+              <span>Admin</span>
+            </Link>
+          )}
         </div>
       </header>
 
       {/* ── Main Content ─────────────────────────────────────────── */}
-      <main className="max-w-[95%] 2xl:max-w-[1760px] mx-auto px-2 sm:px-4 py-5 md:py-7 lg:py-9 flex-1 w-full">
+      <main className="w-full max-w-full sm:max-w-[95%] 2xl:max-w-[1760px] mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 md:py-7 lg:py-9 flex-1 min-w-0">
         {children}
       </main>
 

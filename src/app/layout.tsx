@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Raleway, Poppins } from "next/font/google";
 import "./globals.css";
 import "./theme-presets.css";
@@ -8,7 +8,6 @@ import { BrandingProvider } from "@/components/providers/BrandingProvider";
 import { companyFaviconUrl, getCompanyBranding } from "@/lib/companyBranding";
 import { buildBrandStyleCss } from "@/lib/brandColor";
 import { accentSource, themeLayoutAttributes } from "@/lib/themeTokens";
-
 import PwaRegister from "@/components/pwa/PwaRegister";
 
 const raleway = Raleway({
@@ -24,6 +23,15 @@ const poppins = Poppins({
   variable: "--font-poppins",
   display: "swap",
 });
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  userScalable: true,
+  themeColor: "#ffffff",
+  viewportFit: "cover",
+};
 
 /**
  * Browser tab title and icon follow the signed-in company (the same server-resolved branding as the page, deduplicated
@@ -78,7 +86,7 @@ export default async function RootLayout({
             browser), so there is no flash of another company's colours. Built only from a strict #rrggbb value. */}
         {branding.brandColor && <style id="company-brand-color" dangerouslySetInnerHTML={{ __html: buildBrandStyleCss(branding.brandColor) }} />}
       </head>
-      <body className={`${raleway.className} font-sans`} suppressHydrationWarning>
+      <body className={`${raleway.className} font-sans min-h-screen antialiased`} suppressHydrationWarning>
         <BrandingProvider branding={branding}>
           <Providers initialTheme={branding.theme}>
             <PwaRegister />
@@ -90,4 +98,3 @@ export default async function RootLayout({
     </html>
   );
 }
-

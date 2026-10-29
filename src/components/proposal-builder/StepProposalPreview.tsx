@@ -692,9 +692,18 @@ export default function StepProposalPreview({
   // exported document is never downscaled just because it was generated from
   // a small screen.
   const pagesWrapperRef = useRef<HTMLDivElement | null>(null);
-  const [previewScale, setPreviewScale] = useState(1);
   const PAGE_WIDTH_PX = 794;
   const PAGE_HEIGHT_PX = 1123;
+
+  const [previewScale, setPreviewScale] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const w = window.innerWidth;
+      // Reserve padding on mobile screens so card borders are visible
+      const padding = w < 640 ? 28 : w < 1024 ? 40 : 64;
+      return Math.min(1, Math.max(0.25, (w - padding) / PAGE_WIDTH_PX));
+    }
+    return 1;
+  });
 
   useEffect(() => {
     const el = pagesWrapperRef.current;
@@ -702,12 +711,17 @@ export default function StepProposalPreview({
     const updateScale = () => {
       const available = el.clientWidth;
       if (!available) return;
-      setPreviewScale(Math.min(1, available / PAGE_WIDTH_PX));
+      // Reserve 2px breathing room to avoid subpixel border clipping
+      setPreviewScale(Math.min(1, Math.max(0.25, (available - 2) / PAGE_WIDTH_PX)));
     };
     updateScale();
     const ro = new ResizeObserver(updateScale);
     ro.observe(el);
-    return () => ro.disconnect();
+    window.addEventListener("resize", updateScale);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", updateScale);
+    };
   }, []);
 
   // `onBackToEdit` is only ever passed when this step is rendered inside
@@ -879,12 +893,14 @@ export default function StepProposalPreview({
 
     const prevPageTransforms = pagesToRestore.map((el) => el.style.transform);
     const prevPageWidths = pagesToRestore.map((el) => el.style.width);
+    const prevSlotOverflows = slotsToRestore.map((s) => s.style.overflow);
     const prevSlotWidths = slotsToRestore.map((s) => s.style.width);
     const prevSlotHeights = slotsToRestore.map((s) => s.style.height);
     const prevSlotMaxWidths = slotsToRestore.map((s) => s.style.maxWidth);
 
     // Unconstrain slots and pages during capture
     for (const slot of slotsToRestore) {
+      slot.style.overflow = "visible";
       slot.style.width = `${PAGE_WIDTH_PX}px`;
       slot.style.height = "auto";
       slot.style.maxWidth = "none";
@@ -1062,6 +1078,7 @@ export default function StepProposalPreview({
         "Failed to generate PDF. You can also use the Print button to Save as PDF."
       );
     } finally {
+
       setDownloading(false);
     }
   };
@@ -1131,81 +1148,135 @@ export default function StepProposalPreview({
       )}
 
       {/* Top Header & Action Bar (Hidden in Print) */}
-      <div className="flex items-center justify-between gap-4 pb-4 mb-8 border-b border-gray-200 print:hidden">
-        <div>
-          {onBackToEdit ? (
-            <button
-              type="button"
-              onClick={onBackToEdit}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
-            >
-              <ArrowLeft size={14} />
-              <span>Back to Review</span>
-            </button>
-          ) : (
-            <Link
-              href={`/quotation/${quotation.id}?step=4`}
-              className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
-            >
-              <ArrowLeft size={14} />
-              <span>Back to Review</span>
-            </Link>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={handleShare}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
-          >
-            {copied ? (
-              <Check size={14} className="text-emerald-600" />
+      <div className="pb-4 mb-6 sm:mb-8 border-b border-gray-200 print:hidden">
+        {/* Mobile Action Bar (< md): 2-Tier Stack, No Overflow, Full-width Download CTA */}
+        <div className="md:hidden flex flex-col gap-2.5 w-full">
+          <div className="flex items-center justify-between gap-2">
+            {onBackToEdit ? (
+              <button
+                type="button"
+                onClick={onBackToEdit}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs shrink-0"
+              >
+                <ArrowLeft size={14} />
+                <span>Review</span>
+              </button>
             ) : (
-              <Share2 size={14} />
+              <Link
+                href={`/quotation/${quotation.id}?step=4`}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs shrink-0"
+              >
+                <ArrowLeft size={14} />
+                <span>Review</span>
+              </Link>
             )}
-            <span className="hidden sm:inline">
-              {copied ? "Copied" : "Share"}
-            </span>
-          </button>
 
-          <button
-            type="button"
-            onClick={handlePrint}
-            disabled={renderableRooms.length === 0 || !!invalidGstinReason}
-            title={invalidGstinReason ?? undefined}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
-          >
-            <Printer size={14} />
-            <span className="hidden sm:inline">Print / Save as PDF</span>
-            <span className="sm:hidden">Print</span>
-          </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleShare}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs"
+                title="Share proposal"
+              >
+                {copied ? <Check size={14} className="text-emerald-600" /> : <Share2 size={14} />}
+                <span>{copied ? "Copied" : "Share"}</span>
+              </button>
 
-          {/* Email the PDF and track its delivery (saved quotations only; local offline drafts cannot be sent). */}
-          {quotation.id && !String(quotation.id).startsWith("draft_") && (
-            <button
-              type="button"
-              onClick={() => setDeliveryOpen(true)}
-              disabled={renderableRooms.length === 0 || !!invalidGstinReason}
-              title={invalidGstinReason ?? "Email this quotation and track its delivery"}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
-            >
-              <Mail size={14} />
-              <span className="hidden sm:inline">Send by Email</span>
-              <span className="sm:hidden">Send</span>
-            </button>
-          )}
+              {/* Email the PDF and track its delivery (saved quotations only; local offline drafts cannot be sent). */}
+              {quotation.id && !String(quotation.id).startsWith("draft_") && (
+                <button
+                  type="button"
+                  onClick={() => setDeliveryOpen(true)}
+                  disabled={renderableRooms.length === 0 || !!invalidGstinReason}
+                  title={invalidGstinReason ?? "Email this quotation and track its delivery"}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs disabled:opacity-50"
+                >
+                  <Mail size={14} />
+                  <span>Send</span>
+                </button>
+              )}
 
+              <button
+                type="button"
+                onClick={handlePrint}
+                disabled={renderableRooms.length === 0 || !!invalidGstinReason}
+                title={invalidGstinReason ?? undefined}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs disabled:opacity-50"
+              >
+                <Printer size={14} />
+                <span>Print</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Full-Width Primary Action: Download Proposal PDF */}
           <button
             type="button"
             onClick={handleDownloadPDF}
             disabled={downloading || renderableRooms.length === 0 || !!invalidGstinReason}
             title={invalidGstinReason ?? undefined}
-            className="inline-flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 transition active:scale-[0.99] shadow-sm disabled:opacity-50"
+            className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 text-sm font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 active:scale-[0.99] transition shadow-xs disabled:opacity-50"
           >
-            <Download size={14} />
-            <span>{downloading ? "Building PDF..." : "Download PDF"}</span>
+            <Download size={15} />
+            <span>{downloading ? "Building PDF..." : "Download Proposal PDF"}</span>
           </button>
+        </div>
+
+        {/* Desktop Action Bar (>= md) */}
+        <div className="hidden md:flex items-center justify-between gap-4">
+          <div>
+            {onBackToEdit ? (
+              <button
+                type="button"
+                onClick={onBackToEdit}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
+              >
+                <ArrowLeft size={14} />
+                <span>Back to Review</span>
+              </button>
+            ) : (
+              <Link
+                href={`/quotation/${quotation.id}?step=4`}
+                className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
+              >
+                <ArrowLeft size={14} />
+                <span>Back to Review</span>
+              </Link>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={handleShare}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
+            >
+              {copied ? <Check size={14} className="text-emerald-600" /> : <Share2 size={14} />}
+              <span>{copied ? "Copied" : "Share"}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrint}
+              disabled={renderableRooms.length === 0 || !!invalidGstinReason}
+              title={invalidGstinReason ?? undefined}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
+            >
+              <Printer size={14} />
+              <span>Print / Save as PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              disabled={downloading || renderableRooms.length === 0 || !!invalidGstinReason}
+              title={invalidGstinReason ?? undefined}
+              className="inline-flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 transition active:scale-[0.99] shadow-sm disabled:opacity-50"
+            >
+              <Download size={14} />
+              <span>{downloading ? "Building PDF..." : "Download PDF"}</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1251,21 +1322,21 @@ export default function StepProposalPreview({
           )}
         </div>
       ) : (
-        <div ref={pagesWrapperRef} className="w-full flex flex-col items-center">
+        <div ref={pagesWrapperRef} className="w-full max-w-full flex flex-col items-center overflow-hidden print:overflow-visible">
           {proposalPages.map((page, pageIdx) => (
             <div
               key={page.pageNumber}
-              className="proposal-page-slot mb-8 print:mb-0"
+              className="proposal-page-slot mb-6 sm:mb-8 overflow-hidden rounded-xl border border-gray-200 shadow-md max-w-full print:mb-0 print:overflow-visible print:rounded-none print:border-none print:shadow-none print:max-w-none"
               style={{
-                width: PAGE_WIDTH_PX * previewScale,
-                height: PAGE_HEIGHT_PX * previewScale,
+                width: Math.round(PAGE_WIDTH_PX * previewScale),
+                height: Math.round(PAGE_HEIGHT_PX * previewScale),
               }}
             >
               <div
                 ref={(el) => {
                   pageRefs.current[pageIdx] = el;
                 }}
-                className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
+className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
                 style={{ boxSizing: "border-box", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
               >
               {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"

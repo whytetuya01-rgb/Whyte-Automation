@@ -25,14 +25,16 @@ export default function StepIndicator({
   onStepClick,
   canNavigateToStep = () => true,
 }: Props) {
+  const currentStepMeta = STEPS.find((s) => s.step === currentStep) ?? STEPS[0];
+
   return (
     <nav aria-label="Proposal Builder Progress" className="w-full">
-      <div className="bg-white rounded-2xl border border-gray-100 p-2.5 sm:p-4 shadow-xs">
-        <ol className="flex items-center justify-between relative">
+      <div className="bg-white rounded-2xl border border-gray-100 p-2 sm:p-4 shadow-2xs">
+        <ol className="flex items-center justify-between relative px-1 sm:px-2">
           {/* Connector Line behind steps */}
-          <div className="absolute top-1/2 left-4 right-4 -translate-y-1/2 h-0.5 bg-gray-100 -z-0" />
+          <div className="absolute top-[14px] sm:top-5 left-6 right-6 -translate-y-1/2 h-0.5 bg-gray-100 -z-0" />
 
-          {STEPS.map((s, idx) => {
+          {STEPS.map((s) => {
             const isCompleted = completedSteps.includes(s.step) && currentStep > s.step;
             const isCurrent = currentStep === s.step;
             const isClickable = canNavigateToStep(s.step);
@@ -40,16 +42,16 @@ export default function StepIndicator({
             return (
               <li
                 key={s.step}
-                className="relative z-10 flex flex-col items-center group cursor-pointer"
+                className="relative z-10 flex flex-col items-center group cursor-pointer min-w-[48px] xs:min-w-[56px] sm:min-w-0"
                 onClick={() => {
                   if (isClickable) onStepClick(s.step);
                 }}
               >
                 {/* Step Circle */}
                 <div
-                  className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold text-xs sm:text-sm transition-all duration-200 select-none ${
+                  className={`w-7 h-7 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-bold text-[11px] sm:text-sm transition-all duration-200 select-none ${
                     isCurrent
-                      ? "bg-gray-950 text-white shadow-md ring-4 ring-accent/25 border-2 border-accent scale-105"
+                      ? "bg-gray-950 text-white shadow-md ring-3 sm:ring-4 ring-accent/25 border-2 border-accent scale-105"
                       : isCompleted
                       ? "bg-gray-950 text-white hover:bg-gray-800"
                       : isClickable
@@ -58,16 +60,16 @@ export default function StepIndicator({
                   }`}
                 >
                   {isCompleted ? (
-                    <Check size={15} strokeWidth={2.5} className="text-accent" />
+                    <Check size={14} strokeWidth={2.5} className="text-accent sm:w-[15px] sm:h-[15px]" />
                   ) : (
                     <span>{s.step}</span>
                   )}
                 </div>
 
                 {/* Step Label */}
-                <div className="mt-2 text-center">
+                <div className="mt-1.5 sm:mt-2 text-center max-w-[56px] xs:max-w-[68px] sm:max-w-none">
                   <p
-                    className={`text-[11px] sm:text-xs font-bold tracking-tight transition-colors ${
+                    className={`text-[10px] sm:text-xs font-bold tracking-tight transition-colors truncate sm:overflow-visible ${
                       isCurrent
                         ? "text-accent font-black"
                         : isCompleted
@@ -85,6 +87,16 @@ export default function StepIndicator({
             );
           })}
         </ol>
+
+        {/* Mobile current step indicator pill */}
+        <div className="sm:hidden mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500 px-1">
+          <span className="font-mono text-[10px] uppercase tracking-wider font-semibold">
+            Step {currentStep} of 5
+          </span>
+          <span className="font-semibold text-gray-900 truncate ml-2">
+            {currentStepMeta.label}: {currentStepMeta.description}
+          </span>
+        </div>
       </div>
     </nav>
   );
