@@ -1,6 +1,6 @@
 "use client";
 
-import WhyteLogo from "@/components/shared/WhyteLogo";
+import BrandLogo from "@/components/shared/BrandLogo";
 import { cn } from "@/lib/utils";
 
 export interface WhyteLoaderProps {
@@ -37,7 +37,7 @@ export default function WhyteLoader({
         <div className="relative w-[150px] sm:w-[180px] md:w-[200px] aspect-[4305/1000] flex items-center justify-center">
           {/* Base Layer: Subdued background track */}
           <div className="absolute inset-0 flex items-center justify-center opacity-15 pointer-events-none">
-            <WhyteLogo
+            <BrandLogo
               theme="light"
               alt="Whyte Automations"
               size="loader"
@@ -47,7 +47,7 @@ export default function WhyteLoader({
 
           {/* Top Reveal Layer: Progressive Left-to-Right sweep */}
           <div className="absolute inset-0 flex items-center justify-center animate-whyte-reveal pointer-events-none">
-            <WhyteLogo
+            <BrandLogo
               theme="light"
               alt="Whyte Automations"
               size="loader"

@@ -47,8 +47,8 @@ export default function SiteFooter({ company, variant }: SiteFooterProps) {
           </p>
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <ContactLinks company={company} />
-            <span className="hidden sm:inline text-neutral-300">|</span>
-            <SocialLinks variant="footer" iconClassName="w-3 h-3" />
+            {company.socialLinks.length > 0 && (company.phone || company.email) && <span className="hidden sm:inline text-neutral-300">|</span>}
+            <SocialLinks links={company.socialLinks} variant="footer" iconClassName="w-3 h-3" />
           </div>
         </div>
       </footer>
@@ -71,8 +71,8 @@ export default function SiteFooter({ company, variant }: SiteFooterProps) {
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
           <ContactLinks company={company} className="text-gray-500" />
-          <span className="hidden sm:inline text-gray-200">|</span>
-          <SocialLinks variant="footer" iconClassName="w-3.5 h-3.5" />
+          {company.socialLinks.length > 0 && (company.phone || company.email) && <span className="hidden sm:inline text-gray-200">|</span>}
+          <SocialLinks links={company.socialLinks} variant="footer" iconClassName="w-3.5 h-3.5" />
         </div>
       </div>
     </footer>

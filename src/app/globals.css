@@ -19,6 +19,7 @@
   --color-admin-primary-subtle: var(--admin-primary-subtle);
   --color-admin-primary-border: var(--admin-primary-border);
   --color-admin-primary-foreground: var(--admin-primary-foreground);
+  --color-admin-primary-on-dark: var(--admin-primary-on-dark);
   --color-admin-black: #111111;
   --color-admin-charcoal: #1E1E22;
   --color-admin-white: #FFFFFF;
@@ -67,6 +68,11 @@
   --admin-primary-border: #F1B8C8;
   --admin-primary-foreground: #8A2B4D;
   --admin-focus-ring: rgba(216, 91, 131, 0.2);
+  /* Accent on the black sidebar / header (lightened for presets or brand colours too dark to see there). */
+  --accent-on-dark: #D85B83;
+  --color-accent-on-dark: #D85B83;
+  --admin-primary-on-dark: #D85B83;
+  --color-admin-primary-on-dark: #D85B83;
 
   --admin-black: #111111;
   --admin-charcoal: #1E1E22;
@@ -88,71 +94,7 @@
   --z-toast: 1000;
 }
 
-[data-theme="champagne-bronze"] {
-  --accent: #C4823F;
-  --accent-hover: #A06429;
-  --accent-light: #FDF6EE;
-  --accent-muted: #FFFAF4;
-  --accent-border: #F2D5B1;
-  --accent-foreground: #7A4B1A;
-
-  --color-accent: #C4823F;
-  --color-accent-hover: #A06429;
-  --color-accent-light: #FDF6EE;
-  --color-accent-muted: #FFFAF4;
-  --color-accent-border: #F2D5B1;
-  --color-accent-foreground: #7A4B1A;
-
-  --color-admin-primary: #C4823F;
-  --color-admin-primary-hover: #A06429;
-  --color-admin-primary-dark: #A06429;
-  --color-admin-primary-soft: #FDF6EE;
-  --color-admin-primary-subtle: #FFFAF4;
-  --color-admin-primary-border: #F2D5B1;
-  --color-admin-primary-foreground: #7A4B1A;
-
-  --admin-primary: #C4823F;
-  --admin-primary-hover: #A06429;
-  --admin-primary-dark: #A06429;
-  --admin-primary-soft: #FDF6EE;
-  --admin-primary-subtle: #FFFAF4;
-  --admin-primary-border: #F2D5B1;
-  --admin-primary-foreground: #7A4B1A;
-  --admin-focus-ring: rgba(196, 130, 63, 0.2);
-}
-
-[data-theme="emerald-haven"] {
-  --accent: #0D9488;
-  --accent-hover: #0F766E;
-  --accent-light: #F0FDFA;
-  --accent-muted: #F7FEFD;
-  --accent-border: #99F6E4;
-  --accent-foreground: #115E59;
-
-  --color-accent: #0D9488;
-  --color-accent-hover: #0F766E;
-  --color-accent-light: #F0FDFA;
-  --color-accent-muted: #F7FEFD;
-  --color-accent-border: #99F6E4;
-  --color-accent-foreground: #115E59;
-
-  --color-admin-primary: #0D9488;
-  --color-admin-primary-hover: #0F766E;
-  --color-admin-primary-dark: #0F766E;
-  --color-admin-primary-soft: #F0FDFA;
-  --color-admin-primary-subtle: #F7FEFD;
-  --color-admin-primary-border: #99F6E4;
-  --color-admin-primary-foreground: #115E59;
-
-  --admin-primary: #0D9488;
-  --admin-primary-hover: #0F766E;
-  --admin-primary-dark: #0F766E;
-  --admin-primary-soft: #F0FDFA;
-  --admin-primary-subtle: #F7FEFD;
-  --admin-primary-border: #99F6E4;
-  --admin-primary-foreground: #115E59;
-  --admin-focus-ring: rgba(13, 148, 136, 0.2);
-}
+/* The other preset themes (selected with data-theme) are generated into theme-presets.css from src/lib/themeTokens.ts. */
 
 .admin-theme {
   --color-accent: var(--accent);

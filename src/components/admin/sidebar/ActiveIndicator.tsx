@@ -21,12 +21,12 @@ export default function ActiveIndicator({ collapsed }: { collapsed: boolean }) {
       // borderRadius as a style (not a class) so motion corrects it during the
       // layout animation instead of stretching the corners.
       style={{ borderRadius: 12 }}
-      className="pointer-events-none absolute inset-0 border border-[var(--color-admin-primary,#D85B83)]/30 bg-[var(--color-admin-primary,#D85B83)]/15 shadow-[0_0_15px_var(--color-admin-primary,#D85B83)]/15 will-change-transform"
+      className="pointer-events-none absolute inset-0 border border-[var(--color-admin-primary-on-dark,#D85B83)]/30 bg-[var(--color-admin-primary-on-dark,#D85B83)]/15 shadow-[0_0_15px_var(--color-admin-primary-on-dark,#D85B83)]/15 will-change-transform"
     >
       {!collapsed && (
         <motion.span
           layout
-          className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-[var(--color-admin-primary,#D85B83)] shadow-[0_0_8px_var(--color-admin-primary,#D85B83)]"
+          className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-[var(--color-admin-primary-on-dark,#D85B83)] shadow-[0_0_8px_var(--color-admin-primary-on-dark,#D85B83)]"
         />
       )}
     </motion.span>

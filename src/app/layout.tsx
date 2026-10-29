@@ -1,8 +1,13 @@
 import type { Metadata } from "next";
 import { Raleway, Poppins } from "next/font/google";
 import "./globals.css";
+import "./theme-presets.css";
 import WhyteToaster from "@/components/shared/WhyteToaster";
 import Providers from "./providers";
+import { BrandingProvider } from "@/components/providers/BrandingProvider";
+import { getCompanyBranding } from "@/lib/companyBranding";
+import { buildBrandStyleCss } from "@/lib/brandColor";
+import { accentSource } from "@/lib/themeTokens";
 
 import PwaRegister from "@/components/pwa/PwaRegister";
 
@@ -35,38 +40,40 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  // Resolved from the trusted server session on every full render; see getCompanyBranding.
+  const branding = await getCompanyBranding();
   return (
     <html
       lang="en"
       className={`${raleway.variable} ${poppins.variable}`}
-      data-theme="whyte-rose"
+      data-theme={branding.theme}
       suppressHydrationWarning
     >
       <head>
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#D85B83" />
+        <meta name="theme-color" content={accentSource(branding.theme, branding.brandColor).color} />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Whyte" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('whyte_site_theme')||'whyte-rose';document.documentElement.setAttribute('data-theme',t);}catch(e){}})();`,
-          }}
-        />
+        {/* The signed-in company's own brand colour, resolved on the server from the session (never stored in the
+            browser), so there is no flash of another company's colours. Built only from a strict #rrggbb value. */}
+        {branding.brandColor && <style id="company-brand-color" dangerouslySetInnerHTML={{ __html: buildBrandStyleCss(branding.brandColor) }} />}
       </head>
       <body className={`${raleway.className} font-sans`} suppressHydrationWarning>
-        <Providers>
-          <PwaRegister />
-          {children}
-          <WhyteToaster />
-        </Providers>
+        <BrandingProvider branding={branding}>
+          <Providers initialTheme={branding.theme}>
+            <PwaRegister />
+            {children}
+            <WhyteToaster />
+          </Providers>
+        </BrandingProvider>
       </body>
     </html>
   );

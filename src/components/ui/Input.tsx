@@ -25,12 +25,22 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
       required,
       id,
       disabled,
+      "aria-describedby": ariaDescribedByProp,
       ...props
     },
     ref
   ) => {
     const generatedId = React.useId();
     const inputId = id || (label ? generatedId : undefined);
+    const errorId = inputId ? `${inputId}-error` : undefined;
+    const helperId = inputId ? `${inputId}-helper` : undefined;
+
+    const describedBy = [
+      ariaDescribedByProp,
+      error ? errorId : helperText ? helperId : undefined,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
     return (
       <div className="w-full">
@@ -41,7 +51,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         )}
         <div className="relative flex items-center">
           {leftIcon && (
-            <div className="absolute left-3.5 flex items-center pointer-events-none text-neutral-400 shrink-0">
+            <div className="absolute left-3.5 flex items-center pointer-events-none text-neutral-400 shrink-0 select-none">
               {leftIcon}
             </div>
           )}
@@ -56,12 +66,14 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             ref={ref}
             disabled={disabled}
             required={required}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={describedBy}
             className={cn(
-              "w-full px-3.5 py-2.5 border rounded-xl text-sm text-neutral-900 placeholder:text-neutral-400 bg-white transition-colors",
-              "focus:outline-none focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-900",
-              "disabled:bg-neutral-50 disabled:text-neutral-400 disabled:cursor-not-allowed",
+              "w-full h-10 px-3.5 border rounded-xl text-sm font-normal text-neutral-900 placeholder:text-neutral-400 bg-white transition-all shadow-2xs",
+              "focus:outline-none focus:ring-2 focus:ring-accent/15 focus:border-accent",
+              "disabled:bg-neutral-50 disabled:text-neutral-400 disabled:border-neutral-200 disabled:cursor-not-allowed disabled:shadow-none",
               error
-                ? "border-red-300 focus:border-red-500 focus:ring-red-500/15"
+                ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/15"
                 : "border-neutral-200 hover:border-neutral-300",
               leftIcon && "pl-10",
               prefixText && "pl-8",
@@ -71,15 +83,19 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             {...props}
           />
           {rightIcon && (
-            <div className="absolute right-3.5 flex items-center text-neutral-400">
+            <div className="absolute right-3.5 flex items-center text-neutral-400 shrink-0">
               {rightIcon}
             </div>
           )}
         </div>
         {error ? (
-          <p className="text-xs text-red-600 mt-1 font-medium">{error}</p>
+          <p id={errorId} role="alert" className="text-xs text-red-600 mt-1.5 font-medium">
+            {error}
+          </p>
         ) : helperText ? (
-          <p className="text-xs text-neutral-400 mt-1">{helperText}</p>
+          <p id={helperId} className="text-xs text-neutral-500 mt-1.5">
+            {helperText}
+          </p>
         ) : null}
       </div>
     );

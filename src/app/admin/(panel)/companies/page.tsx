@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Image from "next/image";
+import CompanyLogo from "@/components/shared/CompanyLogo";
 import { AlertCircle, Building, CheckCircle2, Clock, Eye, Mail, MapPin, Phone, Power, PowerOff, RefreshCw, User, XCircle } from "lucide-react";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import notify from "@/lib/notify";
@@ -47,18 +47,6 @@ function StatusPill({ status, deactivated = false }: { status: RegistrationListI
         </span>
       )}
     </>
-  );
-}
-
-function CompanyLogo({ item, size = 56 }: { item: RegistrationListItem; size?: number }) {
-  return (
-    <div className="flex shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gray-100 bg-gray-50" style={{ width: size, height: size }}>
-      {item.logoUrl ? (
-        <Image src={item.logoUrl} alt={`${item.name} logo`} width={size} height={size} unoptimized className="max-h-full max-w-full object-contain" />
-      ) : (
-        <Building size={size / 2.5} className="text-gray-300" />
-      )}
-    </div>
   );
 }
 
@@ -212,7 +200,7 @@ export default function CompaniesPage() {
           {items.map((item) => (
             <li key={item.id} data-testid="company-row" data-company-name={item.name} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-xs sm:p-5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-                <CompanyLogo item={item} />
+                <CompanyLogo src={item.logoUrl} name={item.name} variant="thumb" />
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-base font-bold text-gray-950">{item.name}</h3>
@@ -264,7 +252,7 @@ export default function CompaniesPage() {
         {details && (
           <div className="space-y-4 text-sm" data-testid="details-modal">
             <div className="flex items-center gap-4">
-              <CompanyLogo item={details} size={72} />
+              <CompanyLogo src={details.logoUrl} name={details.name} variant="thumb" size="lg" />
               <div>
                 <StatusPill status={details.registrationStatus} deactivated={details.companyStatus === "suspended"} />
                 <p className="mt-1 text-xs text-gray-500">Submitted {formatDate(details.submittedAt)}</p>

@@ -1,12 +1,16 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Company } from "@/models";
 import { getAuthenticatedActor } from "@/lib/api-auth";
+import { resolveSocialLinks, type SocialLinkItem } from "@/lib/documentSettings";
+import { DEFAULT_COMPANY_SLUG } from "@/lib/tenant/constants";
 
 export interface FooterCompany {
   name: string;
   tagline: string | null;
   phone: string | null;
   email: string | null;
+  /** The company's own social links (none until it adds some; the default company keeps Whyte's). */
+  socialLinks: SocialLinkItem[];
 }
 
 const FALLBACK_COMPANY: FooterCompany = {
@@ -14,6 +18,8 @@ const FALLBACK_COMPANY: FooterCompany = {
   tagline: null,
   phone: null,
   email: null,
+  // Platform context (a Super Admin with no company selected, or no session) carries the platform's own links.
+  socialLinks: resolveSocialLinks(undefined, "Whyte Automations", true),
 };
 
 /**
@@ -30,13 +36,14 @@ export async function getFooterCompany(): Promise<FooterCompany> {
     const { companyId } = await getAuthenticatedActor();
     if (companyId === null) return FALLBACK_COMPANY;
     await connectMongoDB();
-    const company = await Company.findById(companyId).select("name tagline phone email").lean();
+    const company = await Company.findById(companyId).select("name slug tagline phone email documentSettings").lean();
     if (!company) return FALLBACK_COMPANY;
     return {
       name: company.name?.trim() || FALLBACK_COMPANY.name,
       tagline: company.tagline?.trim() || null,
       phone: company.phone?.trim() || null,
       email: company.email?.trim() || null,
+      socialLinks: resolveSocialLinks(company.documentSettings?.socialLinks, company.name?.trim() || FALLBACK_COMPANY.name, company.slug === DEFAULT_COMPANY_SLUG),
     };
   } catch {
     return FALLBACK_COMPANY;

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { Database, Wifi, WifiOff, RefreshCw, Sparkles, CheckCircle2 } from "lucide-react";
 import { getCatalogMeta, buildTenantKey, type CatalogMetadata } from "@/lib/offline/db";
 import { downloadOfflineCatalog } from "@/lib/offline/catalogManager";
-import { saveOfflineIdentity } from "@/lib/offline/identity";
+import { loadOfflineIdentity, saveOfflineIdentity } from "@/lib/offline/identity";
 import OfflineCatalogModal from "./OfflineCatalogModal";
 
 export default function OfflineStatusPill() {
@@ -45,8 +45,13 @@ export default function OfflineStatusPill() {
   const companyName = user?.companyName ?? "";
   const role = user?.role ?? "user";
   const discount = Number(user?.discountAllocationPercent ?? 0);
+  // True when this device last saw no account or a different one, so cached pages rendered for that account
+  // (they carry its company branding) are dropped before the builder is cached again for this one.
+  const accountChanged = useRef(false);
   useEffect(() => {
     if (!companyId || !userId) return;
+    const previous = loadOfflineIdentity();
+    accountChanged.current = !previous || String(previous.userId) !== String(userId) || String(previous.companyId) !== String(companyId);
     saveOfflineIdentity({ companyId, userId, companyName, role, allocatedDiscountPercent: discount });
   }, [companyId, userId, companyName, role, discount]);
 
@@ -58,7 +63,7 @@ export default function OfflineStatusPill() {
     void (async () => {
       try {
         const registration = await navigator.serviceWorker?.ready;
-        registration?.active?.postMessage({ type: "PRECACHE_BUILDER" });
+        registration?.active?.postMessage({ type: "PRECACHE_BUILDER", replace: accountChanged.current });
       } catch {
         // No service worker (development / unsupported browser).
       }

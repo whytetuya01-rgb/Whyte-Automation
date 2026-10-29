@@ -2,7 +2,24 @@
 
 import { AnimatePresence, motion } from "motion/react";
 import WhyteLogo from "@/components/shared/WhyteLogo";
+import CompanyLogo from "@/components/shared/CompanyLogo";
+import { useCompanyBranding } from "@/components/providers/BrandingProvider";
 import { DURATION, EASE, LOGO_DOT_COLOR, LOGO_GEOMETRY } from "./motionTokens";
+
+/**
+ * Header logo. A company with its own logo gets that logo (on a light chip, since uploaded logos are usually dark
+ * artwork); everyone else, and a logo that fails to load, keeps the animated Whyte wordmark below, unchanged.
+ */
+export default function AnimatedLogo({ collapsed }: { collapsed: boolean }) {
+  const { logoUrl, compactLogoUrl, companyName, settings } = useCompanyBranding();
+  if (!logoUrl) return <DefaultWhyteMark collapsed={collapsed} />;
+  const wordmark = <CompanyLogo src={logoUrl} name={companyName} variant="header" collapsed={collapsed} settings={settings} fallback={<DefaultWhyteMark collapsed={collapsed} />} />;
+  // The rail shows the compact logo when the company supplied one (falling back to the main logo if it fails).
+  if (collapsed && compactLogoUrl) {
+    return <CompanyLogo src={compactLogoUrl} name={companyName} variant="header" collapsed settings={settings} fallback={wordmark} />;
+  }
+  return wordmark;
+}
 
 /**
  * Header WHYTE logo with a "smart LED" dot.
@@ -14,7 +31,7 @@ import { DURATION, EASE, LOGO_DOT_COLOR, LOGO_GEOMETRY } from "./motionTokens";
  * `collapsed` crossfades the wordmark to just "W" + dot (a crop of the same
  * image). Both layers live in a fixed-width box, so nothing in the header moves.
  */
-export default function AnimatedLogo({ collapsed }: { collapsed: boolean }) {
+function DefaultWhyteMark({ collapsed }: { collapsed: boolean }) {
   const fade = { duration: DURATION.base, ease: EASE };
 
   return (

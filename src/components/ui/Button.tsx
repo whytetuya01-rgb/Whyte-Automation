@@ -56,9 +56,10 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         ref={ref}
         type={type}
         disabled={disabled || loading}
+        aria-busy={loading ? "true" : undefined}
         className={cn(
           "inline-flex items-center justify-center font-semibold transition-all select-none cursor-pointer",
-          "focus:outline-none focus:ring-2 focus:ring-neutral-900/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-900/20",
+          "focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 focus-visible:ring-offset-2",
           "disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none",
           variants[variant],
           variant !== "link" && sizes[size],
@@ -69,6 +70,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       >
         {loading ? (
           <Loader2
+            aria-hidden="true"
             className={cn("animate-spin", size === "sm" ? "h-3.5 w-3.5" : "h-4 w-4")}
           />
         ) : (

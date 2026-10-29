@@ -6,6 +6,7 @@
  *
  *   node tests/company-registration.test.mjs
  */
+import { png, jpeg, webp } from "./helpers/imageFixtures.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { startIsolatedServer } from "./helpers/isolatedServer.mjs";
@@ -58,9 +59,10 @@ const startFake = () => new Promise((resolve) => {
   srv.listen(0, "127.0.0.1", () => resolve(srv));
 });
 
-const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(200, 7)]);
-const JPG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(200, 9)]);
-const WEBP = Buffer.concat([Buffer.from("RIFF"), Buffer.from([0, 0, 0, 0]), Buffer.from("WEBP"), Buffer.alloc(100, 1)]);
+// Valid images with real pixel sizes: the server reads the dimensions from the file header (logos must be 32-4096 px).
+const PNG = png(64, 64);
+const JPG = jpeg(64, 64);
+const WEBP = webp(64, 64);
 
 try {
   fake = await startFake();
@@ -321,7 +323,7 @@ try {
   assert.equal((await attemptLogin("super@example.com", "Password123!")).signedIn, true, "the Super Admin still signs in");
   assert.equal((await api(whyteOwner, "GET", "/api/products")).status, 200);
   const dealerReg = await fetch(`${baseUrl}/api/admin/register`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
-  assert.equal(dealerReg.status, 400, "the public dealer registration endpoint is unchanged (still validates its own body)");
+  assert.equal(dealerReg.status, 403, "public dealer self-registration stays discontinued (c843e62): the endpoint refuses every request");
   pass("Whyte (status pending, no review state), its dealer and the Super Admin sign in exactly as before; dealer registration is unchanged");
 
   // ═══ 11. logo upload on registration ═════════════════════════════════

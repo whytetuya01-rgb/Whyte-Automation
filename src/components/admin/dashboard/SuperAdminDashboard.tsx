@@ -1,8 +1,8 @@
 "use client";
 
+import CompanyLogo from "@/components/shared/CompanyLogo";
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import {
   ShieldAlert,
   ShieldCheck,
@@ -297,13 +297,7 @@ export default function SuperAdminDashboard({ data, adminViewContent }: SuperAdm
                   companies.recentPending.map((comp) => (
                     <div key={comp.id} className="p-4 flex items-center justify-between gap-3 hover:bg-gray-50/70 transition-colors">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center shrink-0 overflow-hidden">
-                          {comp.logoUrl ? (
-                            <Image src={comp.logoUrl} alt={comp.name} width={40} height={40} unoptimized className="object-contain max-h-full" />
-                          ) : (
-                            <Building size={18} className="text-gray-400" />
-                          )}
-                        </div>
+                        <CompanyLogo src={comp.logoUrl} name={comp.name} variant="thumb" size="sm" />
                         <div className="min-w-0">
                           <p className="font-bold text-gray-900 text-xs sm:text-sm truncate">{comp.name}</p>
                           <p className="text-gray-500 text-xs truncate">

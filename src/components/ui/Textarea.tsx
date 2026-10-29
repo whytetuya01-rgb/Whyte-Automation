@@ -19,12 +19,22 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
       required,
       id,
       disabled,
+      "aria-describedby": ariaDescribedByProp,
       ...props
     },
     ref
   ) => {
     const generatedId = React.useId();
     const textareaId = id || (label ? generatedId : undefined);
+    const errorId = textareaId ? `${textareaId}-error` : undefined;
+    const helperId = textareaId ? `${textareaId}-helper` : undefined;
+
+    const describedBy = [
+      ariaDescribedByProp,
+      error ? errorId : helperText ? helperId : undefined,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
     return (
       <div className="w-full">
@@ -39,21 +49,27 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
           rows={rows}
           disabled={disabled}
           required={required}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           className={cn(
-            "w-full px-3.5 py-2.5 border rounded-xl text-sm text-neutral-900 placeholder:text-neutral-400 bg-white transition-colors",
-            "focus:outline-none focus:ring-2 focus:ring-neutral-900/10 focus:border-neutral-900",
-            "disabled:bg-neutral-50 disabled:text-neutral-400 disabled:cursor-not-allowed",
+            "w-full px-3.5 py-2.5 border rounded-xl text-sm font-normal text-neutral-900 placeholder:text-neutral-400 bg-white transition-all shadow-2xs",
+            "focus:outline-none focus:ring-2 focus:ring-accent/15 focus:border-accent",
+            "disabled:bg-neutral-50 disabled:text-neutral-400 disabled:border-neutral-200 disabled:cursor-not-allowed disabled:shadow-none",
             error
-              ? "border-red-300 focus:border-red-500 focus:ring-red-500/15"
+              ? "border-red-300 focus:border-red-500 focus:ring-2 focus:ring-red-500/15"
               : "border-neutral-200 hover:border-neutral-300",
             className
           )}
           {...props}
         />
         {error ? (
-          <p className="text-xs text-red-600 mt-1 font-medium">{error}</p>
+          <p id={errorId} role="alert" className="text-xs text-red-600 mt-1.5 font-medium">
+            {error}
+          </p>
         ) : helperText ? (
-          <p className="text-xs text-neutral-400 mt-1">{helperText}</p>
+          <p id={helperId} className="text-xs text-neutral-500 mt-1.5">
+            {helperText}
+          </p>
         ) : null}
       </div>
     );

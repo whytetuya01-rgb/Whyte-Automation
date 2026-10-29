@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { ApiError, handleApiError } from "@/lib/api-response";
 import { checkRateLimit, clientIpFromRequest } from "@/lib/rateLimit";
-import { readValidatedImage } from "@/lib/imageUpload";
+import { readValidatedLogo } from "@/lib/companyLogoAssets";
+import { LOGO_SETTING_FIELDS, parseLogoSettings } from "@/lib/logoSettings";
 import { companyRegistrationSchema, formDataToFields, registerCompany } from "@/lib/companyRegistration";
 
 export const runtime = "nodejs";
@@ -41,16 +42,25 @@ export async function POST(request: Request) {
     const parsed = companyRegistrationSchema.safeParse(formDataToFields(formData));
     if (!parsed.success) return handleApiError(parsed.error, { logPrefix: "POST /api/company/register" });
 
-    // The logo is optional: an absent field or an empty file input means "no logo".
-    const logoEntry = formData.get("logo");
-    let logo: { buffer: Buffer; mime: string } | null = null;
-    if (logoEntry instanceof File) {
-      if (logoEntry.size > 0) logo = await readValidatedImage(logoEntry, "logo");
-    } else if (typeof logoEntry === "string" && logoEntry !== "") {
-      throw new ApiError("VALIDATION_ERROR", "The logo must be an image file.", { field: "logo" });
+    // Both logos are optional: an absent field or an empty file input means "none". Files must be real, validated
+    // uploads (never a URL), and the presentation settings are strictly parsed.
+    const readOptionalLogo = async (key: "logo" | "compactLogo") => {
+      const entry = formData.get(key);
+      if (entry instanceof File) return entry.size > 0 ? await readValidatedLogo(entry, key) : null;
+      if (typeof entry === "string" && entry !== "") {
+        throw new ApiError("VALIDATION_ERROR", "The logo must be an image file.", { field: key });
+      }
+      return null;
+    };
+    const logo = await readOptionalLogo("logo");
+    const compactLogo = await readOptionalLogo("compactLogo");
+    const settings = parseLogoSettings(Object.fromEntries(LOGO_SETTING_FIELDS.filter((key) => formData.has(key)).map((key) => [key, formData.get(key)])));
+    if (!settings.ok) throw new ApiError("VALIDATION_ERROR", settings.message, { field: settings.field });
+    if (compactLogo && !logo) {
+      throw new ApiError("VALIDATION_ERROR", "Add the main company logo before a compact sidebar logo.", { field: "compactLogo" });
     }
 
-    const company = await registerCompany(parsed.data, logo);
+    const company = await registerCompany(parsed.data, logo, { compactLogo, settings: settings.value });
 
     return NextResponse.json(
       {

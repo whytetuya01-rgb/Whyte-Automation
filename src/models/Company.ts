@@ -1,3 +1,6 @@
+import { DOCUMENT_LIMITS, INTRO_PAGE_MODES, SOCIAL_NETWORKS, type DocumentSettings } from "@/lib/documentSettings";
+import { DEFAULT_LOGO_SETTINGS, LOGO_BACKGROUNDS, LOGO_FITS, LOGO_PADDING_RANGE, LOGO_RADIUS_RANGE, type LogoBackground, type LogoFit } from "@/lib/logoSettings";
+import { DEFAULT_THEME, SITE_THEME_IDS, type SiteTheme } from "@/lib/themeTokens";
 import mongoose, { Schema, Document, Model } from "mongoose";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
@@ -34,8 +37,9 @@ export interface CompanyDecisionEmail {
   lastError: string | null;
 }
 
-export type SiteTheme = "whyte-rose" | "champagne-bronze" | "emerald-haven";
-export const VALID_SITE_THEMES: SiteTheme[] = ["whyte-rose", "champagne-bronze", "emerald-haven"];
+/** The preset ids live in `themeTokens.ts` (one list shared with the APIs and the generated stylesheet). */
+export type { SiteTheme };
+export const VALID_SITE_THEMES: SiteTheme[] = [...SITE_THEME_IDS];
 
 export type SidebarStyle = "classic" | "floating" | "minimal";
 export type BorderRadius = "sharp" | "balanced" | "smooth";
@@ -67,6 +71,15 @@ export interface ICompany extends SoftDeleteFields {
   logoUrl: string | null;
   /** Cloudinary public id of the uploaded logo (`whyte/companies/<id>/branding/…`); null for a legacy / external logoUrl or no logo. */
   logoPublicId?: string | null;
+  /** Optional square/compact logo for the collapsed sidebar (same ownership rules as the main logo). */
+  compactLogoUrl?: string | null;
+  compactLogoPublicId?: string | null;
+  /** How the logo is presented; absent on companies that never customised it (read through `normalizeLogoSettings`). */
+  logoSettings?: { fit: LogoFit; background: LogoBackground; padding: number; radius: number } | null;
+  /** Quotation document content (contact card, footer, social links, intro pages); see `resolveProposalContent`. */
+  documentSettings?: DocumentSettings | null;
+  /** Custom brand colour (`#rrggbb`); overrides the selected preset's accent. null = use the preset. */
+  brandColor?: string | null;
   /** Absent / null on companies that predate self-registration (treated as approved). */
   registrationStatus?: CompanyRegistrationStatus | null;
   registrationSubmittedAt?: Date | null;
@@ -118,6 +131,20 @@ const CompanySchema = new Schema<ICompanyDocument>(
     address: { type: String, required: true, trim: true },
     logoUrl: { type: String, default: null },
     logoPublicId: { type: String, default: null },
+    compactLogoUrl: { type: String, default: null },
+    compactLogoPublicId: { type: String, default: null },
+    logoSettings: {
+      type: new Schema(
+        {
+          fit: { type: String, enum: LOGO_FITS, default: DEFAULT_LOGO_SETTINGS.fit },
+          background: { type: String, enum: LOGO_BACKGROUNDS, default: DEFAULT_LOGO_SETTINGS.background },
+          padding: { type: Number, min: LOGO_PADDING_RANGE.min, max: LOGO_PADDING_RANGE.max, default: DEFAULT_LOGO_SETTINGS.padding },
+          radius: { type: Number, min: LOGO_RADIUS_RANGE.min, max: LOGO_RADIUS_RANGE.max, default: DEFAULT_LOGO_SETTINGS.radius },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     registrationStatus: { type: String, enum: ["pending_review", "approved", "rejected"], default: undefined },
     registrationSubmittedAt: { type: Date, default: undefined },
     reviewedAt: { type: Date, default: undefined },
@@ -143,10 +170,45 @@ const CompanySchema = new Schema<ICompanyDocument>(
       default: undefined,
     },
     tagline: { type: String, default: null, trim: true },
+    brandColor: { type: String, default: null, match: /^#[0-9a-f]{6}$/ },
+    documentSettings: {
+      type: new Schema(
+        {
+          legalName: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.legalName },
+          website: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.website },
+          footerText: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.footerText },
+          automationType: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.automationType },
+          socialLinks: {
+            type: new Schema(
+              Object.fromEntries(SOCIAL_NETWORKS.map((network) => [network, { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.socialUrl }])),
+              { _id: false }
+            ),
+            default: undefined,
+          },
+          introPages: { type: String, enum: INTRO_PAGE_MODES, default: undefined },
+          aboutTitle: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.aboutTitle },
+          aboutBody: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.aboutBody },
+          aboutHighlights: {
+            type: [
+              new Schema(
+                {
+                  title: { type: String, required: true, maxlength: DOCUMENT_LIMITS.highlightTitle },
+                  text: { type: String, required: true, maxlength: DOCUMENT_LIMITS.highlightText },
+                },
+                { _id: false }
+              ),
+            ],
+            default: undefined,
+          },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     theme: {
       type: String,
-      enum: ["whyte-rose", "champagne-bronze", "emerald-haven"],
-      default: "whyte-rose",
+      enum: SITE_THEME_IDS,
+      default: DEFAULT_THEME,
     },
     themeLayout: {
       sidebarStyle: {
@@ -210,7 +272,14 @@ softDeletePlugin(CompanySchema, { blockHardDelete: true });
  * model that predates the review fields so it is rebuilt from this schema.
  */
 const cachedCompany = mongoose.models.Company;
-if (cachedCompany && (!cachedCompany.schema.path("registrationStatus") || !cachedCompany.schema.path("suspendedFromStatus"))) {
+const cachedThemeEnum = (cachedCompany?.schema.path("theme") as { enumValues?: string[] } | undefined)?.enumValues ?? [];
+if (
+  cachedCompany &&
+  (!cachedCompany.schema.path("registrationStatus") ||
+    !cachedCompany.schema.path("suspendedFromStatus") ||
+    !cachedCompany.schema.path("documentSettings.socialLinks.whatsapp") ||
+    SITE_THEME_IDS.some((id) => !cachedThemeEnum.includes(id)))
+) {
   mongoose.deleteModel("Company");
 }
 

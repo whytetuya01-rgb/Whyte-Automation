@@ -1,15 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
-import { AlertCircle, Building2, Eye, EyeOff, ImagePlus, Lock, Trash2, User } from "lucide-react";
+import { AlertCircle, Building2, Eye, EyeOff, Lock, User } from "lucide-react";
 import { Button, Input, Textarea } from "@/components/ui";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import { EMAIL_MESSAGE, isValidEmail, phoneError } from "@/lib/validation/fields";
-import { ALLOWED_IMAGE_MIME_TYPES, MAX_UPLOAD_SIZE } from "@/lib/validation/upload";
+import LogoCustomizer, { appendLogoDraft, emptyLogoDraft, type LogoDraft, type LogoFieldErrors } from "@/components/company/LogoCustomizer";
 
 type Field =
   | "companyName"
@@ -20,8 +19,7 @@ type Field =
   | "ownerEmail"
   | "ownerPhone"
   | "password"
-  | "confirmPassword"
-  | "logo";
+  | "confirmPassword";
 type FormErrors = Partial<Record<Field, string>>;
 
 const initialForm = {
@@ -36,60 +34,21 @@ const initialForm = {
   confirmPassword: "",
 };
 
-const LOGO_ACCEPT = ALLOWED_IMAGE_MIME_TYPES.join(",");
-const MAX_LOGO_MB = Math.floor(MAX_UPLOAD_SIZE / (1024 * 1024));
-
-/** Same rules the server enforces; the server remains the authority. */
-function logoFileError(file: File): string | null {
-  if (!(ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(file.type)) return "Use a PNG, JPG or WebP image.";
-  if (file.size > MAX_UPLOAD_SIZE) return `The logo must be ${MAX_LOGO_MB}MB or smaller.`;
-  if (file.size === 0) return "That file is empty.";
-  return null;
-}
-
 export default function CompanyRegisterPage() {
   const router = useRouter();
   const submittingRef = useRef(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState(initialForm);
   const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [logo, setLogo] = useState<File | null>(null);
-  const [logoPreview, setLogoPreview] = useState<string | null>(null);
-
-  // The preview is a blob URL: release it when it is replaced and when the page goes away.
-  useEffect(() => {
-    return () => {
-      if (logoPreview) URL.revokeObjectURL(logoPreview);
-    };
-  }, [logoPreview]);
+  const [logoDraft, setLogoDraft] = useState<LogoDraft>(() => emptyLogoDraft());
+  const [logoErrors, setLogoErrors] = useState<LogoFieldErrors>({});
 
   const updateField = (field: Field, value: string) => {
     setForm((previous) => ({ ...previous, [field]: value }));
     setErrors((previous) => ({ ...previous, [field]: undefined }));
     setFormError(null);
-  };
-
-  const chooseLogo = (file: File | null) => {
-    if (!file) return;
-    const problem = logoFileError(file);
-    if (problem) {
-      setErrors((previous) => ({ ...previous, logo: problem }));
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-    setErrors((previous) => ({ ...previous, logo: undefined }));
-    setLogo(file);
-    setLogoPreview(URL.createObjectURL(file));
-  };
-
-  const removeLogo = () => {
-    setLogo(null);
-    setLogoPreview(null);
-    setErrors((previous) => ({ ...previous, logo: undefined }));
-    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const validate = (): FormErrors => {
@@ -125,7 +84,8 @@ export default function CompanyRegisterPage() {
     try {
       const body = new FormData();
       for (const [key, value] of Object.entries(form)) body.append(key, value);
-      if (logo) body.append("logo", logo);
+      // The logo files and presentation settings are only sent when a logo was chosen.
+      if (logoDraft.logoFile) appendLogoDraft(body, logoDraft, { includeSettings: true });
 
       const response = await fetch("/api/company/register", { method: "POST", body });
       const result = await response.json().catch(() => null);
@@ -134,7 +94,7 @@ export default function CompanyRegisterPage() {
         const field = result?.error?.field as Field | undefined;
         const message = result?.error?.message ?? "We could not register your company. Please try again.";
         if (field && field in initialForm) setErrors((previous) => ({ ...previous, [field]: message }));
-        else if (field === "logo") setErrors((previous) => ({ ...previous, logo: message }));
+        else if (field && ["logo", "compactLogo", "logoFit", "logoBackground", "logoPadding", "logoRadius"].includes(field)) setLogoErrors({ [field]: message });
         else setFormError(message);
         toast.error(message);
         return;
@@ -197,36 +157,10 @@ export default function CompanyRegisterPage() {
                   <Textarea id="company-address" label="Company Address *" value={form.companyAddress} onChange={(e) => updateField("companyAddress", e.target.value)} placeholder="Building, street, city, state and PIN code" rows={3} error={errors.companyAddress} />
 
                   <div>
-                    <p className="mb-1.5 text-sm font-medium text-neutral-800">
+                    <p className="mb-2 text-sm font-semibold text-neutral-900">
                       Company Logo <span className="font-normal text-neutral-500">(optional)</span>
                     </p>
-                    <div className="flex items-center gap-4 rounded-xl border border-dashed border-neutral-300 p-3">
-                      <div className="flex h-20 w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-neutral-50" data-testid="logo-preview-frame">
-                        {logoPreview ? (
-                          <Image src={logoPreview} alt="Selected company logo preview" width={112} height={80} unoptimized className="max-h-full max-w-full object-contain" />
-                        ) : (
-                          <ImagePlus size={26} className="text-neutral-300" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-2">
-                        <input
-                          ref={fileInputRef}
-                          id="company-logo"
-                          type="file"
-                          accept={LOGO_ACCEPT}
-                          aria-label="Company logo"
-                          onChange={(e) => chooseLogo(e.target.files?.[0] ?? null)}
-                          className="block w-full text-sm text-neutral-600 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-neutral-700"
-                        />
-                        <p className="text-xs text-neutral-500">PNG, JPG or WebP, up to {MAX_LOGO_MB}MB. Until you add one, the default Whyte branding is used.</p>
-                        {logo && (
-                          <button type="button" onClick={removeLogo} className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline">
-                            <Trash2 size={12} /> Remove logo
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    {errors.logo && <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">{errors.logo}</p>}
+                    <LogoCustomizer draft={logoDraft} onChange={(next) => { setLogoDraft(next); setLogoErrors({}); }} companyName={form.companyName.trim() || null} errors={logoErrors} disabled={loading} />
                   </div>
                 </fieldset>
 

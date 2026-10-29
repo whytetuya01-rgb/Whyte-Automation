@@ -97,7 +97,7 @@ export default function AdminLayoutWrapper({
           <div className="flex items-center gap-2 sm:gap-3  lg:gap-4">
             <button
               onClick={toggleSidebar}
-              className="text-neutral-300 hover:text-white p-1.5 sm:p-2 -ml-1 rounded-xl hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--color-admin-primary,#D85B83)]/30 cursor-pointer"
+              className="text-neutral-300 hover:text-white p-1.5 sm:p-2 -ml-1 rounded-xl hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--color-admin-primary-on-dark,#D85B83)]/30 cursor-pointer"
               aria-label={isMobile ? "Toggle Navigation Sidebar" : collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-expanded={isMobile ? isOpen : !collapsed}
             >

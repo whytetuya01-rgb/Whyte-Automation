@@ -3,7 +3,7 @@
  * Version: 1.0.0
  */
 
-const CACHE_VERSION = "whyte-pwa-v2";
+const CACHE_VERSION = "whyte-pwa-v3";
 const STATIC_CACHE_NAME = `whyte-static-${CACHE_VERSION}`;
 const IMAGE_CACHE_NAME = `whyte-images-${CACHE_VERSION}`;
 
@@ -175,12 +175,29 @@ self.addEventListener("fetch", (event) => {
   // All other requests fall through directly to network.
 });
 
+// ── Cached HTML pages are per-user (they carry the signed-in company's branding), so they are removed whenever the
+// signed-in account changes or signs out. Static assets (/_next/static, icons) are not user-specific and stay.
+async function clearCachedPages() {
+  try {
+    const cache = await caches.open(STATIC_CACHE_NAME);
+    const keys = await cache.keys();
+    await Promise.all(
+      keys.filter((request) => new URL(request.url).pathname.startsWith("/quotation/")).map((request) => cache.delete(request))
+    );
+  } catch (err) {
+    console.warn("[SW] Could not clear cached pages:", err);
+  }
+}
+
 // ── Offline quotation builder: cache its page and every script/style/font it needs ─────────────────────
 // Called by the signed-in app while it is online, so the builder is already on the device when the connection
 // drops. The builder is client-rendered, so its HTML plus the /_next/static files it references are all it needs.
 // A redirect (not signed in) or an error is never cached.
-async function precacheBuilderShell() {
+async function precacheBuilderShell(replace) {
   try {
+    // A different account signed in on this device: drop every cached page first so nothing rendered for the
+    // previous user (including their company branding) can be served again.
+    if (replace) await clearCachedPages();
     const response = await fetch(BUILDER_SHELL_URL, { credentials: "same-origin" });
     if (!response.ok || response.redirected) return false;
     const html = await response.clone().text();
@@ -212,7 +229,11 @@ self.addEventListener("message", (event) => {
   }
 
   if (event.data?.type === "PRECACHE_BUILDER") {
-    event.waitUntil(precacheBuilderShell());
+    event.waitUntil(precacheBuilderShell(Boolean(event.data.replace)));
+  }
+
+  if (event.data?.type === "CLEAR_PAGE_CACHE") {
+    event.waitUntil(clearCachedPages());
   }
 
   if (event.data?.type === "CLEAR_IMAGE_CACHE") {

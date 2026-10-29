@@ -76,7 +76,8 @@ async function main() {
 
     // 3. No request / no company context: the neutral fallback, never an arbitrary company.
     const none = await getFooterCompany();
-    assert.deepEqual(none, { name: "Whyte Automations", tagline: null, phone: null, email: null });
+    assert.deepEqual({ ...none, socialLinks: undefined }, { name: "Whyte Automations", tagline: null, phone: null, email: null, socialLinks: undefined });
+    assert.deepEqual(none.socialLinks.map((link) => link.id), ["linkedin", "instagram", "youtube", "facebook"], "the platform context carries the platform's own social links");
     const insideCompanyContext = await runWithTenantContext(ctxB, () => getFooterCompany());
     assert.equal(insideCompanyContext.name, "Whyte Automations", "an ambient tenant context alone (no session) must not select a company");
     const platform = await runUnscoped("platform-admin", () => getFooterCompany());

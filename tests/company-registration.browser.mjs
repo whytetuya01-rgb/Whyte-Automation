@@ -6,6 +6,7 @@
  *   PLAYWRIGHT_MODULE=<path>/node_modules/playwright node tests/company-registration.browser.mjs
  * Optional: SCREENSHOT_DIR=<dir>
  */
+import { png } from "./helpers/imageFixtures.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
@@ -47,8 +48,8 @@ const startFake = () => new Promise((resolve) => {
   srv.listen(0, "127.0.0.1", () => resolve(srv));
 });
 
-// a real 1x1 PNG so the browser can render the preview
-const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+// a real 64x64 PNG so the browser can render the preview (logos must be 32-4096 px)
+const PNG = png(64, 64);
 const PASSWORD = "Sup3rSecret!";
 
 try {
@@ -93,7 +94,7 @@ try {
   const visitor = await open("");
   const { page } = visitor;
   await page.goto(`${baseUrl}/register/company`, { waitUntil: "domcontentloaded" });
-  await page.locator("#company-name").waitFor();
+  await page.locator("#company-name:visible").waitFor();
   await shot(page, "r-1-form");
   assert.ok(!page.url().includes("/login"), "the registration page opens without signing in");
 
@@ -117,13 +118,13 @@ try {
 
   // invalid file is refused client-side, a PNG shows a preview
   await page.setInputFiles("#company-logo", { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
-  await page.locator("text=Use a PNG, JPG or WebP image.").waitFor();
+  await page.locator("text=/Use a PNG, JPG or WebP image/").waitFor();
   assert.equal(await page.locator('img[alt="Selected company logo preview"]').count(), 0, "no preview for an invalid file");
   await page.setInputFiles("#company-logo", { name: "logo.png", mimeType: "image/png", buffer: PNG });
   const preview = page.locator('img[alt="Selected company logo preview"]');
   await preview.waitFor();
   assert.match(await preview.getAttribute("src"), /^blob:/, "the chosen logo is previewed before submitting");
-  assert.equal(await page.locator("text=Use a PNG, JPG or WebP image.").count(), 0, "the earlier error clears");
+  assert.equal(await page.locator("text=/Use a PNG, JPG or WebP image/").count(), 0, "the earlier error clears");
   await shot(page, "r-2-form-filled");
   pass("validation errors, a rejected non-image file, and a logo preview before submitting");
 
@@ -239,9 +240,13 @@ try {
   await owner.page.locator('[role="alert"]').first().waitFor();
   assert.equal(await owner.page.locator('[data-testid="approve-button"]').count(), 0, "no approve action for a Company Owner");
   await owner.page.goto(`${baseUrl}/admin/company`, { waitUntil: "domcontentloaded" });
+  await owner.page.getByRole("tab", { name: "Logo Customization" }).click();
   await owner.page.locator('[data-testid="company-logo-frame"] img').waitFor();
   await owner.page.setInputFiles('input[aria-label="Company logo file"]', { name: "new.png", mimeType: "image/png", buffer: PNG });
-  await owner.page.locator("text=Your company logo has been saved.").first().waitFor();
+  // The new logo is only previewed until the form is saved.
+  assert.equal(uploads.length, 1, "nothing is uploaded before Save");
+  await owner.page.getByRole("button", { name: "Save Logo Settings" }).click();
+  await owner.page.locator("text=Your company logo and its settings have been updated.").first().waitFor();
   assert.equal(uploads.length, 2, "the replacement was uploaded");
   assert.match((await db.collection("companies").findOne({ name: "Skyline Smart Homes Pvt. Ltd." })).logoPublicId, /branding\/asset2$/);
   await shot(owner.page, "r-8-company-settings");

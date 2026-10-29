@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api-response";
 import { emailSchema, optionalPhoneSchema, phoneSchema } from "@/lib/validation/fields";
 import { CloudinaryAuthError, CloudinaryConfigError, deleteImage, uploadImage } from "@/lib/cloudinary";
 import { companyBrandingFolder } from "@/lib/uploadPaths";
+import { LOGO_SETTING_FIELDS, type LogoSettings } from "@/lib/logoSettings";
 
 /**
  * Public company self-registration: one new tenant (Company) plus its first Company Owner account.
@@ -65,7 +66,8 @@ export type CompanyRegistrationInput = z.infer<typeof companyRegistrationSchema>
 export function formDataToFields(formData: FormData): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const [key, value] of formData.entries()) {
-    if (key === "logo") continue;
+    // The logo files and logo presentation settings are validated separately from the text fields.
+    if (key === "logo" || key === "compactLogo" || (LOGO_SETTING_FIELDS as readonly string[]).includes(key)) continue;
     if (typeof value !== "string") {
       throw new ApiError("VALIDATION_ERROR", `Unexpected file in field "${key}".`, { field: key });
     }
@@ -136,7 +138,15 @@ export function logoUploadError(error: unknown): ApiError {
  * If step 4 fails the uploaded asset is deleted, and on a standalone database (no transactions) a company created
  * moments earlier is removed again, so a failed registration never leaves a half-registered tenant or an orphan file.
  */
-export async function registerCompany(input: CompanyRegistrationInput, logo: LogoFile | null): Promise<RegisteredCompany> {
+export interface RegistrationLogoOptions {
+  /** Optional square logo for the collapsed sidebar. */
+  compactLogo?: LogoFile | null;
+  /** Already-validated presentation settings; stored only when a logo or compact logo is supplied. */
+  settings?: LogoSettings | null;
+}
+
+export async function registerCompany(input: CompanyRegistrationInput, logo: LogoFile | null, options: RegistrationLogoOptions = {}): Promise<RegisteredCompany> {
+  const compactLogo = options.compactLogo ?? null;
   await connectMongoDB();
 
   const slug = slugifyCompanyName(input.companyName);
@@ -161,14 +171,35 @@ export async function registerCompany(input: CompanyRegistrationInput, logo: Log
 
     let logoUrl: string | null = null;
     let logoPublicId: string | null = null;
-    if (logo) {
-      try {
+    let compactLogoUrl: string | null = null;
+    let compactLogoPublicId: string | null = null;
+    // Every file uploaded for this registration, so any failure afterwards removes all of them.
+    const uploadedIds: string[] = [];
+    const deleteUploaded = async (message: string) => {
+      for (const publicId of uploadedIds) {
+        try {
+          await deleteImage(publicId);
+        } catch (cleanupError) {
+          console.error(message, cleanupError instanceof Error ? cleanupError.message : "unknown error");
+        }
+      }
+    };
+    try {
+      if (logo) {
         const uploaded = await uploadImage(logo.buffer, companyBrandingFolder(companyId));
+        uploadedIds.push(uploaded.publicId);
         logoUrl = uploaded.url;
         logoPublicId = uploaded.publicId;
-      } catch (error) {
-        throw logoUploadError(error);
       }
+      if (compactLogo) {
+        const uploaded = await uploadImage(compactLogo.buffer, companyBrandingFolder(companyId));
+        uploadedIds.push(uploaded.publicId);
+        compactLogoUrl = uploaded.url;
+        compactLogoPublicId = uploaded.publicId;
+      }
+    } catch (error) {
+      await deleteUploaded("[company-registration] Could not delete an uploaded logo after a failed upload:");
+      throw logoUploadError(error);
     }
 
     const passwordHash = await bcrypt.hash(input.password, 12);
@@ -189,6 +220,8 @@ export async function registerCompany(input: CompanyRegistrationInput, logo: Log
           address: input.companyAddress,
           logoUrl,
           logoPublicId,
+          ...(compactLogoUrl ? { compactLogoUrl, compactLogoPublicId } : {}),
+          ...(options.settings && (logo || compactLogo) ? { logoSettings: options.settings } : {}),
         }).save({ session });
         companyCreated = true;
 
@@ -211,16 +244,7 @@ export async function registerCompany(input: CompanyRegistrationInput, logo: Log
       // Compensate: the asset first (it is the part nothing else would ever clean up), then a company that exists
       // without its owner. `Company` blocks hard deletes on purpose; this removes only the row created a moment ago
       // by this very call, through the native collection, and only when the owner row was not written.
-      if (logoPublicId) {
-        try {
-          await deleteImage(logoPublicId);
-        } catch (cleanupError) {
-          console.error(
-            "[company-registration] Could not delete the uploaded logo after a failed registration:",
-            cleanupError instanceof Error ? cleanupError.message : "unknown error"
-          );
-        }
-      }
+      await deleteUploaded("[company-registration] Could not delete the uploaded logo after a failed registration:");
       if (companyCreated && !(await AdminUser.exists({ _id: ownerId }))) {
         await Company.collection.deleteOne({ _id: companyId as unknown as never });
       }
@@ -241,13 +265,7 @@ export async function registerCompany(input: CompanyRegistrationInput, logo: Log
     const stored = await Company.collection.findOne({ _id: companyId as unknown as never }, { projection: { registrationStatus: 1 } });
     if ((stored as { registrationStatus?: string } | null)?.registrationStatus !== "pending_review") {
       console.error("[company-registration] The review status was not stored; rolling the registration back. Restart the server so it loads the current Company model.");
-      if (logoPublicId) {
-        try {
-          await deleteImage(logoPublicId);
-        } catch {
-          /* best effort; the caller still gets the error below */
-        }
-      }
+      await deleteUploaded("[company-registration] Could not delete the uploaded logo while rolling back:");
       await AdminUser.collection.deleteOne({ _id: ownerId as unknown as never });
       await Company.collection.deleteOne({ _id: companyId as unknown as never });
       throw new ApiError("INTERNAL_SERVER_ERROR", "Registration could not be completed safely. Please try again in a moment.");

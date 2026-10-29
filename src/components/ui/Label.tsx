@@ -11,13 +11,17 @@ export const Label = React.forwardRef<HTMLLabelElement, LabelProps>(
       <label
         ref={ref}
         className={cn(
-          "block text-sm font-medium text-gray-700 select-none mb-1",
+          "block text-xs font-semibold text-neutral-800 select-none mb-1.5",
           className
         )}
         {...props}
       >
         {children}
-        {required && <span className="text-red-500 ml-0.5">*</span>}
+        {required && (
+          <span className="text-rose-500 ml-1 font-bold" aria-hidden="true">
+            *
+          </span>
+        )}
       </label>
     );
   }

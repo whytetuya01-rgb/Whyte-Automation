@@ -1,7 +1,8 @@
 "use client";
-import { useRef, useState, useEffect } from "react";
-import Image from "next/image";
-import { Building2, ImagePlus, Trash2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { Building2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Company } from "@/types";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
@@ -10,10 +11,24 @@ import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useCompany } from "@/lib/swr";
 import { Input, Textarea, Button } from "@/components/ui";
 import { emailError, gstinError, phoneError } from "@/lib/validation/fields";
-import { ALLOWED_IMAGE_MIME_TYPES, MAX_UPLOAD_SIZE } from "@/lib/validation/upload";
+import DocumentContentEditor from "@/components/company/DocumentContentEditor";
+import type { DocumentSettings } from "@/lib/documentSettings";
+import LogoCustomizer, { appendLogoDraft, emptyLogoDraft, isLogoDraftDirty, type LogoDraft, type LogoFieldErrors } from "@/components/company/LogoCustomizer";
+import { normalizeLogoSettings } from "@/lib/logoSettings";
+import { refreshCachedBranding } from "@/lib/offline/identity";
+import { useCompanyBranding } from "@/components/providers/BrandingProvider";
+
+type TabId = "profile" | "logo" | "document";
+const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
+  { id: "profile", label: "Company Profile" },
+  { id: "logo", label: "Logo Customization" },
+  { id: "document", label: "Document & Social Links" },
+];
 
 export default function CompanyPage() {
   const { data: fetched, isLoading: loading, mutate } = useCompany();
+  // A Super Admin on the platform (not acting as a company) has no company to edit; every save would be refused.
+  const hasCompany = useCompanyBranding().companyId !== null;
 
   const [company, setCompany] = useState<Partial<Company>>({
     name: "",
@@ -24,57 +39,99 @@ export default function CompanyPage() {
     tagline: "",
   });
   const [saving, setSaving] = useState(false);
-  const [logoBusy, setLogoBusy] = useState(false);
-  const [logoError, setLogoError] = useState<string | null>(null);
-  const logoInputRef = useRef<HTMLInputElement>(null);
+  const [logoSaving, setLogoSaving] = useState(false);
+  const [tab, setTab] = useState<TabId>("profile");
+  const router = useRouter();
+  const [logoDraft, setLogoDraft] = useState<LogoDraft>(() => emptyLogoDraft());
+  const [logoErrors, setLogoErrors] = useState<LogoFieldErrors>({});
+  const savedSettings = normalizeLogoSettings(fetched?.logoSettings);
+  const logoDirty = isLogoDraftDirty(logoDraft, savedSettings);
 
-  // The logo is saved on its own (POST/DELETE /api/company/logo): the company id comes from the session, so it can
-  // only ever change this company's logo, and the stored file and URL stay in step.
-  const uploadLogo = async (file: File | null) => {
-    if (!file) return;
-    setLogoError(null);
-    if (!(ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(file.type)) {
-      setLogoError("Use a PNG, JPG or WebP image.");
-    } else if (file.size > MAX_UPLOAD_SIZE) {
-      setLogoError(`The logo must be ${Math.floor(MAX_UPLOAD_SIZE / (1024 * 1024))}MB or smaller.`);
-    } else {
-      setLogoBusy(true);
-      try {
-        const body = new FormData();
-        body.append("logo", file);
-        const response = await fetch("/api/company/logo", { method: "POST", body });
-        const result = await response.json().catch(() => null);
-        if (!response.ok) {
-          setLogoError(result?.error?.message ?? "The logo could not be uploaded. Please try again.");
-        } else {
-          notify.success("Logo updated", "Your company logo has been saved.");
-          mutate();
-        }
-      } catch {
-        setLogoError("Unable to reach the server. Please try again.");
-      } finally {
-        setLogoBusy(false);
+  // The draft starts from (and Discard returns to) what is saved; settings follow the saved values until edited.
+  const savedKey = `${savedSettings.fit}|${savedSettings.background}|${savedSettings.padding}|${savedSettings.radius}`;
+  useEffect(() => {
+    setLogoDraft(emptyLogoDraft(normalizeLogoSettings(fetched?.logoSettings)));
+    setLogoErrors({});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey]);
+
+  // Saves the logo, compact logo and presentation settings in one request. The company comes from the session, so
+  // it can only ever change this company's branding; on failure the stored logo is left exactly as it was.
+  const saveLogo = async (): Promise<boolean> => {
+    const body = new FormData();
+    appendLogoDraft(body, logoDraft, { includeSettings: true });
+    try {
+      const response = await fetch("/api/company/logo", { method: "POST", body });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        const field = result?.error?.field as keyof LogoFieldErrors | undefined;
+        const message = result?.error?.message ?? "The logo could not be saved. Your current logo was not changed.";
+        setLogoErrors(field ? { [field]: message } : { logo: message });
+        notify.error("Logo not saved", message);
+        return false;
       }
+      return true;
+    } catch {
+      const message = "Unable to reach the server. Your current logo was not changed.";
+      setLogoErrors({ logo: message });
+      notify.error("Logo not saved", message);
+      return false;
     }
-    if (logoInputRef.current) logoInputRef.current.value = "";
   };
 
-  const removeLogo = async () => {
-    setLogoError(null);
-    setLogoBusy(true);
+  // "Save Logo Settings": saves the logo and settings, then refreshes everything that shows the branding (the server
+  // rendered header/sidebar/loader through router.refresh, the SWR copy, and the cached offline pages).
+  const handleSaveLogo = async () => {
+    setLogoSaving(true);
+    setLogoErrors({});
     try {
-      const response = await fetch("/api/company/logo", { method: "DELETE" });
-      if (!response.ok) {
-        const result = await response.json().catch(() => null);
-        setLogoError(result?.error?.message ?? "The logo could not be removed.");
-      } else {
-        mutate();
-      }
-    } catch {
-      setLogoError("Unable to reach the server. Please try again.");
+      if (!(await saveLogo())) return;
+      setLogoDraft(emptyLogoDraft(logoDraft.settings));
+      await mutate();
+      router.refresh();
+      void refreshCachedBranding();
+      notify.success("Logo settings saved", "Your company logo and its settings have been updated.");
     } finally {
-      setLogoBusy(false);
+      setLogoSaving(false);
     }
+  };
+  // "Save Document Content": the company comes from the session; the server validates every field (bounded text,
+  // https links, social links on their own network) and only the default company may pick the standard intro pages.
+  const [documentSaving, setDocumentSaving] = useState(false);
+  const saveDocumentContent = async (documentSettings: DocumentSettings) => {
+    setDocumentSaving(true);
+    try {
+      const response = await fetch("/api/company", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ documentSettings }) });
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message = result?.error?.message ?? "The document content could not be saved. Nothing was changed.";
+        notify.error("Document content not saved", message);
+        return { field: undefined, message };
+      }
+      await mutate();
+      router.refresh();
+      notify.success("Document content saved", "Your quotation documents and page footer use the new content.");
+      return null;
+    } catch {
+      const message = "Unable to reach the server. Nothing was changed.";
+      notify.error("Document content not saved", message);
+      return { field: undefined, message };
+    } finally {
+      setDocumentSaving(false);
+    }
+  };
+  const discardLogoChanges = () => {
+    setLogoDraft(emptyLogoDraft(savedSettings));
+    setLogoErrors({});
+  };
+
+  const onTabKeyDown = (event: React.KeyboardEvent, index: number) => {
+    const next = event.key === "ArrowRight" ? index + 1 : event.key === "ArrowLeft" ? index - 1 : event.key === "Home" ? 0 : event.key === "End" ? TABS.length - 1 : null;
+    if (next === null) return;
+    event.preventDefault();
+    const target = TABS[(next + TABS.length) % TABS.length];
+    setTab(target.id);
+    document.getElementById(`company-tab-${target.id}`)?.focus();
   };
 
   // Sync SWR data into local form state when it arrives
@@ -120,7 +177,7 @@ export default function CompanyPage() {
   if (loading) return <LoadingSpinner />;
 
   return (
-    <div className="max-w-2xl">
+    <div className="max-w-3xl">
       <PageHeader
         title="Company Settings"
         icon={Building2}
@@ -128,42 +185,72 @@ export default function CompanyPage() {
         className="mb-4 sm:mb-6"
       />
 
-      <div className="mb-4 flex items-center gap-4 rounded-2xl border border-admin-grey-border bg-white p-4 shadow-xs sm:p-6">
-        <div className="flex h-20 w-32 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gray-50" data-testid="company-logo-frame">
-          {company.logoUrl ? (
-            <Image src={company.logoUrl} alt={`${company.name ?? "Company"} logo`} width={128} height={80} unoptimized className="max-h-full max-w-full object-contain" />
-          ) : (
-            <ImagePlus size={26} className="text-gray-300" />
-          )}
-        </div>
-        <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-sm font-semibold text-gray-900">Company logo</p>
-          <p className="text-xs text-gray-500">PNG, JPG or WebP, up to {Math.floor(MAX_UPLOAD_SIZE / (1024 * 1024))}MB. Without a logo the default Whyte branding is used.</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <label className="inline-flex cursor-pointer items-center rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 aria-disabled:opacity-60" aria-disabled={logoBusy}>
-              {logoBusy ? "Working…" : company.logoUrl ? "Replace logo" : "Upload logo"}
-              <input
-                ref={logoInputRef}
-                type="file"
-                accept={ALLOWED_IMAGE_MIME_TYPES.join(",")}
-                aria-label="Company logo file"
-                className="sr-only"
-                disabled={logoBusy}
-                onChange={(e) => void uploadLogo(e.target.files?.[0] ?? null)}
-              />
-            </label>
-            {company.logoUrl && (
-              <button type="button" disabled={logoBusy} onClick={() => void removeLogo()} className="inline-flex items-center gap-1 text-xs font-medium text-red-600 hover:underline disabled:opacity-60">
-                <Trash2 size={12} /> Remove
-              </button>
+      {!hasCompany && (
+        <p className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900" role="status" data-testid="company-platform-notice">
+          You are in platform mode, so there is no company profile to edit. Use <strong>Act as company</strong> to choose one.
+        </p>
+      )}
+
+      <div role="tablist" aria-label="Company settings" className="mb-4 flex gap-1 border-b border-admin-grey-border">
+        {TABS.map((item, index) => (
+          <button
+            key={item.id}
+            id={`company-tab-${item.id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === item.id}
+            aria-controls={`company-panel-${item.id}`}
+            tabIndex={tab === item.id ? 0 : -1}
+            onClick={() => setTab(item.id)}
+            onKeyDown={(event) => onTabKeyDown(event, index)}
+            className={cn(
+              "-mb-px inline-flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-admin-primary",
+              tab === item.id ? "border-admin-primary text-admin-primary" : "border-transparent text-gray-500 hover:text-gray-900"
             )}
-          </div>
-          {logoError && <p role="alert" className="text-xs font-medium text-red-600">{logoError}</p>}
-        </div>
+          >
+            {item.label}
+            {item.id === "logo" && logoDirty && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" title="Unsaved logo changes" aria-label="Unsaved logo changes" />}
+          </button>
+        ))}
       </div>
 
+      {tab === "logo" && (
+        <div id="company-panel-logo" role="tabpanel" aria-labelledby="company-tab-logo" className="rounded-2xl border border-admin-grey-border bg-white p-4 shadow-xs sm:p-6">
+          <LogoCustomizer
+            draft={logoDraft}
+            onChange={setLogoDraft}
+            savedLogoUrl={fetched?.logoUrl ?? null}
+            savedCompactLogoUrl={fetched?.compactLogoUrl ?? null}
+            companyName={company.name}
+            errors={logoErrors}
+            disabled={logoSaving || !hasCompany}
+          />
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-admin-grey-border pt-4">
+            <p className="text-xs text-gray-500" role="status">
+              {logoDirty ? "You have unsaved logo changes." : "Everything shown is saved."}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="secondary" disabled={!logoDirty || logoSaving} onClick={discardLogoChanges}>
+                Cancel changes
+              </Button>
+              <Button type="button" variant="primary" loading={logoSaving} disabled={!logoDirty || !hasCompany} onClick={() => void handleSaveLogo()}>
+                Save Logo Settings
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === "document" && fetched && (
+        <div id="company-panel-document" role="tabpanel" aria-labelledby="company-tab-document" className="rounded-2xl border border-admin-grey-border bg-white p-4 shadow-xs sm:p-6">
+          <DocumentContentEditor company={fetched} saving={documentSaving} onSave={saveDocumentContent} />
+        </div>
+      )}
+
+      {tab === "profile" && (
+        <form id="company-panel-profile" role="tabpanel" aria-labelledby="company-tab-profile" onSubmit={handleSubmit} noValidate>
       <div className="bg-white rounded-2xl shadow-xs border border-admin-grey-border p-4 sm:p-6">
-        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <div className="space-y-4">
           <Input
             label="Company Name"
             type="text"
@@ -239,6 +326,7 @@ export default function CompanyPage() {
           <Button
             type="submit"
             loading={saving}
+            disabled={!hasCompany}
             fullWidth
             variant="primary"
             size="lg"
@@ -246,8 +334,10 @@ export default function CompanyPage() {
           >
             Save Company Settings
           </Button>
-        </form>
+        </div>
       </div>
+        </form>
+      )}
     </div>
   );
 }

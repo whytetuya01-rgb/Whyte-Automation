@@ -35,16 +35,19 @@ export function detectImageSignature(buffer: Buffer): string | null {
  */
 export async function readValidatedImage(
   value: FormDataEntryValue | null,
-  field = "file"
+  field = "file",
+  options: { maxBytes?: number } = {}
 ): Promise<{ buffer: Buffer; mime: string }> {
+  // An upload type can set its own (smaller) limit; product images keep the shared default.
+  const maxBytes = options.maxBytes ?? MAX_UPLOAD_SIZE;
   if (!(value instanceof File) || value.size === 0) {
     throw new ApiError("FILE_REQUIRED", "An image file is required.", { field });
   }
-  if (value.size > MAX_UPLOAD_SIZE) {
+  if (value.size > maxBytes) {
     throw new ApiError(
       "FILE_TOO_LARGE",
-      `File size must be ${Math.floor(MAX_UPLOAD_SIZE / (1024 * 1024))}MB or less.`,
-      { field, details: { maxBytes: MAX_UPLOAD_SIZE, receivedBytes: value.size } }
+      `File size must be ${Math.round((maxBytes / (1024 * 1024)) * 10) / 10}MB or less.`,
+      { field, details: { maxBytes, receivedBytes: value.size } }
     );
   }
   if (!(ALLOWED_IMAGE_MIME_TYPES as readonly string[]).includes(value.type)) {

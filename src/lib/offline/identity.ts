@@ -46,3 +46,25 @@ export function clearOfflineIdentity(): void {
     // ignore
   }
 }
+
+/** Asks the service worker to forget every cached page (they carry the signed-in company's branding). */
+export function clearCachedPages(): void {
+  try {
+    navigator.serviceWorker?.controller?.postMessage({ type: "CLEAR_PAGE_CACHE" });
+  } catch {
+    // No service worker (development / unsupported browser): nothing is cached.
+  }
+}
+
+/**
+ * After the company's logo or branding changed: drop the cached pages (they carry the old branding) and cache the
+ * offline builder again, so the next offline session shows the saved logo. Offline drafts themselves are untouched.
+ */
+export async function refreshCachedBranding(): Promise<void> {
+  try {
+    const registration = await navigator.serviceWorker?.ready;
+    registration?.active?.postMessage({ type: "PRECACHE_BUILDER", replace: true });
+  } catch {
+    // No service worker (development / unsupported browser): nothing is cached.
+  }
+}

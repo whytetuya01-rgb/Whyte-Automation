@@ -6,8 +6,9 @@ import NavigationLoaderProvider from "@/components/providers/NavigationLoaderPro
 import ApiLoadingProvider from "@/components/providers/ApiLoadingProvider";
 import { ConfirmProvider } from "@/components/providers/ConfirmProvider";
 import { ThemeProvider } from "@/components/providers/ThemeProvider";
+import type { SiteTheme } from "@/models/Company";
 
-export default function Providers({ children }: { children: React.ReactNode }) {
+export default function Providers({ children, initialTheme }: { children: React.ReactNode; initialTheme?: SiteTheme }) {
   return (
     <SessionProvider
       // Reduce session polling: re-check every 5 minutes instead of the default
@@ -17,7 +18,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
       refetchOnWindowFocus={false}
     >
       <SWRConfig value={SWR_ADMIN_OPTIONS}>
-        <ThemeProvider>
+        <ThemeProvider initialTheme={initialTheme}>
           <NavigationLoaderProvider>
             <ApiLoadingProvider>
               <ConfirmProvider>

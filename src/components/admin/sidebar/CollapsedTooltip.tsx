@@ -45,7 +45,7 @@ export default function CollapsedTooltip({
                 animate={{ opacity: 1, x: 0, transition: { delay: 0.12, duration: DURATION.fast, ease: EASE } }}
                 exit={{ opacity: 0, transition: { duration: 0.1 } }}
                 style={{ position: "fixed", top: anchor.top + anchor.height / 2, left: anchor.right + 12, y: "-50%", zIndex: "var(--z-dropdown)" }}
-                className="pointer-events-none whitespace-nowrap rounded-lg border border-white/10 border-l-[var(--color-admin-primary,#D85B83)] bg-[#151518] px-2.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-black/40"
+                className="pointer-events-none whitespace-nowrap rounded-lg border border-white/10 border-l-[var(--color-admin-primary-on-dark,#D85B83)] bg-[#151518] px-2.5 py-1.5 text-xs font-semibold text-white shadow-lg shadow-black/40"
               >
                 {label}
               </motion.div>

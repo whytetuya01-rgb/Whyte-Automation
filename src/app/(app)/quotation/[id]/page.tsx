@@ -1,5 +1,7 @@
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, Category, RoomType, HouseType, Company } from "@/models";
+import { toCompanyProfile } from "@/lib/companyProfile";
+import type { Company as CompanyProfile } from "@/types";
 import ProposalBuilder from "@/components/proposal-builder/ProposalBuilder";
 import { notFound, redirect } from "next/navigation";
 import { getServerSession } from "next-auth/next";
@@ -135,7 +137,8 @@ export default async function QuotationPage(props: PageProps) {
       const houseTypes = normalizeHouseTypes(JSON.parse(JSON.stringify(htDocs)));
       const categories = normalizeCategories(JSON.parse(JSON.stringify(cDocs)));
       const roomTypes = normalizeRoomTypes(JSON.parse(JSON.stringify(rtDocs)));
-      const company = compDoc ? JSON.parse(JSON.stringify(compDoc)) : null;
+      // The company's own users (dealers included) never receive the platform's internal review fields.
+      const company = compDoc ? toCompanyProfile(JSON.parse(JSON.stringify(compDoc)) as CompanyProfile) : null;
 
       return { quotation, houseTypes, products, categories, roomTypes, company };
     }

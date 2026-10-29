@@ -59,7 +59,7 @@ export default function AnimatedNavItem({
           "nav-anim-trigger group relative flex min-h-[38px] items-center gap-3 rounded-xl border border-transparent px-3 py-2.5 text-xs font-semibold sm:min-h-[42px] sm:text-sm",
           // Tailwind v4: scale-* uses the standalone `scale` property, so it must be listed explicitly.
           "cursor-pointer select-none outline-hidden transition-[color,scale] duration-[var(--motion-fast)] ease-[var(--motion-ease)] active:scale-[0.98]",
-          "focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-[var(--color-admin-primary,#D85B83)]",
+          "focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-offset-0 focus-visible:outline-[var(--color-admin-primary-on-dark,#D85B83)]",
           isActive ? "text-white" : "text-neutral-300 hover:text-white/95 focus-visible:text-white/95"
         )}
       >
@@ -83,7 +83,7 @@ export default function AnimatedNavItem({
                 style={{
                   left: r.x - 56,
                   top: r.y - 56,
-                  background: "radial-gradient(circle, var(--color-admin-primary,#D85B83) 0%, transparent 70%)",
+                  background: "radial-gradient(circle, var(--color-admin-primary-on-dark,#D85B83) 0%, transparent 70%)",
                 }}
                 initial={{ scale: 0, opacity: 0.35 }}
                 animate={{ scale: 1, opacity: 0 }}
@@ -101,7 +101,7 @@ export default function AnimatedNavItem({
             play={isActive}
             className={cn(
               "transition-colors duration-[var(--motion-base)] ease-[var(--motion-ease)]",
-              isActive ? "text-[var(--color-admin-primary,#D85B83)]" : "text-neutral-400 group-hover:text-white"
+              isActive ? "text-[var(--color-admin-primary-on-dark,#D85B83)]" : "text-neutral-400 group-hover:text-white"
             )}
           />
         </span>
@@ -122,7 +122,7 @@ export default function AnimatedNavItem({
         </AnimatePresence>
 
         {isActive && !collapsed && (
-          <span aria-hidden="true" className="nav-active-dot relative z-10 ml-auto h-1.5 w-1.5 rounded-full bg-[var(--color-admin-primary,#D85B83)] shadow-[0_0_6px_var(--color-admin-primary,#D85B83)]" />
+          <span aria-hidden="true" className="nav-active-dot relative z-10 ml-auto h-1.5 w-1.5 rounded-full bg-[var(--color-admin-primary-on-dark,#D85B83)] shadow-[0_0_6px_var(--color-admin-primary-on-dark,#D85B83)]" />
         )}
       </Link>
     </CollapsedTooltip>

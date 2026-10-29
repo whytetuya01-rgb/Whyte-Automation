@@ -356,9 +356,11 @@ export const SearchableSelect = React.forwardRef<HTMLDivElement, SearchableSelec
           )}
         </div>
         {error ? (
-          <p className="text-xs text-red-600 mt-1 font-medium">{error}</p>
+          <p role="alert" className="text-xs text-red-600 mt-1.5 font-medium">
+            {error}
+          </p>
         ) : helperText ? (
-          <p className="text-xs text-neutral-400 mt-1">{helperText}</p>
+          <p className="text-xs text-neutral-500 mt-1.5">{helperText}</p>
         ) : null}
       </div>
     );

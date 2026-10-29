@@ -26,7 +26,8 @@ import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
 import { getRoomFullTitle, getRoomDisplayName, getRoomFloorLabel, isMultiFloorHouseType } from "@/lib/roomUtils";
 import { getRoomImage, roomImageSrc, RoomImageEntry } from "@/lib/roomImageMap";
 import WhyteLogo from "@/components/shared/WhyteLogo";
-import SocialLinks from "@/components/shared/SocialLinks";
+import { ProposalAboutCompany, ProposalContactCard, ProposalLogo, ProposalPageFooter } from "@/components/proposal/ProposalDocumentParts";
+import { resolveProposalContent, type IntroPageMode } from "@/lib/documentSettings";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import { isValidGstin } from "@/lib/validation/fields";
@@ -49,6 +50,7 @@ export interface ProposalPageSlice {
   sections: Array<
     | { type: "cover" }
     | { type: "about_whyte" }
+    | { type: "about_company" }
     | { type: "project_overview_and_scope" }
     | {
         type: "switchboard_config_room";
@@ -491,7 +493,7 @@ function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation)
 /**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  */
-function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
+function paginateQuotation(quotation: Quotation, introPages: IntroPageMode): ProposalPageSlice[] {
   const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
 
@@ -521,25 +523,16 @@ function paginateQuotation(quotation: Quotation): ProposalPageSlice[] {
     sections: [{ type: "cover" }],
   });
 
-  // PAGE 2: About Whyte
-  pages.push({
-    pageNumber: 2,
-    totalPages: 0,
-    isFirstPage: false,
-    isLastPage: false,
-    sections: [{ type: "about_whyte" }],
-  });
+  // Introduction pages depend on the company's document settings: the built-in Whyte About + Overview pages
+  // (default company only), one custom About page, or none.
+  if (introPages === "standard") {
+    pages.push({ pageNumber: 2, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_whyte" }] });
+    pages.push({ pageNumber: 3, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "project_overview_and_scope" }] });
+  } else if (introPages === "custom") {
+    pages.push({ pageNumber: 2, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_company" }] });
+  }
 
-  // PAGE 3: Project Overview & Scope
-  pages.push({
-    pageNumber: 3,
-    totalPages: 0,
-    isFirstPage: false,
-    isLastPage: false,
-    sections: [{ type: "project_overview_and_scope" }],
-  });
-
-  let currentPage = 4;
+  let currentPage = pages.length + 1;
   let currentSections: ProposalPageSlice["sections"] = [];
   let currentHeight = 0;
 
@@ -836,9 +829,13 @@ export default function StepProposalPreview({
     return Array.from(set);
   }, [renderableRooms, quotation]);
 
+  // All company identity in the document (logo, contact card, footer, social links, intro pages) comes from the
+  // company's own settings; nothing here is hard-coded to one company.
+  const content = useMemo(() => resolveProposalContent(company), [company]);
+
   const proposalPages = useMemo(() => {
-    return paginateQuotation(quotation);
-  }, [quotation]);
+    return paginateQuotation(quotation, content.introPages);
+  }, [quotation, content.introPages]);
 
   const A4_WIDTH_MM = 210;
   const A4_HEIGHT_MM = 297;
@@ -951,7 +948,7 @@ export default function StepProposalPreview({
         pdf.addImage(dataUrl, "JPEG", offsetX, 0, drawWidth, drawHeight, undefined, "FAST");
       }
 
-      const filename = `${quotation.quotationNumber || "Proposal"}_Whyte_Automation.pdf`;
+      const filename = content.fileName(quotation.quotationNumber);
       pdf.save(filename);
       toast.success("Proposal PDF downloaded!");
       markQuotationSent();
@@ -1152,7 +1149,7 @@ export default function StepProposalPreview({
                 >
                   <span
                     style={{
-                      fontSize: 150,
+                      fontSize: Math.max(60, 150 - Math.max(0, content.watermark.length - 6) * 8),
                       fontWeight: 900,
                       letterSpacing: "-0.02em",
                       color: "rgba(212, 106, 140, 0.1)",
@@ -1162,7 +1159,7 @@ export default function StepProposalPreview({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    WHYTE
+                    {content.watermark}
                   </span>
                 </div>
               )}
@@ -1173,17 +1170,10 @@ export default function StepProposalPreview({
                 {!page.isFirstPage && (
                   <div className="pb-3 border-b border-gray-200 flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2.5">
-                      <WhyteLogo
-                        theme="light"
-                        alt="WHYTE"
-                        size="document-header"
-                        style={{ height: "18px", maxWidth: "80px", width: "auto" }}
-                        unoptimized
-                        loading="eager"
-                      />
+                      <ProposalLogo content={content} kind="header" />
                       <span className="text-gray-300">|</span>
                       <span className="font-semibold text-gray-700 text-sm">
-                        Smart Living Ecosystems
+                        {content.headerLabel}
                       </span>
                     </div>
                     <div className="flex items-center gap-3 text-gray-500 font-mono text-[13px]">
@@ -1208,14 +1198,7 @@ export default function StepProposalPreview({
                       <div key={sIdx} className="space-y-4">
                         {/* Header Brand Bar */}
                         <div className="flex items-start justify-between">
-                          <WhyteLogo
-                            theme="light"
-                            alt="WHYTE Automations"
-                            size="document-cover"
-                            style={{ height: "22px", maxWidth: "100px", width: "auto" }}
-                            unoptimized
-                            loading="eager"
-                          />
+                          <ProposalLogo content={content} kind="cover" />
                           <div className="text-right">
                             <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
                               Quotation Reference
@@ -1241,17 +1224,26 @@ export default function StepProposalPreview({
                             </h1>
                             <div className="h-[3px] w-[130px] rounded-full bg-gradient-to-r from-accent to-accent/0" />
                             <p className="text-[12px] font-bold uppercase tracking-widest text-gray-500">
-                              Next-Gen <span className="text-gray-950">Smart Living</span> Ecosystems
+                              {content.isDefaultCompany ? (
+                                <>
+                                  Next-Gen <span className="text-gray-950">Smart Living</span> Ecosystems
+                                </>
+                              ) : (
+                                <span className="text-gray-950">{content.tagline ?? content.automationType}</span>
+                              )}
                             </p>
                           </div>
 
-                          <div className="-mt-[140px] flex justify-end">
-                            <img
-                              src="/proposal/whyte/cover-hero.webp"
-                              alt="Whyte smart home and app control"
-                              className="h-auto w-[600px] object-contain"
-                            />
-                          </div>
+                          {/* The cover illustration shows Whyte's own product: only the default company uses it. */}
+                          {content.isDefaultCompany && (
+                            <div className="-mt-[140px] flex justify-end">
+                              <img
+                                src="/proposal/whyte/cover-hero.webp"
+                                alt="Whyte smart home and app control"
+                                className="h-auto w-[600px] object-contain"
+                              />
+                            </div>
+                          )}
                         </div>
 
                         {/* Project Overview: Compact & Premium 3-Row Layout */}
@@ -1305,7 +1297,7 @@ export default function StepProposalPreview({
                                 Automation Type
                               </span>
                               <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
-                                Whyte Smart Living Ecosystem
+                                {content.automationType}
                               </span>
                             </div>
 
@@ -1331,6 +1323,11 @@ export default function StepProposalPreview({
                         </div>
                       </div>
                     );
+                  }
+
+                  /* 2b. ABOUT THE COMPANY (custom introduction page written in the company's settings) */
+                  if (section.type === "about_company" && content.about) {
+                    return <ProposalAboutCompany key={sIdx} about={content.about} />;
                   }
 
                   /* 2. ABOUT WHYTE (PAGE 2) */
@@ -2292,56 +2289,8 @@ export default function StepProposalPreview({
                           </ol>
                         </div>
 
-                        {/* Official Whyte Closing & Contact Card */}
-                        <div
-                          data-testid="company-panel"
-                          className="rounded-xl border border-gray-200 border-l-4 border-l-accent bg-white overflow-hidden break-inside-avoid"
-                        >
-                          {/* Two balanced columns: who we are | how to reach us */}
-                          <div className="grid grid-cols-2 items-stretch">
-                            <div className="p-4 space-y-1.5">
-                              <WhyteLogo
-                                theme="light"
-                                alt="Whyte Automations"
-                                size="document-footer"
-                                unoptimized
-                                loading="eager"
-                              />
-                              <p className="font-bold text-gray-950 text-[15px] leading-snug">
-                                Whyte Automations Private Limited
-                              </p>
-                              <p className="text-[13px] text-gray-500 leading-snug">
-                                Gandhinagar, Gujarat, India <span className="text-gray-300">•</span>{" "}
-                                <span className="font-semibold text-accent">Next-Gen Smart Living</span>
-                              </p>
-                            </div>
-                            <div className="p-4 border-l border-gray-100 flex flex-col justify-center gap-2 text-[13px] text-gray-700">
-                              <p className="flex items-center gap-2.5">
-                                <Phone size={14} className="text-accent shrink-0" />
-                                <span className="font-medium">+91 98982 34336 / +91 98989 26336</span>
-                              </p>
-                              <p className="flex items-center gap-2.5">
-                                <Mail size={14} className="text-accent shrink-0" />
-                                <span className="font-medium">sales@whyte.co.in</span>
-                              </p>
-                              <p className="flex items-center gap-2.5">
-                                <Globe size={14} className="text-accent shrink-0" />
-                                <a
-                                  href="https://whyte.co.in/"
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="font-medium hover:underline"
-                                >
-                                  https://whyte.co.in/
-                                </a>
-                              </p>
-                            </div>
-                          </div>
-                          <div className="px-4 py-2 border-t border-gray-100 flex items-center justify-between gap-4">
-                            <span className="text-[10px] font-bold uppercase tracking-widest text-gray-400 shrink-0">Connect with Whyte</span>
-                            <SocialLinks variant="proposal-card" />
-                          </div>
-                        </div>
+                        {/* Closing & contact card: the company's own details */}
+                        <ProposalContactCard content={content} />
                       </div>
                     );
                   }
@@ -2351,19 +2300,7 @@ export default function StepProposalPreview({
               </div>
 
               {/* Document Footer on Every Page */}
-              <div data-testid="page-footer" className="pt-3 border-t border-gray-100 flex items-center justify-between text-[11px] font-medium text-gray-400">
-                <a
-                  href="https://whyte.co.in/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="transition-colors hover:text-gray-600"
-                >
-                  www.whyte.co.in
-                </a>
-                <span className="font-mono tracking-wider text-gray-400">
-                  Page {page.pageNumber} of {page.totalPages}
-                </span>
-              </div>
+              <ProposalPageFooter content={content} pageNumber={page.pageNumber} totalPages={page.totalPages} />
               </div>
             </div>
           ))}

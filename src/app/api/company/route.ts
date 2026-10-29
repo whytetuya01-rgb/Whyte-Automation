@@ -5,6 +5,8 @@ import { getNextSequence } from "@/lib/counter";
 import { withPermission, withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { updateCompanySchema } from "@/lib/validation/catalog";
+import { DEFAULT_COMPANY_SLUG } from "@/lib/tenant/constants";
+import { toCompanyProfile } from "@/lib/companyProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +23,8 @@ export async function GET() {
         return NextResponse.json(null);
       }
       const company = await Company.findById(actor.companyId).lean();
-      // GET responses stay unwrapped for existing consumers.
-      return NextResponse.json(company ?? null);
+      // GET responses stay unwrapped for existing consumers. Internal review fields are never sent to the company.
+      return NextResponse.json(toCompanyProfile(company));
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/company" });
@@ -55,6 +57,11 @@ export async function PATCH(req: Request) {
         throw new ApiError("NOT_FOUND", "Company record not found.", { field: "companyId" });
       }
 
+      // The built-in Whyte introduction pages are Whyte's own marketing: only the default company may select them.
+      if (data.documentSettings?.introPages === "standard" && existing.slug !== DEFAULT_COMPANY_SLUG) {
+        throw new ApiError("VALIDATION_ERROR", "The standard introduction pages are not available for this company.", { field: "documentSettings.introPages" });
+      }
+
       const merged = { ...existing, ...data };
       for (const requiredField of ["name", "phone", "address"] as const) {
         if (merged[requiredField] === null || merged[requiredField] === undefined || merged[requiredField] === "") {
@@ -67,7 +74,7 @@ export async function PATCH(req: Request) {
       const update = { ...data, updatedAt: new Date() };
       const company = await Company.findByIdAndUpdate(actor.companyId, { $set: update }, { new: true });
 
-      return apiSuccess(company);
+      return apiSuccess(toCompanyProfile(company?.toJSON()));
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/company" });

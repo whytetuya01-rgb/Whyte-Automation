@@ -44,7 +44,11 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
             </div>
           )}
         </div>
-        {error && <p className="text-xs text-red-600 mt-1 font-medium">{error}</p>}
+        {error && (
+          <p role="alert" className="text-xs text-red-600 mt-1.5 font-medium">
+            {error}
+          </p>
+        )}
       </div>
     );
   }

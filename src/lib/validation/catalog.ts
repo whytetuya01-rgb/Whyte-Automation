@@ -9,6 +9,8 @@ import {
   strictObject,
 } from "@/lib/validation/common";
 import { optionalEmailSchema, optionalGstinSchema, phoneSchema } from "@/lib/validation/fields";
+import { documentSettingsSchema } from "@/lib/validation/documentSettings";
+import { SITE_THEME_IDS } from "@/lib/themeTokens";
 
 export const CATEGORY_MAX_DEPTH = 3;
 
@@ -135,7 +137,8 @@ export const updateCompanySchema = z.object({
   address: requiredText(500, "Address is required.").optional(),
   logoUrl: optionalText(1000),
   tagline: optionalText(300),
-  theme: z.enum(["whyte-rose", "champagne-bronze", "emerald-haven"]).optional(),
+  documentSettings: documentSettingsSchema.optional(),
+  theme: z.enum(SITE_THEME_IDS).optional(),
 });
 
 export type CreateCategoryInput = z.infer<typeof createCategorySchema>;

@@ -39,7 +39,7 @@ try {
   );
   const { db, login, api, baseUrl } = server;
   const now = new Date();
-  await db.collection("companies").insertOne({ _id: 1, name: "Company 1", slug: "company-1", status: "active", phone: "1111111111", address: "St", gstNumber: null, email: null, logoUrl: null, tagline: null, createdAt: now, updatedAt: now });
+  await db.collection("companies").insertOne({ _id: 1, name: "Whyte Automations", slug: "whyte-automations", status: "active", phone: "1111111111", address: "St", gstNumber: null, email: null, logoUrl: null, tagline: null, createdAt: now, updatedAt: now });
   await db.collection("categories").insertOne({ _id: 1, companyId: 1, name: "Switches", level: 1, parentId: null, sortOrder: 1, isActive: true, variantTiers: [], variantFinishes: [] });
   const roomNames = ["Living Room", "Master Bedroom", "Kitchen", "Dining Room"];
   await db.collection("roomtypes").insertMany(roomNames.map((name, i) => ({ _id: i + 1, companyId: 1, name, isActive: true, sortOrder: i + 1 })));
