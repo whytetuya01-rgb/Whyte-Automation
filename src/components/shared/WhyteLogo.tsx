@@ -91,19 +91,19 @@ export const WHYTE_LOGO_SIZES: Record<WhyteLogoSize, WhyteLogoSizeConfig> = {
     maxWidthPx: 210,
   },
   "document-cover": {
-    className: "h-[22px] sm:h-[24px] w-auto max-w-[105px]",
+    className: "h-[24px] w-auto max-w-[105px]",
     hintWidth: 105,
     heightPx: 24,
     maxWidthPx: 105,
   },
   "document-header": {
-    className: "h-[16px] sm:h-[18px] w-auto max-w-[80px]",
+    className: "h-[18px] w-auto max-w-[80px]",
     hintWidth: 80,
     heightPx: 18,
     maxWidthPx: 80,
   },
   "document-footer": {
-    className: "h-5 sm:h-[20px] w-auto max-w-[95px]",
+    className: "h-[20px] w-auto max-w-[95px]",
     hintWidth: 95,
     heightPx: 20,
     maxWidthPx: 95,

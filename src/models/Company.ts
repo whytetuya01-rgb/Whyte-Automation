@@ -1,4 +1,4 @@
-import { DOCUMENT_LIMITS, INTRO_PAGE_MODES, SOCIAL_NETWORKS, type DocumentSettings } from "@/lib/documentSettings";
+import { DOCUMENT_LABEL_KEYS, DOCUMENT_LABEL_LIMITS, DOCUMENT_LIMITS, INTRO_PAGE_MODES, SOCIAL_NETWORKS, type DocumentSettings } from "@/lib/documentSettings";
 import { DEFAULT_LOGO_SETTINGS, LOGO_BACKGROUNDS, LOGO_FITS, LOGO_PADDING_RANGE, LOGO_RADIUS_RANGE, type LogoBackground, type LogoFit } from "@/lib/logoSettings";
 import { DEFAULT_THEME, SITE_THEME_IDS, type SiteTheme } from "@/lib/themeTokens";
 import mongoose, { Schema, Document, Model } from "mongoose";
@@ -74,6 +74,10 @@ export interface ICompany extends SoftDeleteFields {
   /** Optional square/compact logo for the collapsed sidebar (same ownership rules as the main logo). */
   compactLogoUrl?: string | null;
   compactLogoPublicId?: string | null;
+  coverImageUrl?: string | null;
+  coverImagePublicId?: string | null;
+  onboardingDismissedAt?: Date | null;
+  ownerEmailVerification?: { tokenHash: string | null; expiresAt: Date | null; sentAt: Date | null; sendCount: number; verifiedAt: Date | null } | null;
   /** How the logo is presented; absent on companies that never customised it (read through `normalizeLogoSettings`). */
   logoSettings?: { fit: LogoFit; background: LogoBackground; padding: number; radius: number } | null;
   /** Quotation document content (contact card, footer, social links, intro pages); see `resolveProposalContent`. */
@@ -133,6 +137,25 @@ const CompanySchema = new Schema<ICompanyDocument>(
     logoPublicId: { type: String, default: null },
     compactLogoUrl: { type: String, default: null },
     compactLogoPublicId: { type: String, default: null },
+    /** Optional cover picture for the quotation document (same ownership rules as the logo). */
+    coverImageUrl: { type: String, default: null },
+    coverImagePublicId: { type: String, default: null },
+    /** When the company hid the dashboard setup guide (null = still shown until every step is done). */
+    onboardingDismissedAt: { type: Date, default: null },
+    /** Self-registration owner email check (absent on companies that predate it: no verification needed). */
+    ownerEmailVerification: {
+      type: new Schema(
+        {
+          tokenHash: { type: String, default: null },
+          expiresAt: { type: Date, default: null },
+          sentAt: { type: Date, default: null },
+          sendCount: { type: Number, default: 0 },
+          verifiedAt: { type: Date, default: null },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     logoSettings: {
       type: new Schema(
         {
@@ -200,6 +223,34 @@ const CompanySchema = new Schema<ICompanyDocument>(
             ],
             default: undefined,
           },
+          // Reworded headings and labels; every key optional (unset = the default wording).
+          labels: {
+            type: new Schema(
+              Object.fromEntries(DOCUMENT_LABEL_KEYS.map((key) => [key, { type: String, default: undefined, maxlength: DOCUMENT_LABEL_LIMITS[key] }])),
+              { _id: false }
+            ),
+            default: undefined,
+          },
+          includes: {
+            type: [{ type: String, maxlength: DOCUMENT_LIMITS.includeItem }],
+            default: undefined,
+            validate: { validator: (items: string[]) => items.length <= DOCUMENT_LIMITS.includes, message: "Too many included items." },
+          },
+          nextSteps: {
+            type: [
+              new Schema(
+                {
+                  title: { type: String, required: true, maxlength: DOCUMENT_LIMITS.stepTitle },
+                  text: { type: String, required: true, maxlength: DOCUMENT_LIMITS.stepText },
+                },
+                { _id: false }
+              ),
+            ],
+            default: undefined,
+            validate: { validator: (items: unknown[]) => items.length <= DOCUMENT_LIMITS.nextSteps, message: "Too many next steps." },
+          },
+          defaultValidityDays: { type: Number, default: undefined, min: DOCUMENT_LIMITS.validityDaysMin, max: DOCUMENT_LIMITS.validityDaysMax },
+          defaultTerms: { type: String, default: undefined, maxlength: DOCUMENT_LIMITS.defaultTerms },
         },
         { _id: false }
       ),

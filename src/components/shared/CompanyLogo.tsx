@@ -33,6 +33,8 @@ interface CompanyLogoProps {
   settings?: LogoSettings;
   /** `header` only: the sidebar rail is collapsed. */
   collapsed?: boolean;
+  /** `header` only: chip height in px (the black admin header uses 40; the slimmer white dealer header less). */
+  chipHeight?: number;
   /** Rendered instead of the logo when `src` is missing or fails to load. Defaults to a neutral building icon. */
   fallback?: React.ReactNode;
   className?: string;
@@ -53,7 +55,7 @@ export function headerLogoWidth(ratio: number, innerHeight: number): number {
   return Math.round(Math.min(HEADER_MAX_INNER_WIDTH, Math.max(innerHeight, innerHeight * ratio)));
 }
 
-export default function CompanyLogo({ src, name, variant, size = "md", collapsed = false, settings = DEFAULT_LOGO_SETTINGS, fallback, className }: CompanyLogoProps) {
+export default function CompanyLogo({ src, name, variant, size = "md", collapsed = false, chipHeight = HEADER_CHIP_HEIGHT, settings = DEFAULT_LOGO_SETTINGS, fallback, className }: CompanyLogoProps) {
   // Keyed by URL so a new logo (another company, replaced upload) is measured and retried from scratch.
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const [measured, setMeasured] = useState<{ src: string; ratio: number } | null>(null);
@@ -126,8 +128,9 @@ export default function CompanyLogo({ src, name, variant, size = "md", collapsed
 
   // header: fixed-height chip. `contain` keeps the whole logo (width follows its proportions); `cover` fills a
   // fixed-width chip and may crop. Background, padding and rounding come from the company's settings.
-  const pad = settings.padding;
-  const innerHeight = HEADER_CHIP_HEIGHT - pad * 2;
+  // Padding scales with a smaller chip so the logo keeps the same share of it.
+  const pad = Math.round((settings.padding * chipHeight) / HEADER_CHIP_HEIGHT);
+  const innerHeight = chipHeight - pad * 2;
   const ratio = measured && measured.src === src ? measured.ratio : null;
   const covers = settings.fit === "cover";
   const innerWidth = collapsed
@@ -147,7 +150,7 @@ export default function CompanyLogo({ src, name, variant, size = "md", collapsed
         ready ? "opacity-100" : "opacity-0",
         className
       )}
-      style={{ width: chipWidth, height: HEADER_CHIP_HEIGHT, borderRadius: settings.radius }}
+      style={{ width: chipWidth, height: chipHeight, borderRadius: settings.radius }}
     >
       <span className="relative block" style={{ width: innerWidth, height: innerHeight }}>
         {image(covers ? "object-cover object-center" : "object-contain object-center")}

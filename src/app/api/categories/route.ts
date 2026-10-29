@@ -17,25 +17,44 @@ const MAX_DEPTH = 3;
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+import { createRequestTracer } from "@/lib/perfTracer";
+
+export async function GET(req: Request) {
+  const tracer = createRequestTracer(req, "GET", "/api/categories");
   try {
-    return await withSession(async () => {
-      await connectMongoDB();
-      const categories = await Category.find({ level: 1 })
-        .sort({ sortOrder: 1 })
-        .populate({
-          path: "children",
-          options: { sort: { sortOrder: 1 } },
-          populate: {
+    return await withSession(async (actor) => {
+      if (actor._timings) {
+        tracer.mark("Session Resolution", { durationMs: actor._timings.sessionResolutionMs });
+        tracer.mark("Session Guard (DB/Cache)", { durationMs: actor._timings.sessionGuardMs });
+        tracer.mark("Tenant Context", { durationMs: actor._timings.tenantContextMs });
+      }
+
+      await tracer.measure("MongoDB Connection", () => connectMongoDB());
+
+      const categories = await tracer.measure("Categories Recursive Populate Query", () =>
+        Category.find({ level: 1 })
+          .sort({ sortOrder: 1 })
+          .populate({
             path: "children",
             options: { sort: { sortOrder: 1 } },
-          },
-        })
-        .lean({ virtuals: true });
+            populate: {
+              path: "children",
+              options: { sort: { sortOrder: 1 } },
+            },
+          })
+          .lean({ virtuals: true })
+      );
 
-      return NextResponse.json(normalizeCategories(categories));
+      const normalized = normalizeCategories(categories);
+      tracer.mark("Categories Normalization");
+      tracer.mark("JSON Serialization");
+      tracer.end({ count: categories.length });
+
+      return NextResponse.json(normalized);
     });
   } catch (error) {
+    tracer.mark("Error Handling");
+    tracer.end();
     return handleApiError(error, { logPrefix: "GET /api/categories" });
   }
 }

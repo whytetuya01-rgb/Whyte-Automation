@@ -138,7 +138,7 @@ export default function AdminSidebar({
   const nextDelay = () => entranceDelay + rowIndex++ * STAGGER_S;
 
   return (
-    <aside className="w-full bg-[#111111] flex flex-col h-full border-r border-[#1E1E22] select-none">
+    <aside data-admin-sidebar="" className="w-full bg-[#111111] flex flex-col h-full border-r border-[#1E1E22] select-none">
       {/* Scrollable Navigation Groups — layoutScroll keeps the gliding indicator correct while scrolled. */}
       <motion.nav layoutScroll className="flex-1 p-3 sm:p-4 space-y-6 overflow-y-auto overflow-x-hidden custom-scrollbar">
         {navGroups.map((group) => {

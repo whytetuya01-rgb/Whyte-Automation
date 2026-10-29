@@ -152,6 +152,7 @@ export default function AdminLayoutWrapper({
             desktop: width animates between full and the 76px icon rail on the
             same timing as the content offset below. */}
           <motion.div
+            data-admin-sidebar-shell=""
             className={`
             fixed top-[48px] sm:top-[50px] lg:top-[52px] bottom-0 left-0 z-40 bg-[#111111]
             transition-[width] duration-[var(--motion-layout)] ease-[var(--motion-ease)]

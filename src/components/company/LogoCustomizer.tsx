@@ -6,6 +6,7 @@ import { AlertCircle, ImagePlus, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import AnimatedLogo from "@/components/admin/sidebar/AnimatedLogo";
 import { BrandingProvider } from "@/components/providers/BrandingProvider";
 import WhyteLoader from "@/components/shared/WhyteLoader";
+import DealerHeaderLogo from "@/components/shared/DealerHeaderLogo";
 import type { CompanyBranding } from "@/lib/companyBranding";
 import {
   DEFAULT_LOGO_SETTINGS,
@@ -23,7 +24,7 @@ import {
   type LogoUploadKind,
 } from "@/lib/logoSettings";
 import { ALLOWED_IMAGE_MIME_TYPES } from "@/lib/validation/upload";
-import { DEFAULT_THEME } from "@/lib/themeTokens";
+import { DEFAULT_LAYOUT_SETTINGS, DEFAULT_THEME } from "@/lib/themeTokens";
 import { cn } from "@/lib/utils";
 
 /**
@@ -231,7 +232,7 @@ export default function LogoCustomizer({
   const logoStatus = useImageStatus(effectiveLogo);
 
   const previewBranding = useMemo<CompanyBranding>(
-    () => ({ companyId: -1, companyName, logoUrl: effectiveLogo, compactLogoUrl: effectiveCompact, settings: draft.settings, brandColor: null, theme: DEFAULT_THEME }),
+    () => ({ companyId: -1, companyName, logoUrl: effectiveLogo, compactLogoUrl: effectiveCompact, settings: draft.settings, brandColor: null, theme: DEFAULT_THEME, layout: DEFAULT_LAYOUT_SETTINGS }),
     [companyName, effectiveLogo, effectiveCompact, draft.settings]
   );
 
@@ -417,6 +418,12 @@ export default function LogoCustomizer({
               <div className="flex min-h-[56px] items-center justify-center rounded-lg bg-[#0E0E10] px-2 py-2" data-testid="logo-preview-collapsed">
                 <AnimatedLogo collapsed />
               </div>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-xs font-medium text-gray-500">Dealer header (light)</p>
+            <div className="flex min-h-[48px] items-center rounded-lg border border-gray-200 bg-white px-4 py-2" data-testid="logo-preview-dealer-header">
+              <DealerHeaderLogo />
             </div>
           </div>
           <div className="space-y-1.5">

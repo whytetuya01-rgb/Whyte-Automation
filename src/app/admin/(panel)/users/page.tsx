@@ -396,23 +396,60 @@ export default function UsersPage() {
     );
   }
 
+  const isSuperAdminActor = actor.role === "super_admin";
   const customCount = roles
     .filter((r) => r.type === "custom" || r.key === "configurable_admin")
     .reduce((sum, r) => sum + r.userCount, 0);
 
+  const totalUsersCount = Math.max(total, stats.totalAccounts, users.length);
+
   const summaryCards: Array<{ label: string; value: number; icon: typeof UsersIcon; tone: string }> = [
-    { label: "Total Users", value: stats.totalAccounts, icon: UsersIcon, tone: "bg-neutral-100 text-neutral-700 border-neutral-200" },
     {
+      label: "Total Users",
+      value: totalUsersCount,
+      icon: UsersIcon,
+      tone: "bg-neutral-100 text-neutral-700 border-neutral-200",
+    },
+  ];
+
+  if (isSuperAdminActor) {
+    summaryCards.push({
       label: "Super Admins",
       value: roleMeta("super_admin")?.userCount ?? 0,
       icon: ShieldCheck,
       tone: "bg-[var(--color-admin-primary-soft)] text-[var(--color-admin-primary-foreground)] border-[var(--color-admin-primary-border)]",
+    });
+  } else {
+    summaryCards.push({
+      label: "Company Owners",
+      value: roleMeta("company_owner")?.userCount ?? users.filter((u) => u.role === "company_owner").length,
+      icon: ShieldCheck,
+      tone: "bg-rose-50 text-rose-700 border-rose-100",
+    });
+  }
+
+  summaryCards.push(
+    {
+      label: "Admins",
+      value: roleMeta("admin")?.userCount ?? 0,
+      icon: Shield,
+      tone: "bg-blue-50 text-blue-700 border-blue-100",
     },
-    { label: "Admins", value: roleMeta("admin")?.userCount ?? 0, icon: Shield, tone: "bg-blue-50 text-blue-700 border-blue-100" },
-    { label: "Dealers", value: roleMeta("dealer")?.userCount ?? 0, icon: Store, tone: "bg-amber-50 text-amber-700 border-amber-100" },
-  ];
+    {
+      label: "Dealers",
+      value: roleMeta("dealer")?.userCount ?? 0,
+      icon: Store,
+      tone: "bg-amber-50 text-amber-700 border-amber-100",
+    }
+  );
+
   if (customCount > 0) {
-    summaryCards.push({ label: "Custom Roles", value: customCount, icon: Sliders, tone: "bg-purple-50 text-purple-700 border-purple-100" });
+    summaryCards.push({
+      label: "Custom Roles",
+      value: customCount,
+      icon: Sliders,
+      tone: "bg-purple-50 text-purple-700 border-purple-100",
+    });
   }
 
   return (
@@ -455,7 +492,11 @@ export default function UsersPage() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 w-full">
+      <div
+        className={`grid grid-cols-2 ${
+          summaryCards.length >= 5 ? "lg:grid-cols-5" : "lg:grid-cols-4"
+        } gap-3 sm:gap-4 w-full`}
+      >
         {loadingRoles
           ? summaryCards.map((_, i) => (
               <div key={i} className="h-24 bg-white rounded-2xl border border-neutral-200/80 animate-pulse" />
@@ -482,18 +523,18 @@ export default function UsersPage() {
       </div>
 
       {/* Filters Bar */}
-      <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3.5 w-full">
-        <div className="relative flex-1 max-w-lg">
-          <Search className="w-4 h-4 text-neutral-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+      <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center gap-3.5 w-full">
+        <div className="flex-1 min-w-0">
           <Input
+            leftIcon={<Search className="w-4 h-4 text-neutral-400" />}
             placeholder="Search by name or email..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="pl-10 text-xs sm:text-sm h-10 w-full"
+            className="text-xs sm:text-sm w-full"
           />
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center gap-3 shrink-0 flex-wrap sm:flex-nowrap">
           <div className="w-full sm:w-48">
             <Select
               value={roleFilter}
@@ -501,7 +542,7 @@ export default function UsersPage() {
                 setRoleFilter(e.target.value);
                 setPage(1);
               }}
-              className="text-xs sm:text-sm h-10 w-full"
+              className="text-xs sm:text-sm w-full"
             >
               <option value="all">All Roles</option>
               {roles.map((r) => (
@@ -519,7 +560,7 @@ export default function UsersPage() {
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              className="text-xs sm:text-sm h-10 w-full"
+              className="text-xs sm:text-sm w-full"
             >
               <option value="all">All Status</option>
               <option value="active">Active</option>
@@ -532,13 +573,13 @@ export default function UsersPage() {
       {/* Users Table */}
       <div className="bg-white rounded-2xl border border-neutral-200/80 overflow-hidden shadow-xs">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[640px] text-left border-collapse table-fixed">
+          <table className="w-full min-w-[720px] text-left border-collapse table-fixed">
             <colgroup>
-              <col className="w-auto" />
+              <col className="w-auto min-w-[240px]" />
+              <col className="w-44" />
+              <col className="w-32" />
               <col className="w-36" />
-              <col className="w-28" />
-              <col className="w-28" />
-              <col className="w-16" />
+              <col className="w-24" />
             </colgroup>
             <thead>
               <tr className="border-b border-neutral-200/80 bg-neutral-50/60 text-[11px] font-bold text-neutral-500 uppercase tracking-wider">
@@ -546,7 +587,7 @@ export default function UsersPage() {
                 <th className="py-3.5 px-4">Role</th>
                 <th className="py-3.5 px-4">Status</th>
                 <th className="py-3.5 px-4">Created</th>
-                <th className="py-3.5 px-4 text-right">Actions</th>
+                <th className="py-3.5 px-4 text-right pr-6">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100 text-xs text-neutral-700">
@@ -592,13 +633,13 @@ export default function UsersPage() {
                       <td className="py-3 px-4 text-neutral-500 text-[11px]">
                         {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "—"}
                       </td>
-                      <td className="py-3 px-4 text-right">
-                        {canManageAdmins && canActOnAccount(u) && (
+                      <td className="py-3 px-4 text-right pr-6">
+                        {canManageAdmins && canActOnAccount(u) ? (
                           <div className="relative inline-block text-left">
                             <button
                               type="button"
                               onClick={() => setOpenMenuId(openMenuId === u._id ? null : u._id)}
-                              className="p-1.5 rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition"
+                              className="p-1.5 rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30"
                               aria-label="User actions"
                             >
                               <MoreVertical className="w-4 h-4" />
@@ -631,6 +672,8 @@ export default function UsersPage() {
                               </>
                             )}
                           </div>
+                        ) : (
+                          <span className="text-neutral-300 text-xs select-none pr-1">—</span>
                         )}
                       </td>
                     </tr>

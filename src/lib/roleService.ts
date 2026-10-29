@@ -183,10 +183,20 @@ export async function getAllRolesMetadata(companyId: number | null): Promise<Rol
 
   // Aggregate user counts by role. Auto-scoped to `companyId` by the
   // tenant-scope plugin's own pre("aggregate") hook (see src/lib/tenant/plugin.ts)
-  // — nothing here constructs that filter by hand.
+  // When companyId is null (platform Super Admin), aggregate across all accounts.
   const userCountAgg =
     companyId === null
-      ? []
+      ? await runUnscoped("platform-admin", async () =>
+          await AdminUser.aggregate<{ _id: string; total: number; active: number }>([
+            {
+              $group: {
+                _id: "$role",
+                total: { $sum: 1 },
+                active: { $sum: { $cond: [{ $eq: ["$isActive", false] }, 0, 1] } },
+              },
+            },
+          ])
+        )
       : await AdminUser.aggregate<{ _id: string; total: number; active: number }>([
           {
             $group: {
@@ -251,6 +261,7 @@ export async function getAllRolesMetadata(companyId: number | null): Promise<Rol
       : Array.from(DEALER_DEFAULT_PERMISSIONS);
 
   const superAdminStats = userStats.get("super_admin") || { total: 0, active: 0 };
+  const companyOwnerStats = userStats.get("company_owner") || { total: 0, active: 0 };
   const adminStats = userStats.get("admin") || { total: 0, active: 0 };
   const salesExecStats = userStats.get("sales_executive") || { total: 0, active: 0 };
   const dealerStats = userStats.get("dealer") || { total: 0, active: 0 };
@@ -271,6 +282,21 @@ export async function getAllRolesMetadata(companyId: number | null): Promise<Rol
       permissions: Array.from(SUPER_ADMIN_PERMISSIONS),
       userCount: superAdminStats.total,
       activeUserCount: superAdminStats.active,
+    },
+    {
+      key: "company_owner",
+      name: "Company Owner",
+      badge: "Account Owner",
+      type: "system_protected",
+      description:
+        "Primary company administrator account with full administrative authority over company settings and users.",
+      isEditable: false,
+      isDeletable: false,
+      isCustomized: false,
+      permissionCount: COMPANY_OWNER_PERMISSIONS.size,
+      permissions: Array.from(COMPANY_OWNER_PERMISSIONS),
+      userCount: companyOwnerStats.total,
+      activeUserCount: companyOwnerStats.active,
     },
     {
       key: "admin",

@@ -187,11 +187,19 @@ export interface TenantSessionActor {
   companyId: number | null;
   actingAsCompany: boolean;
   permissions: string[];
+  _timings?: {
+    sessionResolutionMs: number;
+    sessionGuardMs: number;
+    tenantContextMs: number;
+  };
 }
 
 /** Shared by withSession/withPermission/withAnyPermission below. */
 async function resolveTenantActor(): Promise<TenantSessionActor> {
+  const t0 = performance.now();
   const session = await getServerSession(authOptions);
+  const sessionResolutionMs = Number((performance.now() - t0).toFixed(2));
+
   if (!session?.user) {
     throw new ApiError("UNAUTHORIZED", UNAUTHENTICATED_MESSAGE);
   }
@@ -200,11 +208,19 @@ async function resolveTenantActor(): Promise<TenantSessionActor> {
     throw new ApiError("FORBIDDEN", "You do not have permission to access this resource.");
   }
   const userId = Number((session.user as { id?: string }).id);
+
+  const t1 = performance.now();
   const actor = await getSessionActor(userId, role);
+  const sessionGuardMs = Number((performance.now() - t1).toFixed(2));
+
   if (!actor || !actor.valid) {
     throw new ApiError("UNAUTHORIZED", UNAUTHENTICATED_MESSAGE);
   }
+
+  const t2 = performance.now();
   const companyId = role === "super_admin" ? await resolveActAsCompanyId(userId) : actor.companyId ?? null;
+  const tenantContextMs = Number((performance.now() - t2).toFixed(2));
+
   return {
     session,
     role,
@@ -212,6 +228,11 @@ async function resolveTenantActor(): Promise<TenantSessionActor> {
     companyId,
     actingAsCompany: role === "super_admin" && companyId !== null,
     permissions: actor.permissions,
+    _timings: {
+      sessionResolutionMs,
+      sessionGuardMs,
+      tenantContextMs,
+    },
   };
 }
 

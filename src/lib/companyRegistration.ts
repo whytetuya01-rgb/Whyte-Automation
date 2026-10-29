@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api-response";
 import { emailSchema, optionalPhoneSchema, phoneSchema } from "@/lib/validation/fields";
 import { CloudinaryAuthError, CloudinaryConfigError, deleteImage, uploadImage } from "@/lib/cloudinary";
 import { companyBrandingFolder } from "@/lib/uploadPaths";
+import { deliverVerificationEmail, newVerification } from "@/lib/ownerEmailVerification";
 import { LOGO_SETTING_FIELDS, type LogoSettings } from "@/lib/logoSettings";
 
 /**
@@ -203,6 +204,8 @@ export async function registerCompany(input: CompanyRegistrationInput, logo: Log
     }
 
     const passwordHash = await bcrypt.hash(input.password, 12);
+    // The owner proves the email address is theirs before the request can be approved (only the hash is stored).
+    const verification = newVerification();
     const ownerId = await getNextSequence("adminUser", AdminUser);
     let companyCreated = false;
 
@@ -220,6 +223,7 @@ export async function registerCompany(input: CompanyRegistrationInput, logo: Log
           address: input.companyAddress,
           logoUrl,
           logoPublicId,
+          ownerEmailVerification: verification.record,
           ...(compactLogoUrl ? { compactLogoUrl, compactLogoPublicId } : {}),
           ...(options.settings && (logo || compactLogo) ? { logoSettings: options.settings } : {}),
         }).save({ session });
@@ -270,6 +274,9 @@ export async function registerCompany(input: CompanyRegistrationInput, logo: Log
       await Company.collection.deleteOne({ _id: companyId as unknown as never });
       throw new ApiError("INTERNAL_SERVER_ERROR", "Registration could not be completed safely. Please try again in a moment.");
     }
+
+    // After everything is committed: email the verification link. A mail failure never fails the registration.
+    await deliverVerificationEmail({ companyId, companyName: input.companyName, ownerName: input.ownerName, ownerEmail: input.ownerEmail, token: verification.token });
 
     return { companyId, slug, name: input.companyName, status: "pending_review", ownerId, ownerEmail: input.ownerEmail, logoUrl };
   });

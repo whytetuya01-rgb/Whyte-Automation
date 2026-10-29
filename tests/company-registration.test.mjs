@@ -142,7 +142,20 @@ try {
     return { cookie, error, signedIn: Boolean(session?.user), text };
   };
   const findCompany = (name) => db.collection("companies").findOne({ name });
-  const approve = (id, cookie = superCookie) => api(cookie, "POST", `/api/platform/company-registrations/${id}/approve`);
+  // Registering now emails the owner a verification link, and a request can be approved only after it is used.
+  const VERIFY_SUBJECT = /^Verify your email/;
+  const verificationMails = () => emails.filter((m) => VERIFY_SUBJECT.test(m.subject));
+  const decisionMails = () => emails.filter((m) => !VERIFY_SUBJECT.test(m.subject));
+  const verifyOwnerOf = async (companyId) => {
+    const owner = Number.isInteger(Number(companyId)) ? await db.collection("adminusers").findOne({ companyId: Number(companyId), role: "company_owner" }) : null;
+    const mail = owner && verificationMails().filter((m) => m.to === owner.email).at(-1);
+    const token = mail && /token=([A-Za-z0-9_-]+)/.exec(mail.text)?.[1];
+    if (token) await fetch(`${baseUrl}/api/company/register/verify`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+  };
+  const approve = async (id, cookie = superCookie) => {
+    await verifyOwnerOf(id);
+    return api(cookie, "POST", `/api/platform/company-registrations/${id}/approve`);
+  };
 
   // ═══ 1. registration without a logo ═══════════════════════════════════
   const r1 = await submit(goodFields(1));
@@ -163,7 +176,10 @@ try {
   assert.equal(o1.companyId, c1._id);
   assert.match(o1.passwordHash, /^\$2[aby]\$/, "password stored as a bcrypt hash");
   assert.notEqual(o1.passwordHash, PASSWORD);
-  assert.equal(emails.length, 0, "registering sends no email and never contains a password");
+  assert.equal(decisionMails().length, 0, "registering sends no decision email");
+  assert.equal(verificationMails().length, 1, "registering sends exactly one email: the owner verification link");
+  assert.equal(verificationMails()[0].to, "owner1@acme.example");
+  assert.ok(!(verificationMails()[0].html + verificationMails()[0].text).includes(PASSWORD), "the verification email never contains the password");
   pass("registration creates a pending_review company and a hashed-password Company Owner tied to it; no password in the response");
 
   // ═══ 2. pending owner cannot sign in ═══════════════════════════════
@@ -214,6 +230,8 @@ try {
   pass("anonymous users, company owners and dealers cannot list, approve, reject or resend (enforced by the API)");
 
   // ═══ 5. approval enables login and sends the email ═══════════════════
+  const approveBeforeVerify = await api(superCookie, "POST", `/api/platform/company-registrations/${c1._id}/approve`);
+  assert.equal(approveBeforeVerify.status, 409, "a request cannot be approved before the owner verifies the email");
   const approved = await approve(c1._id);
   assert.equal(approved.status, 200, approved.text);
   assert.equal(approved.data.changed, true);
@@ -224,13 +242,13 @@ try {
   assert.equal(after.reviewedBy, 1);
   assert.equal(after.reviewedByName, "Super Admin");
   assert.ok(after.reviewedAt instanceof Date);
-  assert.equal(emails.length, 1);
-  assert.equal(emails[0].to, "owner1@acme.example");
-  assert.equal(emails[0].to?.includes?.("@"), true);
-  assert.equal(emails[0].subject, "Congratulations! Your Company Is Approved");
-  assert.match(emails[0].html, new RegExp(`${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/admin/login`), "the button links to the configured login URL");
-  assert.match(emails[0].html, /Login to Your Account/);
-  assert.doesNotMatch(emails[0].html + emails[0].text, new RegExp(PASSWORD.replace(/[.*+?^${}()|[\]\\!]/g, "\\$&")), "the password is never emailed");
+  assert.equal(decisionMails().length, 1);
+  assert.equal(decisionMails()[0].to, "owner1@acme.example");
+  assert.equal(decisionMails()[0].to?.includes?.("@"), true);
+  assert.equal(decisionMails()[0].subject, "Congratulations! Your Company Is Approved");
+  assert.match(decisionMails()[0].html, new RegExp(`${baseUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/admin/login`), "the button links to the configured login URL");
+  assert.match(decisionMails()[0].html, /Login to Your Account/);
+  assert.doesNotMatch(decisionMails()[0].html + decisionMails()[0].text, new RegExp(PASSWORD.replace(/[.*+?^${}()|[\]\\!]/g, "\\$&")), "the password is never emailed");
   assert.equal(after.decisionEmail.status, "sent");
   const okLogin = await attemptLogin("owner1@acme.example", PASSWORD);
   assert.equal(okLogin.signedIn, true, "the owner signs in after approval with the registered email and password");
@@ -242,16 +260,17 @@ try {
   // ═══ 6. idempotent and concurrent approval ═══════════════════════════
   assert.equal((await submit(goodFields(2))).status, 201);
   const c2 = await findCompany("Acme Homes 2");
-  const emailsBefore = emails.length;
+  await verifyOwnerOf(c2._id);
+  const emailsBefore = decisionMails().length;
   const races = await Promise.all(Array.from({ length: 6 }, () => approve(c2._id)));
   assert.ok(races.every((r) => r.status === 200), "every concurrent click is answered successfully");
   assert.equal(races.filter((r) => r.data.changed).length, 1, "exactly one request performed the transition");
-  assert.equal(emails.length - emailsBefore, 1, "exactly one approval email was sent");
+  assert.equal(decisionMails().length - emailsBefore, 1, "exactly one approval email was sent");
   assert.equal(await db.collection("companies").countDocuments({ name: "Acme Homes 2" }), 1);
   assert.equal(await db.collection("adminusers").countDocuments({ companyId: c2._id }), 1, "no duplicate owner");
   const again = await approve(c2._id);
   assert.equal(again.data.changed, false);
-  assert.equal(emails.length - emailsBefore, 1, "a repeated click sends nothing");
+  assert.equal(decisionMails().length - emailsBefore, 1, "a repeated click sends nothing");
   pass("approving twice or six times at once performs one transition and sends one email");
 
   // ═══ 7. email failure is recorded and retryable ════════════════════
@@ -270,7 +289,7 @@ try {
   emailMode = "ok";
   const retryOk = await api(superCookie, "POST", `/api/platform/company-registrations/${c3._id}/resend-email`);
   assert.equal(retryOk.data.decisionEmail.status, "sent");
-  assert.equal(emails.at(-1).to, "owner3@acme.example");
+  assert.equal(decisionMails().at(-1).to, "owner3@acme.example");
   assert.equal((await api(superCookie, "POST", `/api/platform/company-registrations/${c3._id}/resend-email`)).status, 409, "a delivered email is not re-sent");
   assert.doesNotMatch(server.getOutput(), /re_test_key_not_real/, "the email key is never logged");
   pass("a failed email is recorded as failed, can be retried, and a delivered one is never sent twice");
@@ -283,15 +302,15 @@ try {
   const reject4 = await api(superCookie, "POST", `/api/platform/company-registrations/${c4._id}/reject`, { note: "internal: looks like a competitor", notifyOwner: true });
   assert.equal(reject4.status, 200, reject4.text);
   assert.equal((await findCompany("Acme Homes 4")).registrationStatus, "rejected");
-  const rejectedMail = emails.at(-1);
+  const rejectedMail = decisionMails().at(-1);
   assert.equal(rejectedMail.to, "owner4@acme.example");
   assert.doesNotMatch(rejectedMail.html + rejectedMail.text, /competitor|internal/i, "internal notes never reach the owner");
   const rejectedLogin = await attemptLogin("owner4@acme.example", PASSWORD);
   assert.equal(rejectedLogin.signedIn, false);
   assert.equal(rejectedLogin.error, "COMPANY_REJECTED");
-  const mailsBefore = emails.length;
+  const mailsBefore = decisionMails().length;
   assert.equal((await api(superCookie, "POST", `/api/platform/company-registrations/${c5._id}/reject`)).status, 200, "an empty body rejects without a note or email");
-  assert.equal(emails.length, mailsBefore, "no email unless notifyOwner is chosen");
+  assert.equal(decisionMails().length, mailsBefore, "no email unless notifyOwner is chosen");
   assert.equal((await attemptLogin("owner5@acme.example", PASSWORD)).signedIn, false);
   assert.equal((await approve(c4._id)).status, 409, "a rejected request cannot be approved by a stray click");
   assert.equal((await api(superCookie, "POST", `/api/platform/company-registrations/${c1._id}/reject`)).status, 409, "an approved company cannot be rejected through the review API");

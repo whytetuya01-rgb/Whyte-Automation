@@ -184,6 +184,22 @@ try {
   assert.equal(await admin.page.getByTestId("tab-rejected").count(), 1);
   pass("Super Admin sees the request (logo, contacts, owner, address, date, status) and a full details view; tabs for Approved and Rejected exist");
 
+  // Approval waits for the owner's email verification: the button is disabled until the emailed link is opened.
+  await row.getByTestId("email-unverified-pill").waitFor();
+  assert.equal(await row.getByTestId("approve-button").isDisabled(), true, "Approve is disabled until the owner verifies the email");
+  const verifyMail = emails.filter((m) => /^Verify your email/.test(m.subject)).at(-1);
+  assert.equal(verifyMail?.to, "riya@skyline.example", "the owner was emailed a verification link");
+  const verifyLink = /https?:\/\/[^\s"<>]+\/register\/company\/verify\?token=[A-Za-z0-9_-]+/.exec(verifyMail.text)?.[0];
+  assert.ok(verifyLink, "the email carries the verification link");
+  const visitor2 = await open("");
+  await visitor2.page.goto(verifyLink.replace(/^https?:\/\/[^/]+/, baseUrl), { waitUntil: "domcontentloaded" });
+  await visitor2.page.getByRole("heading", { name: "Email verified" }).waitFor();
+  await shot(visitor2.page, "r-4b-email-verified");
+  await visitor2.context.close();
+  await admin.page.reload({ waitUntil: "domcontentloaded" });
+  await row.getByTestId("email-verified-pill").waitFor();
+  pass("the owner opens the emailed link and sees 'Email verified'; the request then shows as verified and can be approved");
+
   await row.getByTestId("approve-button").click();
   const confirm = admin.page.locator('[data-testid="confirm-modal"]');
   await confirm.waitFor();
@@ -192,8 +208,9 @@ try {
   await confirm.getByTestId("confirm-button").click();
   await row.waitFor({ state: "detached" });
   assert.equal((await db.collection("companies").findOne({ name: "Skyline Smart Homes Pvt. Ltd." })).registrationStatus, "approved");
-  assert.equal(emails.length, 1);
-  assert.equal(emails[0].subject, "Congratulations! Your Company Is Approved");
+  const decisionEmails = emails.filter((m) => !/^Verify your email/.test(m.subject));
+  assert.equal(decisionEmails.length, 1);
+  assert.equal(decisionEmails[0].subject, "Congratulations! Your Company Is Approved");
   await admin.page.getByTestId("tab-approved").click();
   await admin.page.locator('[data-testid="company-row"][data-company-name="Skyline Smart Homes Pvt. Ltd."]').waitFor();
   pass("Approve asks for confirmation, then approves, moves the company to the Approved tab and sends the approval email");

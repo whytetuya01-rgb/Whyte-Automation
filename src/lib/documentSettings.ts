@@ -44,6 +44,181 @@ export interface AboutHighlight {
   text: string;
 }
 
+/**
+ * Every fixed heading and label in the quotation document. A company can reword any of them; an unset (or blank)
+ * label shows the default below, which is exactly the document's long-standing text, so nothing changes until a
+ * company edits it. Labels shown in capitals keep their default wording here: the capitals come from styling.
+ */
+export const DOCUMENT_LABEL_DEFAULTS = {
+  coverTitle: "Smart Automation Proposal",
+  quotationReference: "Quotation Reference",
+  preparedFor: "Prepared exclusively for",
+  projectType: "Project Type",
+  automationTypeLabel: "Automation Type",
+  projectScope: "Project Scope",
+  totalInvestment: "Total Investment",
+  productsEyebrow: "Proposed Smart Equipment & Specifications",
+  productsTitle: "Product Summary & Specifications",
+  productsSubtitle: "Room-wise equipment details, panel specifications & itemized pricing",
+  spaceCaption: "Smart Space Configuration",
+  continuedBadge: "Continued",
+  continuedNote: "Continued on next page",
+  spaceNote: "Space Note",
+  locationLabel: "Location",
+  perUnit: "per unit",
+  lineTotal: "Total",
+  noImage: "No image",
+  siteFallback: "Site Location",
+  projectTypeFallback: "Residential Smart Home",
+  closingEyebrow: "Pricing & Commercial Summary",
+  closingTitle: "Investment & Next Steps",
+  financialSummary: "Financial Summary",
+  investmentOverview: "Investment Overview",
+  subtotal: "Subtotal",
+  discount: "Discount",
+  netSubtotal: "Net Subtotal",
+  netSubtotalNote: "Taxable amount after discount",
+  taxSummary: "Tax Summary",
+  grandTotal: "Grand Total",
+  grandTotalNote: "Total Investment (Incl. Taxes)",
+  estimateTitle: "Estimated Project Investment",
+  estimateNote: "Final pricing is based on the products and configuration selected in this proposal.",
+  includesTitle: "Proposal Includes",
+  termsTitle: "Commercial Terms & Validity",
+  validityLabel: "Validity",
+  termsLabel: "Terms",
+  remarksLabel: "Remarks",
+  nextStepsTitle: "Next Steps",
+} as const;
+
+export type DocumentLabelKey = keyof typeof DOCUMENT_LABEL_DEFAULTS;
+export const DOCUMENT_LABEL_KEYS = Object.keys(DOCUMENT_LABEL_DEFAULTS) as DocumentLabelKey[];
+
+/** Per-label length limits: the document is a fixed A4 layout, so long text would overflow its box. */
+export const DOCUMENT_LABEL_LIMITS: Record<DocumentLabelKey, number> = {
+  coverTitle: 40,
+  quotationReference: 40,
+  preparedFor: 40,
+  projectType: 30,
+  automationTypeLabel: 30,
+  projectScope: 30,
+  totalInvestment: 40,
+  productsEyebrow: 70,
+  productsTitle: 50,
+  productsSubtitle: 120,
+  spaceCaption: 40,
+  continuedBadge: 20,
+  continuedNote: 40,
+  spaceNote: 30,
+  locationLabel: 20,
+  perUnit: 20,
+  lineTotal: 20,
+  noImage: 20,
+  siteFallback: 40,
+  projectTypeFallback: 40,
+  closingEyebrow: 70,
+  closingTitle: 50,
+  financialSummary: 40,
+  investmentOverview: 40,
+  subtotal: 30,
+  discount: 30,
+  netSubtotal: 30,
+  netSubtotalNote: 60,
+  taxSummary: 30,
+  grandTotal: 30,
+  grandTotalNote: 60,
+  estimateTitle: 50,
+  estimateNote: 160,
+  includesTitle: 40,
+  termsTitle: 50,
+  validityLabel: 30,
+  termsLabel: 30,
+  remarksLabel: 30,
+  nextStepsTitle: 40,
+};
+
+/** How the editor groups the labels, in document order. */
+export const DOCUMENT_LABEL_GROUPS: ReadonlyArray<{ title: string; keys: readonly DocumentLabelKey[] }> = [
+  {
+    title: "Cover page",
+    keys: ["coverTitle", "quotationReference", "preparedFor", "projectType", "automationTypeLabel", "projectScope", "totalInvestment", "siteFallback", "projectTypeFallback"],
+  },
+  {
+    title: "Products section",
+    keys: ["productsEyebrow", "productsTitle", "productsSubtitle", "spaceCaption", "continuedBadge", "continuedNote", "spaceNote", "locationLabel", "perUnit", "lineTotal", "noImage"],
+  },
+  {
+    title: "Pricing page",
+    keys: ["closingEyebrow", "closingTitle", "financialSummary", "investmentOverview", "subtotal", "discount", "netSubtotal", "netSubtotalNote", "taxSummary", "grandTotal", "grandTotalNote", "estimateTitle", "estimateNote"],
+  },
+  { title: "Terms & next steps", keys: ["includesTitle", "termsTitle", "validityLabel", "termsLabel", "remarksLabel", "nextStepsTitle"] },
+];
+
+export const DOCUMENT_LABEL_NAMES: Record<DocumentLabelKey, string> = {
+  coverTitle: "Cover title",
+  quotationReference: "Quotation reference label",
+  preparedFor: "Prepared-for label",
+  projectType: "Project type label",
+  automationTypeLabel: "Automation type label",
+  projectScope: "Project scope label",
+  totalInvestment: "Total investment label",
+  productsEyebrow: "Products section eyebrow",
+  productsTitle: "Products section title",
+  productsSubtitle: "Products section subtitle",
+  spaceCaption: "Space caption",
+  continuedBadge: "Continued badge",
+  continuedNote: "Continued-on-next-page note",
+  spaceNote: "Space note label",
+  locationLabel: "Location label",
+  perUnit: "Per-unit label",
+  lineTotal: "Line total label",
+  noImage: "No-image placeholder",
+  siteFallback: "Address placeholder (no client address)",
+  projectTypeFallback: "Project type placeholder (none chosen)",
+  closingEyebrow: "Pricing page eyebrow",
+  closingTitle: "Pricing page title",
+  financialSummary: "Financial summary heading",
+  investmentOverview: "Financial summary caption",
+  subtotal: "Subtotal label",
+  discount: "Discount label",
+  netSubtotal: "Net subtotal label",
+  netSubtotalNote: "Net subtotal note",
+  taxSummary: "Tax summary heading",
+  grandTotal: "Grand total label",
+  grandTotalNote: "Grand total note",
+  estimateTitle: "Estimate box heading",
+  estimateNote: "Estimate box note",
+  includesTitle: "Proposal-includes heading",
+  termsTitle: "Terms box heading",
+  validityLabel: "Validity label",
+  termsLabel: "Terms label",
+  remarksLabel: "Remarks label",
+  nextStepsTitle: "Next steps heading",
+};
+
+export interface NextStep {
+  title: string;
+  text: string;
+}
+
+/** The fixed "Proposal Includes" lines (the selected tier / finish lines are added automatically after the first two). */
+export const DEFAULT_PROPOSAL_INCLUDES: readonly string[] = [
+  "Selected smart automation products",
+  "Room-wise space configuration & mapping",
+  "Product-specific installation location references",
+  "Project-wise pricing and investment breakdown",
+];
+
+export const DEFAULT_NEXT_STEPS: readonly NextStep[] = [
+  { title: "Review", text: "Review the proposed automation configuration." },
+  { title: "Confirm", text: "Confirm product selection and quantities." },
+  { title: "Align", text: "Confirm on-site installation requirements." },
+  { title: "Proceed", text: "Proceed with final order & commissioning." },
+];
+
+/** Used when a quotation has no validity date of its own. */
+export const DEFAULT_VALIDITY_DAYS = 30;
+
 export interface DocumentSettings {
   legalName?: string | null;
   website?: string | null;
@@ -54,6 +229,16 @@ export interface DocumentSettings {
   aboutTitle?: string | null;
   aboutBody?: string | null;
   aboutHighlights?: AboutHighlight[] | null;
+  /** Reworded headings and labels (unset or blank = the default wording). */
+  labels?: Partial<Record<DocumentLabelKey, string | null>> | null;
+  /** The "Proposal Includes" lines; unset = the default list, empty = no fixed lines. */
+  includes?: string[] | null;
+  /** The "Next Steps" boxes; unset = the default four, empty = the section is hidden. */
+  nextSteps?: NextStep[] | null;
+  /** Validity shown when a quotation has no validity date of its own (days from the date of issue). */
+  defaultValidityDays?: number | null;
+  /** Terms shown when a quotation has no terms of its own. */
+  defaultTerms?: string | null;
 }
 
 export const DOCUMENT_LIMITS = {
@@ -67,6 +252,14 @@ export const DOCUMENT_LIMITS = {
   highlights: 4,
   highlightTitle: 60,
   highlightText: 200,
+  includes: 6,
+  includeItem: 120,
+  nextSteps: 4,
+  stepTitle: 30,
+  stepText: 100,
+  validityDaysMin: 1,
+  validityDaysMax: 365,
+  defaultTerms: 600,
 } as const;
 
 export interface SocialLinkItem {
@@ -85,6 +278,7 @@ export interface DocumentCompanyInput {
   email?: string | null;
   address?: string | null;
   logoUrl?: string | null;
+  coverImageUrl?: string | null;
   documentSettings?: DocumentSettings | null;
 }
 
@@ -110,7 +304,16 @@ export interface ProposalContent {
   socialLinks: SocialLinkItem[];
   introPages: IntroPageMode;
   about: { title: string; body: string; highlights: AboutHighlight[] } | null;
+  /** Every heading and label, reworded or default. */
+  text: Record<DocumentLabelKey, string>;
+  /** "Proposal Includes" lines (the selected tier / finish lines are added by the document). */
+  includes: string[];
+  nextSteps: NextStep[];
+  validityDays: number;
+  defaultTerms: string | null;
   logoUrl: string | null;
+  /** The company's own cover picture (replaces the default company's built-in illustration). */
+  coverImageUrl: string | null;
   /** Download file name, e.g. `QT-2026-001_Acme_Homes.pdf`. */
   fileName: (quotationNumber: string | null | undefined) => string;
 }
@@ -227,6 +430,22 @@ export function resolveProposalContent(company: DocumentCompanyInput | null | un
   const about = introPages === "custom" && aboutBody ? { title: aboutTitle, body: aboutBody, highlights } : null;
   if (introPages === "custom" && !about) introPages = "none";
 
+  const text = Object.fromEntries(
+    DOCUMENT_LABEL_KEYS.map((key) => [key, clean(settings?.labels?.[key])?.slice(0, DOCUMENT_LABEL_LIMITS[key]) ?? DOCUMENT_LABEL_DEFAULTS[key]])
+  ) as Record<DocumentLabelKey, string>;
+  const includes = Array.isArray(settings?.includes)
+    ? settings.includes.map((item) => clean(item)).filter((item): item is string => Boolean(item)).slice(0, DOCUMENT_LIMITS.includes)
+    : [...DEFAULT_PROPOSAL_INCLUDES];
+  const nextSteps = Array.isArray(settings?.nextSteps)
+    ? settings.nextSteps
+        .map((step) => ({ title: clean(step?.title) ?? "", text: clean(step?.text) ?? "" }))
+        .filter((step) => step.title && step.text)
+        .slice(0, DOCUMENT_LIMITS.nextSteps)
+    : DEFAULT_NEXT_STEPS.map((step) => ({ ...step }));
+  const days = settings?.defaultValidityDays;
+  const validityDays =
+    typeof days === "number" && Number.isInteger(days) && days >= DOCUMENT_LIMITS.validityDaysMin && days <= DOCUMENT_LIMITS.validityDaysMax ? days : DEFAULT_VALIDITY_DAYS;
+
   return {
     isDefaultCompany,
     brandName,
@@ -244,7 +463,13 @@ export function resolveProposalContent(company: DocumentCompanyInput | null | un
     socialLinks: resolveSocialLinks(settings?.socialLinks, brandName, isDefaultCompany),
     introPages,
     about,
+    text,
+    includes,
+    nextSteps,
+    validityDays,
+    defaultTerms: clean(settings?.defaultTerms),
     logoUrl: safeHttpsUrl(company?.logoUrl),
+    coverImageUrl: safeHttpsUrl(company?.coverImageUrl),
     fileName: (quotationNumber) => `${quotationNumber || "Proposal"}_${legacy ? legacy.fileSuffix : slugForFileName(brandName) || "Proposal"}.pdf`,
   };
 }

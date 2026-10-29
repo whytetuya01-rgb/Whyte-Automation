@@ -10,7 +10,7 @@ import {
   Company,
   AdminUser,
 } from "@/models";
-import { getEditorCatalog, loadEditorCatalogSources } from "@/lib/editorCatalog";
+import { buildEditorCatalog, loadEditorCatalogSources } from "@/lib/editorCatalog";
 import { normalizeCategories, normalizeHouseTypes, normalizeRoomTypes } from "@/lib/quotationNormalization";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 
@@ -34,7 +34,7 @@ interface VersionContext {
 function computeCatalogVersion(
   tenant: VersionContext,
   data: {
-    products: ReturnType<typeof getEditorCatalog> extends Promise<infer P> ? P : never;
+    products: ReturnType<typeof buildEditorCatalog>;
     categories: ReturnType<typeof normalizeCategories>;
     houseTypes: ReturnType<typeof normalizeHouseTypes>;
     roomTypes: ReturnType<typeof normalizeRoomTypes>;
@@ -88,10 +88,19 @@ function computeCatalogVersion(
   return `v_${tenant.companyId}_${hash.digest("hex").slice(0, 16)}`;
 }
 
+import { createRequestTracer } from "@/lib/perfTracer";
+
 export async function GET(request: Request) {
+  const tracer = createRequestTracer(request, "GET", "/api/catalog/offline-package");
   try {
     return await withSession(async (actor) => {
       const { role, userId, companyId } = actor;
+
+      if (actor._timings) {
+        tracer.mark("Session Resolution", { durationMs: actor._timings.sessionResolutionMs });
+        tracer.mark("Session Guard (DB/Cache)", { durationMs: actor._timings.sessionGuardMs });
+        tracer.mark("Tenant Context", { durationMs: actor._timings.tenantContextMs });
+      }
 
       if (!companyId) {
         throw new ApiError(
@@ -102,16 +111,18 @@ export async function GET(request: Request) {
         );
       }
 
-      await connectMongoDB();
+      await tracer.measure("MongoDB Connection", () => connectMongoDB());
 
       const url = new URL(request.url);
       const checkVersionOnly = url.searchParams.get("checkVersionOnly") === "true";
 
       // 1. Fetch Company details and Dealer discount allocation
-      const [companyDoc, userDoc] = await Promise.all([
-        Company.findById(companyId).select("name status").lean(),
-        AdminUser.findById(userId).select("discountAllocationPercent isActive").lean(),
-      ]);
+      const [companyDoc, userDoc] = await tracer.measure("Tenant Context Lookups", () =>
+        Promise.all([
+          Company.findById(companyId).select("name status").lean(),
+          AdminUser.findById(userId).select("discountAllocationPercent isActive").lean(),
+        ])
+      );
 
       if (!companyDoc || companyDoc.status === "suspended") {
         throw new ApiError("FORBIDDEN", "Company is suspended or inactive.");
@@ -120,21 +131,29 @@ export async function GET(request: Request) {
       const allocatedDiscount = Number((userDoc as any)?.discountAllocationPercent || 0);
 
       // 2. Fetch Catalog Data in Parallel
-      const [editorSources, rawCategories, rawHouseTypes, rawRoomTypes] = await Promise.all([
-        loadEditorCatalogSources(),
-        Category.find({ isActive: true }).sort({ sortOrder: 1, _id: 1 }).lean(),
-        HouseType.find({ isActive: true })
-          .sort({ sortOrder: 1, _id: 1 })
-          .populate({
-            path: "roomTemplate",
-            options: { sort: { sortOrder: 1 } },
-            populate: { path: "roomType" },
-          }),
-        RoomType.find({ isActive: true }).sort({ sortOrder: 1, _id: 1 }).lean(),
-      ]);
+      const [editorSources, rawCategories, rawHouseTypes, rawRoomTypes] = await tracer.measure("Raw Catalog Queries (Parallel)", () =>
+        Promise.all([
+          loadEditorCatalogSources(),
+          Category.find({ isActive: true }).sort({ sortOrder: 1, _id: 1 }).lean(),
+          HouseType.find({ isActive: true })
+            .sort({ sortOrder: 1, _id: 1 })
+            .populate({
+              path: "roomTemplate",
+              options: { sort: { sortOrder: 1 } },
+              populate: { path: "roomType" },
+            }),
+          RoomType.find({ isActive: true }).sort({ sortOrder: 1, _id: 1 }).lean(),
+        ])
+      );
 
-      // 3. Transform & Sanitize
-      const products = await getEditorCatalog();
+      const totalVariants = editorSources.variants.length;
+      const tTrans = performance.now();
+      const products = buildEditorCatalog(editorSources);
+      tracer.mark("Products & Variants Transformation (buildEditorCatalog)", {
+        durationMs: Number((performance.now() - tTrans).toFixed(2)),
+        productsTransformed: products.length,
+        variantsTransformed: totalVariants,
+      });
 
       const cleanedHouseTypes = rawHouseTypes.map((htDoc) => {
         const ht = (typeof htDoc.toJSON === "function" ? htDoc.toJSON() : htDoc) as unknown as Record<string, unknown>;
@@ -151,9 +170,8 @@ export async function GET(request: Request) {
       const houseTypes = normalizeHouseTypes(cleanedHouseTypes as any);
       const roomTypes = normalizeRoomTypes(rawRoomTypes as any);
 
-      const totalVariants = editorSources.variants.length;
-
       // 4. Compute reliable deterministic content-based catalog version hash
+      const tHash = performance.now();
       const catalogVersion = computeCatalogVersion(
         {
           companyId,
@@ -168,32 +186,42 @@ export async function GET(request: Request) {
           roomTypes,
         }
       );
+      tracer.mark("Content-based SHA-256 Version Hash", {
+        durationMs: Number((performance.now() - tHash).toFixed(2)),
+        productsHashed: products.length,
+        variantsHashed: totalVariants,
+      });
 
       // Fast-path: Check version only without transmitting full catalog data
       if (checkVersionOnly) {
-        return new NextResponse(
-          JSON.stringify({
-            success: true,
-            catalogVersion,
-            generatedAt: new Date().toISOString(),
-            counts: {
-              products: products.length,
-              variants: totalVariants,
-              categories: categories.length,
-              houseTypes: houseTypes.length,
-              roomTypes: roomTypes.length,
-            },
-          }),
-          {
-            status: 200,
-            headers: {
-              "Content-Type": "application/json; charset=utf-8",
-              "Cache-Control": "private, no-cache, no-store, must-revalidate",
-              Pragma: "no-cache",
-              Expires: "0",
-            },
-          }
-        );
+        const tJson = performance.now();
+        const jsonBody = JSON.stringify({
+          success: true,
+          catalogVersion,
+          generatedAt: new Date().toISOString(),
+          counts: {
+            products: products.length,
+            variants: totalVariants,
+            categories: categories.length,
+            houseTypes: houseTypes.length,
+            roomTypes: roomTypes.length,
+          },
+        });
+        tracer.mark("JSON Serialization (Version-Only)", {
+          durationMs: Number((performance.now() - tJson).toFixed(2)),
+          payloadBytes: Buffer.byteLength(jsonBody, "utf8"),
+        });
+        tracer.end({ checkVersionOnly: true });
+
+        return new NextResponse(jsonBody, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "private, no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+            Expires: "0",
+          },
+        });
       }
 
       const payload = {
@@ -220,7 +248,17 @@ export async function GET(request: Request) {
         roomTypes,
       };
 
-      return new NextResponse(JSON.stringify(payload), {
+      const tJsonFull = performance.now();
+      const fullJsonBody = JSON.stringify(payload);
+      const payloadBytes = Buffer.byteLength(fullJsonBody, "utf8");
+      tracer.mark("JSON Serialization (Full Package)", {
+        durationMs: Number((performance.now() - tJsonFull).toFixed(2)),
+        payloadBytes,
+        payloadKb: Number((payloadBytes / 1024).toFixed(1)),
+      });
+      tracer.end({ checkVersionOnly: false, payloadBytes });
+
+      return new NextResponse(fullJsonBody, {
         status: 200,
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -231,6 +269,8 @@ export async function GET(request: Request) {
       });
     });
   } catch (error) {
+    tracer.mark("Error Handling");
+    tracer.end();
     return handleApiError(error, { logPrefix: "GET /api/catalog/offline-package" });
   }
 }

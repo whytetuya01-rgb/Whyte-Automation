@@ -1,11 +1,15 @@
 import { z } from "zod";
 import {
+  DOCUMENT_LABEL_KEYS,
+  DOCUMENT_LABEL_LIMITS,
+  DOCUMENT_LABEL_NAMES,
   DOCUMENT_LIMITS,
   INTRO_PAGE_MODES,
   SOCIAL_LABELS,
   SOCIAL_NETWORKS,
   isSocialUrl,
   safeHttpsUrl,
+  type DocumentLabelKey,
   type SocialNetwork,
 } from "@/lib/documentSettings";
 
@@ -56,6 +60,13 @@ const highlightSchema = z
   })
   .strict();
 
+const nextStepSchema = z
+  .object({
+    title: z.string().trim().min(1, "Each next step needs a title.").max(DOCUMENT_LIMITS.stepTitle, `A next-step title must be ${DOCUMENT_LIMITS.stepTitle} characters or fewer.`).refine((v) => !/[\r\n]/.test(v) && noControlChars(v), "A next-step title contains invalid characters."),
+    text: z.string().trim().min(1, "Each next step needs a description.").max(DOCUMENT_LIMITS.stepText, `A next-step description must be ${DOCUMENT_LIMITS.stepText} characters or fewer.`).refine((v) => !/[\r\n]/.test(v) && noControlChars(v), "A next-step description contains invalid characters."),
+  })
+  .strict();
+
 /**
  * Document content settings. Strict: unknown keys are refused, every URL must be https (and a social link must be
  * on its own network), every text is bounded. Absent key = "not set"; `null` = explicitly cleared.
@@ -74,6 +85,30 @@ export const documentSettingsSchema = z
     aboutTitle: line("About title", DOCUMENT_LIMITS.aboutTitle).optional(),
     aboutBody: paragraph("About text", DOCUMENT_LIMITS.aboutBody).optional(),
     aboutHighlights: z.array(highlightSchema).max(DOCUMENT_LIMITS.highlights, `Add at most ${DOCUMENT_LIMITS.highlights} highlights.`).optional(),
+    labels: z
+      .object(Object.fromEntries(DOCUMENT_LABEL_KEYS.map((key) => [key, line(DOCUMENT_LABEL_NAMES[key], DOCUMENT_LABEL_LIMITS[key]).optional()])) as Record<DocumentLabelKey, z.ZodOptional<ReturnType<typeof line>>>)
+      .strict()
+      .optional(),
+    includes: z
+      .array(
+        z
+          .string({ message: "Each included item must be text." })
+          .trim()
+          .min(1, "An included item cannot be empty.")
+          .max(DOCUMENT_LIMITS.includeItem, `An included item must be ${DOCUMENT_LIMITS.includeItem} characters or fewer.`)
+          .refine((v) => !/[\r\n]/.test(v) && noControlChars(v), "An included item contains invalid characters.")
+      )
+      .max(DOCUMENT_LIMITS.includes, `Add at most ${DOCUMENT_LIMITS.includes} included items.`)
+      .optional(),
+    nextSteps: z.array(nextStepSchema).max(DOCUMENT_LIMITS.nextSteps, `Add at most ${DOCUMENT_LIMITS.nextSteps} next steps.`).optional(),
+    defaultValidityDays: z
+      .number({ message: "Validity must be a number of days." })
+      .int("Validity must be a whole number of days.")
+      .min(DOCUMENT_LIMITS.validityDaysMin, `Validity must be at least ${DOCUMENT_LIMITS.validityDaysMin} day.`)
+      .max(DOCUMENT_LIMITS.validityDaysMax, `Validity must be ${DOCUMENT_LIMITS.validityDaysMax} days or fewer.`)
+      .nullable()
+      .optional(),
+    defaultTerms: paragraph("Default terms", DOCUMENT_LIMITS.defaultTerms).optional(),
   })
   .strict();
 

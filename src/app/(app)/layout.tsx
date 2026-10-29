@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getServerSession } from "next-auth/next";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
-import WhyteLogo from "@/components/shared/WhyteLogo";
+import DealerHeaderLogo from "@/components/shared/DealerHeaderLogo";
 import SignOutButton from "@/components/shared/SignOutButton";
 import SiteFooter from "@/components/shared/SiteFooter";
 import { getFooterCompany } from "@/lib/footerCompany";
@@ -50,12 +50,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
               className="inline-flex items-center rounded-xl px-1.5 py-0.5 hover:bg-gray-50 transition shrink-0"
               aria-label="Go to home"
             >
-              <WhyteLogo
-                theme="light"
-                alt="Whyte logo"
-                size="header"
-                preload
-              />
+              {/* The company's own logo (Whyte's when it has none); see DealerHeaderLogo. */}
+              <DealerHeaderLogo />
             </Link>
 
             {/* Desktop nav */}

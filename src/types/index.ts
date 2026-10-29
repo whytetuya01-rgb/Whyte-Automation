@@ -293,6 +293,7 @@ export interface Company {
   logoPublicId?: string | null;
   compactLogoUrl?: string | null;
   compactLogoPublicId?: string | null;
+  coverImageUrl?: string | null;
   logoSettings?: { fit: "contain" | "cover"; background: "white" | "transparent"; padding: number; radius: number } | null;
   documentSettings?: import("@/lib/documentSettings").DocumentSettings | null;
   brandColor?: string | null;

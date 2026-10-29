@@ -257,7 +257,7 @@ try {
   // ── registration form ──
   const { page: reg, context: regContext } = await open(null);
   await reg.goto(`${baseUrl}/register/company`, { waitUntil: "load" });
-  await reg.locator('[data-testid="logo-live-preview"]').waitFor();
+  await reg.locator('[data-testid="logo-live-preview"]:visible').waitFor();
   assert.match(await reg.locator('[data-testid="logo-preview-note"]').innerText(), /default Whyte branding/);
   await reg.fill("#company-name", "Skyline Smart Homes");
   await reg.fill("#company-email", "hello@skyline.example");

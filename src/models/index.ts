@@ -22,6 +22,18 @@ export {
   type IQuotationAuditEvent,
   type IQuotationAuditEventDocument,
 } from "./QuotationAuditEvent";
+export {
+  QuotationDelivery,
+  DELIVERY_STATUSES,
+  DELIVERY_MAX_ATTEMPTS,
+  DELIVERY_MAX_EVENTS,
+  type DeliveryStatus,
+  type DeliveryEvent,
+  type DeliveryEventType,
+  type IQuotationDelivery,
+  type IQuotationDeliveryDocument,
+} from "./QuotationDelivery";
+export { QuotationDeliveryFile, DELIVERY_MAX_PDF_BYTES, type IQuotationDeliveryFileDocument } from "./QuotationDeliveryFile";
 export { QuotationRoom, type IQuotationRoom, type IQuotationRoomDocument } from "./QuotationRoom";
 export { QuotationItem, type IQuotationItem, type IQuotationItemDocument } from "./QuotationItem";
 export { AdminUser, type IAdminUser, type IAdminUserDocument } from "./AdminUser";

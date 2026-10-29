@@ -3,14 +3,28 @@ import { connectMongoDB } from "@/lib/mongodb";
 import { Company } from "@/models";
 import { withPermission, withSession, getAuthenticatedActor } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
-import { THEME_CONFIGS, THEME_LIST, DEFAULT_THEME, SITE_THEME_IDS, isValidTheme } from "@/lib/themeTokens";
+import {
+  THEME_CONFIGS,
+  THEME_LIST,
+  DEFAULT_THEME,
+  SITE_THEME_IDS,
+  isValidTheme,
+  BORDER_RADII,
+  CONTENT_DENSITIES,
+  SIDEBAR_STYLES,
+  normalizeThemeLayout,
+  type BorderRadius,
+  type ContentDensity,
+  type SidebarStyle,
+} from "@/lib/themeTokens";
 import { getNextSequence } from "@/lib/counter";
 import { z } from "zod";
 import { MIN_BRAND_CONTRAST_ON_WHITE, brandContrastOnWhite, normalizeBrandColor } from "@/lib/brandColor";
 
 export const dynamic = "force-dynamic";
 
-// At least one of `theme` (a preset) or `brandColor` (a custom `#rrggbb` accent, or null to go back to the preset).
+// At least one of `theme` (a preset), `brandColor` (a custom `#rrggbb` accent, or null to go back to the preset) or
+// `layout` (sidebar style, corner radius, content density; each key optional).
 const patchThemeSchema = z
   .object({
     theme: z.enum(SITE_THEME_IDS, { message: "Choose one of the available preset themes." }).optional(),
@@ -25,24 +39,54 @@ const patchThemeSchema = z
       )
       .nullable()
       .optional(),
+    layout: z
+      .object({
+        sidebarStyle: z.enum(SIDEBAR_STYLES as [SidebarStyle, ...SidebarStyle[]], { message: "Choose classic, floating or minimal for the sidebar." }).optional(),
+        borderRadius: z.enum(BORDER_RADII as [BorderRadius, ...BorderRadius[]], { message: "Choose sharp, balanced or smooth corners." }).optional(),
+        contentDensity: z.enum(CONTENT_DENSITIES as [ContentDensity, ...ContentDensity[]], { message: "Choose comfortable or compact density." }).optional(),
+      })
+      .strict()
+      .refine((value) => Object.keys(value).length > 0, "Choose a layout setting.")
+      .optional(),
   })
   .strict()
-  .refine((value) => value.theme !== undefined || value.brandColor !== undefined, "Choose a theme or a brand colour.");
+  .refine((value) => value.theme !== undefined || value.brandColor !== undefined || value.layout !== undefined, "Choose a theme, a brand colour or a layout setting.");
 
-export async function GET() {
+import { createRequestTracer } from "@/lib/perfTracer";
+
+export async function GET(req: Request) {
+  const tracer = createRequestTracer(req, "GET", "/api/theme");
   try {
     return await withSession(async (actor) => {
-      await connectMongoDB();
-      const company = actor.companyId ? await Company.findById(actor.companyId).select("theme brandColor").lean() : null;
+      if (actor._timings) {
+        tracer.mark("Session Resolution", { durationMs: actor._timings.sessionResolutionMs });
+        tracer.mark("Session Guard (DB/Cache)", { durationMs: actor._timings.sessionGuardMs });
+        tracer.mark("Tenant Context", { durationMs: actor._timings.tenantContextMs });
+      }
+
+      await tracer.measure("MongoDB Connection", () => connectMongoDB());
+
+      const company = await tracer.measure("Company Query", async () => {
+        return actor.companyId ? await Company.findById(actor.companyId).select("theme brandColor").lean() : null;
+      });
+
       const currentTheme = company?.theme && isValidTheme(company.theme) ? company.theme : DEFAULT_THEME;
 
-      return apiSuccess({
+      tracer.mark("Data Transformation");
+
+      const response = apiSuccess({
         currentTheme,
         brandColor: normalizeBrandColor(company?.brandColor),
         themes: THEME_LIST,
       });
+
+      tracer.mark("JSON Serialization");
+      tracer.end();
+      return response;
     });
   } catch (error) {
+    tracer.mark("Error Handling");
+    tracer.end();
     return handleApiError(error, { logPrefix: "GET /api/theme" });
   }
 }
@@ -71,11 +115,13 @@ export async function PATCH(req: Request) {
         });
       }
 
-      const { theme, brandColor } = parsed.data;
+      const { theme, brandColor, layout } = parsed.data;
 
       const update: Record<string, unknown> = { updatedAt: new Date() };
       if (theme !== undefined) update.theme = theme;
       if (brandColor !== undefined) update.brandColor = brandColor;
+      // Only the layout keys that were sent change; the others keep their saved value.
+      for (const [key, value] of Object.entries(layout ?? {})) update[`themeLayout.${key}`] = value;
 
       await connectMongoDB();
       const company = await Company.findByIdAndUpdate(actor.companyId, { $set: update }, { new: true }).lean();
@@ -91,6 +137,7 @@ export async function PATCH(req: Request) {
         success: true,
         theme: company.theme,
         brandColor: normalizeBrandColor(company.brandColor),
+        layout: normalizeThemeLayout(company.themeLayout),
         config: THEME_CONFIGS[isValidTheme(company.theme) ? company.theme : DEFAULT_THEME],
       });
     });

@@ -50,6 +50,20 @@ function StatusPill({ status, deactivated = false }: { status: RegistrationListI
   );
 }
 
+/** Whether the owner verified the email address (self-registrations only; older companies show nothing). */
+function VerificationPill({ item }: { item: RegistrationListItem }) {
+  if (item.ownerEmailVerified === null || item.registrationStatus !== "pending_review") return null;
+  return item.ownerEmailVerified ? (
+    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700" data-testid="email-verified-pill">
+      <CheckCircle2 size={11} /> Email verified
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800" data-testid="email-unverified-pill">
+      <Clock size={11} /> Email not verified
+    </span>
+  );
+}
+
 function EmailStatus({ item }: { item: RegistrationListItem }) {
   if (!item.decisionEmail) return <span className="text-gray-500">No email was sent</span>;
   const { status, kind, attempts, lastError } = item.decisionEmail;
@@ -143,6 +157,20 @@ export default function CompaniesPage() {
     }
   };
 
+  const resendVerification = async (item: RegistrationListItem) => {
+    if (busyId !== null) return;
+    setBusyId(item.id);
+    try {
+      await apiJson.post<RegistrationListItem>(`/api/platform/company-registrations/${item.id}/resend-verification`);
+      notify.success("Verification email sent", `A new link was emailed to ${item.owner?.email ?? "the owner"}.`);
+      await load(tab);
+    } catch (error) {
+      notify.error("Could not resend", toErrorMessage(error));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   const items = listing?.items ?? [];
 
   return (
@@ -205,6 +233,7 @@ export default function CompaniesPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h3 className="text-base font-bold text-gray-950">{item.name}</h3>
                     <StatusPill status={item.registrationStatus} deactivated={item.companyStatus === "suspended"} />
+                    <VerificationPill item={item} />
                     {item.origin === "platform" && <span className="text-xs text-gray-400">Existing company</span>}
                   </div>
                   <div className="grid gap-x-6 gap-y-1 text-sm text-gray-600 sm:grid-cols-2">
@@ -233,9 +262,21 @@ export default function CompaniesPage() {
                   )}
                   {item.registrationStatus === "pending_review" && (
                     <>
-                      <Button type="button" size="sm" disabled={busyId !== null} onClick={() => openConfirm("approve", item)} data-testid="approve-button">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={busyId !== null || item.ownerEmailVerified === false}
+                        title={item.ownerEmailVerified === false ? "The owner has not verified their email address yet." : undefined}
+                        onClick={() => openConfirm("approve", item)}
+                        data-testid="approve-button"
+                      >
                         <CheckCircle2 size={14} /> Approve
                       </Button>
+                      {item.ownerEmailVerified === false && (
+                        <Button type="button" variant="outline" size="sm" disabled={busyId !== null} onClick={() => void resendVerification(item)} data-testid="resend-verification-button">
+                          <RefreshCw size={14} /> Resend verification
+                        </Button>
+                      )}
                       <Button type="button" variant="outline" size="sm" disabled={busyId !== null} onClick={() => openConfirm("reject", item)} data-testid="reject-button">
                         <XCircle size={14} /> Reject
                       </Button>

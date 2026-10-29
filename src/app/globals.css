@@ -877,3 +877,62 @@ table {
 @media (prefers-reduced-motion: no-preference) {
   .whyte-rise { animation: whyte-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
 }
+
+/* ── Theme layout (per company, set on <html> from the server; see themeLayoutAttributes) ───────────────── */
+
+/* Corner radius: overrides Tailwind's radius tokens everywhere ("balanced" is Tailwind's default). The quotation
+   document keeps the default corners, so a company's choice never changes an issued proposal's look. */
+html[data-radius="sharp"] {
+  --radius-sm: 0.125rem;
+  --radius-md: 0.1875rem;
+  --radius-lg: 0.25rem;
+  --radius-xl: 0.375rem;
+  --radius-2xl: 0.5rem;
+  --radius-3xl: 0.75rem;
+}
+html[data-radius="smooth"] {
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1.125rem;
+  --radius-2xl: 1.375rem;
+  --radius-3xl: 1.875rem;
+}
+html[data-radius] .proposal-page {
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-2xl: 1rem;
+  --radius-3xl: 1.5rem;
+}
+
+/* Sidebar style (admin panel). "floating" keeps the same footprint, so the page content never shifts. */
+html[data-sidebar="floating"] [data-admin-sidebar-shell] {
+  background: #F6F6F7;
+  padding: 10px;
+}
+html[data-sidebar="floating"] [data-admin-sidebar] {
+  border: 1px solid #1E1E22;
+  border-radius: 18px;
+  box-shadow: 0 12px 32px -14px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+html[data-sidebar="minimal"] [data-admin-sidebar-shell],
+html[data-sidebar="minimal"] [data-admin-sidebar] {
+  background: #0A0A0B;
+}
+html[data-sidebar="minimal"] [data-admin-sidebar] {
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+html[data-sidebar="minimal"] [data-active-indicator] {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+/* Content density: "compact" tightens table rows in the admin panel. */
+html[data-density="compact"] .admin-theme :is(td, th) {
+  padding-top: 0.375rem;
+  padding-bottom: 0.375rem;
+}

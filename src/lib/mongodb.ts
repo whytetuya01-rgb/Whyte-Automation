@@ -34,6 +34,8 @@ applyPublicDnsServers();
 interface MongooseCache {
   conn: typeof mongoose | null;
   promise: Promise<typeof mongoose> | null;
+  lastFailureTime?: number;
+  lastFailureError?: Error | null;
 }
 
 declare global {
@@ -43,6 +45,8 @@ declare global {
 const cached: MongooseCache = global.mongooseCache ?? {
   conn: null,
   promise: null,
+  lastFailureTime: 0,
+  lastFailureError: null,
 };
 
 if (!global.mongooseCache) {
@@ -78,13 +82,14 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 /**
  * Connects with a bounded retry.
  *
- * Without this, one transient DNS/SRV or replica-set hiccup failed the very
- * first request with a hard 500 while every later request succeeded, because
- * the failed promise was discarded and the next call retried from scratch.
+ * Configured with 4,000ms server selection timeout and 2 attempts with backoff.
+ * This accommodates Atlas SRV resolution (15-400ms) and replica-set primary
+ * election (2-3s) while bounding total worst-case outage stalls to ~8.3s
+ * instead of 31.5s+ cascading delays.
  */
 async function connectWithRetry(uri: string): Promise<typeof mongoose> {
-  const maxAttempts = 3;
-  const baseDelayMs = 500;
+  const maxAttempts = 2;
+  const baseDelayMs = 300;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -93,8 +98,8 @@ async function connectWithRetry(uri: string): Promise<typeof mongoose> {
         // Never queue operations while disconnected: fail fast and loudly so a
         // broken connection surfaces as an error instead of a silent hang.
         bufferCommands: false,
-        serverSelectionTimeoutMS: 10_000,
-        connectTimeoutMS: 10_000,
+        serverSelectionTimeoutMS: 4_000,
+        connectTimeoutMS: 4_000,
         socketTimeoutMS: 45_000,
       });
     } catch (error) {
@@ -127,6 +132,12 @@ async function connectWithRetry(uri: string): Promise<typeof mongoose> {
  * Global MongoDB connection utility using Mongoose.
  * Caches the connection across hot reloads in Next.js development mode.
  */
+let lastConnectDurationMs = 0;
+
+export function getLastDbConnectDurationMs(): number {
+  return lastConnectDurationMs;
+}
+
 export async function connectMongoDB(): Promise<typeof mongoose> {
   const MONGODB_URI = process.env.MONGODB_URI;
 
@@ -134,7 +145,7 @@ export async function connectMongoDB(): Promise<typeof mongoose> {
     throw new Error("Please define the MONGODB_URI environment variable inside .env");
   }
 
-  // An already-open connection is reused, unless it went stale.
+  // 1. Re-use healthy open connection
   if (cached.conn) {
     const state = cached.conn.connection.readyState;
     if (state === 1) return cached.conn;
@@ -142,22 +153,48 @@ export async function connectMongoDB(): Promise<typeof mongoose> {
       // 0 === disconnected: drop the cached handle so a fresh attempt is made.
       cached.conn = null;
       cached.promise = null;
-    } else {
-      // 1 === connected, 2 === connecting, 3 === disconnecting
-      return cached.conn;
+    } else if (state === 2 && cached.promise) {
+      // 2 === connecting: await in-flight connection promise rather than returning unready handle
+      return await cached.promise;
     }
   }
 
-  // Concurrent callers share one in-flight attempt.
+  // 2. Failure cooldown check: if an attempt recently failed, fail fast
+  // to prevent 63-67s double-retry cascades within a single request
+  const now = performance.now();
+  const FAILURE_COOLDOWN_MS = 1500;
+  if (
+    cached.lastFailureTime &&
+    now - cached.lastFailureTime < FAILURE_COOLDOWN_MS &&
+    cached.lastFailureError
+  ) {
+    throw cached.lastFailureError;
+  }
+
+  const isFirstCall = !cached.promise;
+  const start = performance.now();
+
+  // 3. Concurrent callers share one in-flight attempt.
   if (!cached.promise) {
     cached.promise = connectWithRetry(MONGODB_URI);
   }
 
   try {
     cached.conn = await cached.promise;
+    cached.lastFailureTime = 0;
+    cached.lastFailureError = null;
+    lastConnectDurationMs = Number((performance.now() - start).toFixed(2));
+    if (isFirstCall) {
+      const isAtlas = MONGODB_URI.includes("mongodb+srv") || MONGODB_URI.includes("mongodb.net");
+      console.log(`[PERF:DB] MongoDB initial connection established in ${lastConnectDurationMs} ms (${isAtlas ? "Atlas Cloud" : "Local Database"})`);
+    }
   } catch (error) {
-    // Do not cache a failed attempt: the next caller must be able to retry.
+    // Record failure time for cooldown to prevent cascading loops
+    cached.lastFailureTime = performance.now();
+    cached.lastFailureError = error instanceof Error ? error : new Error(String(error));
     cached.promise = null;
+    lastConnectDurationMs = Number((performance.now() - start).toFixed(2));
+    console.error(`[PERF:DB] MongoDB connection FAILED after ${lastConnectDurationMs} ms:`, (error as Error)?.message);
     throw error;
   }
 

@@ -11,11 +11,21 @@
 // no-ops instead of throwing, so unrelated flows (e.g. registration) never
 // fail just because email delivery isn't set up yet.
 
+export interface EmailAttachment {
+  filename: string;
+  /** Base64-encoded file content. */
+  content: string;
+}
+
 export interface SendEmailInput {
   to: string;
   subject: string;
   html: string;
   text: string;
+  /** Optional files (e.g. a quotation PDF). */
+  attachments?: EmailAttachment[];
+  /** Where replies go (e.g. the dealer who sent a quotation); the sender address stays EMAIL_FROM. */
+  replyTo?: string;
 }
 
 export interface SendEmailResult {
@@ -49,6 +59,8 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
         subject: input.subject,
         html: input.html,
         text: input.text,
+        ...(input.attachments && input.attachments.length > 0 ? { attachments: input.attachments } : {}),
+        ...(input.replyTo ? { reply_to: input.replyTo } : {}),
       }),
     });
 

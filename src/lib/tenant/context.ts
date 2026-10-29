@@ -24,13 +24,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
  */
 
 /** Why a query was deliberately run with no company filter. Every use is logged. */
-export type UnscopedReason = "platform-admin" | "migration" | "auth-lookup" | "public-registration";
+export type UnscopedReason = "platform-admin" | "migration" | "auth-lookup" | "public-registration" | "provider-webhook";
 
 const KNOWN_UNSCOPED_REASONS: ReadonlySet<string> = new Set<UnscopedReason>([
   "platform-admin",
   "migration",
   "auth-lookup",
   "public-registration",
+  // A signed email-provider notification: finds the one delivery its message id belongs to (then scopes to it).
+  "provider-webhook",
 ]);
 
 export interface TenantContextValue {

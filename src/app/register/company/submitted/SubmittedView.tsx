@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowUpRight, Check, Clock } from "lucide-react";
 import WhyteLogo from "@/components/shared/WhyteLogo";
+import ResendVerificationForm from "@/components/company/ResendVerificationForm";
 
 type StepState = "done" | "current" | "upcoming";
 
@@ -85,6 +86,10 @@ export default function SubmittedView() {
           <p className="whyte-rise mt-5 max-w-[26rem] text-base leading-7 text-neutral-600" style={{ animationDelay: "0.18s" }}>
             Thank you for registering with Whyte Automation. Your company registration request has been submitted successfully and is awaiting approval from our team. You will receive an email once your request is reviewed.
           </p>
+
+          <div className="whyte-rise mt-6" style={{ animationDelay: "0.22s" }}>
+            <ResendVerificationForm />
+          </div>
 
           <ol className="whyte-rise mt-9 space-y-0" style={{ animationDelay: "0.26s" }} aria-label="Registration progress">
             {STEPS.map((step, index) => (

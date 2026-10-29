@@ -32,6 +32,10 @@ const PUBLIC_API_PREFIX = "/api/auth";
 const PUBLIC_REGISTRATION_API = "/api/admin/register";
 /** Company self-registration (creates a new tenant + its Company Owner). POST only; the handler is strict and rate-limited. */
 const PUBLIC_COMPANY_REGISTRATION_API = "/api/company/register";
+/** Email-provider notifications: no session; the route itself only accepts a valid signature. */
+const PUBLIC_WEBHOOK_APIS: ReadonlySet<string> = new Set(["/api/webhooks/resend"]);
+/** Company-owner email verification from the emailed link (no session yet); both routes are rate limited. */
+const PUBLIC_VERIFICATION_APIS: ReadonlySet<string> = new Set(["/api/company/register/verify", "/api/company/register/resend-verification"]);
 const DEALER_LANDING_PAGE = "/dealer/access";
 const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
 
@@ -60,13 +64,15 @@ function redirectTo(request: NextRequest, pathname: string): NextResponse {
 
 export async function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set("x-request-start", String(performance.now()));
 
   if (isPublicPage(pathname) || isFrameworkApi(pathname)) {
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  if ((pathname === PUBLIC_REGISTRATION_API || pathname === PUBLIC_COMPANY_REGISTRATION_API) && request.method === "POST") {
-    return NextResponse.next();
+  if ((pathname === PUBLIC_REGISTRATION_API || pathname === PUBLIC_COMPANY_REGISTRATION_API || PUBLIC_WEBHOOK_APIS.has(pathname) || PUBLIC_VERIFICATION_APIS.has(pathname)) && request.method === "POST") {
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   const role = await getVerifiedSessionRole(request);
@@ -87,7 +93,7 @@ export async function proxy(request: NextRequest) {
         return redirectTo(request, "/");
       }
     }
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   if (role === "sales") {
@@ -117,14 +123,14 @@ export async function proxy(request: NextRequest) {
         return redirectTo(request, "/");
       }
     }
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   if (role && ADMIN_ROLES.has(role)) {
     if (!isApiRequest(pathname) && !isAdminPage(pathname) && !isPublicPage(pathname) && !pathname.startsWith("/quotation/")) {
       return redirectTo(request, "/admin/dashboard");
     }
-    return NextResponse.next();
+    return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
   if (isApiRequest(pathname)) {

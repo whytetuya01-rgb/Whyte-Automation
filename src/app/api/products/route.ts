@@ -54,11 +54,21 @@ async function getCategoryAndDescendantIds(catId: number): Promise<number[]> {
   return ids;
 }
 
+import { createRequestTracer } from "@/lib/perfTracer";
+
 export async function GET(req: Request) {
+  const tracer = createRequestTracer(req, "GET", "/api/products");
   try {
     // Every product read is business data, so the whole endpoint requires a
     // session. `?all=true` requires catalog:read capability for configurable admins.
-    return await withSession(async ({ role: callerRole, permissions: callerPermissions }) => {
+    return await withSession(async (actor) => {
+      const { role: callerRole, permissions: callerPermissions } = actor;
+      if (actor._timings) {
+        tracer.mark("Session Resolution", { durationMs: actor._timings.sessionResolutionMs });
+        tracer.mark("Session Guard (DB/Cache)", { durationMs: actor._timings.sessionGuardMs });
+        tracer.mark("Tenant Context", { durationMs: actor._timings.tenantContextMs });
+      }
+
       const { searchParams } = new URL(req.url);
       const showAll = searchParams.get("all") === "true";
       if (showAll && callerRole === "configurable_admin") {
@@ -78,9 +88,9 @@ export async function GET(req: Request) {
       const sortByParam = searchParams.get("sortBy")?.trim();
       const sortOrderParam = searchParams.get("sortOrder")?.trim();
 
-    await connectMongoDB();
+      await tracer.measure("MongoDB Connection", () => connectMongoDB());
 
-    const andConditions: Array<Record<string, unknown>> = [];
+      const andConditions: Array<Record<string, unknown>> = [];
 
     // Active status filter
     if (statusParam === "active") {
@@ -251,23 +261,31 @@ export async function GET(req: Request) {
         maxPageSize: 100,
       });
 
-      const [total, rawProducts, totalProducts, totalActive, totalVariants, totalCategories] = await Promise.all([
-        Product.countDocuments(filter),
-        Product.find(filter)
-          .sort(sortOptions)
-          .skip(paginationParams.skip)
-          .limit(paginationParams.take)
-          .populate(populateOptions)
-          .lean({ virtuals: true, getters: true }),
-        Product.countDocuments({}),
-        Product.countDocuments({ isActive: true }),
-        ProductVariant.countDocuments({}),
-        Category.countDocuments({ isActive: true }),
-      ]);
+      const [total, rawProducts, totalProducts, totalActive, totalVariants, totalCategories] = await tracer.measure(
+        "Products Paginated Queries & Populate",
+        () =>
+          Promise.all([
+            Product.countDocuments(filter),
+            Product.find(filter)
+              .sort(sortOptions)
+              .skip(paginationParams.skip)
+              .limit(paginationParams.take)
+              .populate(populateOptions)
+              .lean({ virtuals: true, getters: true }),
+            Product.countDocuments({}),
+            Product.countDocuments({ isActive: true }),
+            ProductVariant.countDocuments({}),
+            Category.countDocuments({ isActive: true }),
+          ])
+      );
 
       const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole, callerPermissions);
+      tracer.mark("Products Normalization & Redaction");
 
       const paginatedRes = createPaginatedResponse(products, total, paginationParams);
+      tracer.mark("JSON Serialization");
+      tracer.end({ isPaginated: true, count: products.length });
+
       return NextResponse.json({
         ...paginatedRes,
         stats: {
@@ -279,16 +297,24 @@ export async function GET(req: Request) {
       });
     }
 
-    const rawProducts = await Product.find(filter)
-      .sort(sortOptions)
-      .populate(populateOptions)
-      .lean({ virtuals: true, getters: true });
+    const rawProducts = await tracer.measure("Products Full Query & Populate", () =>
+      Product.find(filter)
+        .sort(sortOptions)
+        .populate(populateOptions)
+        .lean({ virtuals: true, getters: true })
+    );
 
-      const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole, callerPermissions);
+    const products = redactProductsForRole(normalizeProducts(rawProducts), callerRole, callerPermissions);
+    tracer.mark("Products Normalization & Redaction");
 
-      return NextResponse.json(products);
+    tracer.mark("JSON Serialization");
+    tracer.end({ isPaginated: false, count: products.length });
+
+    return NextResponse.json(products);
     });
   } catch (error) {
+    tracer.mark("Error Handling");
+    tracer.end();
     return handleApiError(error, { logPrefix: "GET /api/products" });
   }
 }

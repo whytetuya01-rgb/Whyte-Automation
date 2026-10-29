@@ -141,7 +141,9 @@ export async function getSessionActor(userId: number, tokenRole: string): Promis
       role: tokenRole,
       isActive: true,
       permissions: [],
-      expiresAt: now + resolveCacheTtlMs(),
+      // Bounded transient TTL: during a DB hiccup, cache for at most 1500ms (matching DB cooldown)
+      // so active users immediately re-acquire real permissions and companyId as soon as the DB recovers.
+      expiresAt: now + Math.min(resolveCacheTtlMs(), 1500),
     };
   }
 

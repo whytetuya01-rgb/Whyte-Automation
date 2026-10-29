@@ -384,6 +384,27 @@ export const CONTENT_DENSITY_OPTIONS: LayoutOption<ContentDensity>[] = [
     id: "compact",
     title: "High-Density",
     badge: "Efficient",
-    description: "Condensed table rows, compact cards, and maximum visible data per screen. Ideal for fast quotation generation.",
+    description: "Tighter table rows in the admin panel, so more data fits on one screen. Ideal for fast quotation work.",
   },
 ];
+
+export const SIDEBAR_STYLES = SIDEBAR_STYLE_OPTIONS.map((option) => option.id);
+export const BORDER_RADII = BORDER_RADIUS_OPTIONS.map((option) => option.id);
+export const CONTENT_DENSITIES = CONTENT_DENSITY_OPTIONS.map((option) => option.id);
+
+/** Layout settings read back from storage: any missing or unknown value takes the default, so the result is always valid. */
+export function normalizeThemeLayout(stored: unknown): ThemeLayoutSettings {
+  const source = (stored && typeof stored === "object" ? stored : {}) as Record<string, unknown>;
+  const pick = <T extends string>(value: unknown, allowed: readonly T[], fallback: T): T =>
+    (allowed as readonly unknown[]).includes(value) ? (value as T) : fallback;
+  return {
+    sidebarStyle: pick(source.sidebarStyle, SIDEBAR_STYLES, DEFAULT_LAYOUT_SETTINGS.sidebarStyle),
+    borderRadius: pick(source.borderRadius, BORDER_RADII, DEFAULT_LAYOUT_SETTINGS.borderRadius),
+    contentDensity: pick(source.contentDensity, CONTENT_DENSITIES, DEFAULT_LAYOUT_SETTINGS.contentDensity),
+  };
+}
+
+/** The <html> attributes the layout settings are applied through (see the "Theme layout" rules in globals.css). */
+export function themeLayoutAttributes(layout: ThemeLayoutSettings): Record<"data-sidebar" | "data-radius" | "data-density", string> {
+  return { "data-sidebar": layout.sidebarStyle, "data-radius": layout.borderRadius, "data-density": layout.contentDensity };
+}

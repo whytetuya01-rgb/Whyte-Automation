@@ -1,3 +1,4 @@
+import { isVerificationPending, type OwnerEmailVerification } from "@/lib/ownerEmailVerification";
 import { z } from "zod";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Company } from "@/models";
@@ -55,6 +56,8 @@ export interface RegistrationListItem {
   reviewNote: string | null;
   decisionEmail: { kind: DecisionEmailKind; status: string; attempts: number; lastError: string | null } | null;
   owner: RegistrationOwner | null;
+  /** true / false for self-registrations; null for companies that predate email verification. */
+  ownerEmailVerified: boolean | null;
 }
 
 type LeanCompany = {
@@ -73,6 +76,7 @@ type LeanCompany = {
   reviewedByName?: string | null;
   reviewNote?: string | null;
   decisionEmail?: { kind: DecisionEmailKind; status: string; attempts: number; lastError?: string | null } | null;
+  ownerEmailVerification?: OwnerEmailVerification | null;
 };
 
 const TAB_FILTER: Record<ReviewTab, Record<string, unknown>> = {
@@ -124,6 +128,7 @@ function toItem(company: LeanCompany, owner: RegistrationOwner | null): Registra
         }
       : null,
     owner,
+    ownerEmailVerified: company.ownerEmailVerification ? Boolean(company.ownerEmailVerification.verifiedAt) : null,
   };
 }
 
@@ -213,6 +218,11 @@ async function describeBlockedTransition(companyId: number, wanted: "approved" |
 
 export async function approveCompany(companyId: number, actor: ReviewActor): Promise<DecisionResult> {
   await connectMongoDB();
+  // A self-registration can be approved only once its owner has verified the email address.
+  const current = await Company.findById(companyId).select("registrationStatus ownerEmailVerification").lean<LeanCompany | null>();
+  if (current?.registrationStatus === "pending_review" && isVerificationPending(current.ownerEmailVerification)) {
+    throw new ApiError("CONFLICT", "The owner has not verified their email address yet. Ask them to open the link we emailed, or resend it.", { details: { reason: "email_unverified" } });
+  }
   const now = new Date();
   const updated = await Company.findOneAndUpdate(
     { _id: companyId, registrationStatus: "pending_review" },

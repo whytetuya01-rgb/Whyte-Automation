@@ -26,8 +26,19 @@ import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
 import { getRoomFullTitle, getRoomDisplayName, getRoomFloorLabel, isMultiFloorHouseType } from "@/lib/roomUtils";
 import { getRoomImage, roomImageSrc, RoomImageEntry } from "@/lib/roomImageMap";
 import WhyteLogo from "@/components/shared/WhyteLogo";
-import { ProposalAboutCompany, ProposalContactCard, ProposalLogo, ProposalPageFooter } from "@/components/proposal/ProposalDocumentParts";
+import {
+  ProposalAboutCompany,
+  ProposalContactCard,
+  ProposalCoverTitle,
+  ProposalIncludes,
+  ProposalLogo,
+  ProposalNextSteps,
+  ProposalPageFooter,
+  proposalValidityText,
+} from "@/components/proposal/ProposalDocumentParts";
 import { resolveProposalContent, type IntroPageMode } from "@/lib/documentSettings";
+import QuotationDeliveryModal from "@/components/proposal-builder/QuotationDeliveryModal";
+import { useCompanyBranding } from "@/components/providers/BrandingProvider";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import { isValidGstin } from "@/lib/validation/fields";
@@ -290,7 +301,7 @@ export function RoomHeaderImage({
 }) {
   const frame = large
     ? "w-40 h-24 shrink-0 rounded-xl"
-    : "w-20 sm:w-24 h-13 sm:h-[54px] shrink-0 rounded-lg";
+    : "w-24 h-[54px] shrink-0 rounded-lg";
   const [imgFailed, setImgFailed] = useState(false);
 
   const imageEntry = useMemo(() => {
@@ -650,6 +661,7 @@ export default function StepProposalPreview({
 }: Props) {
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [unavailableBannerDismissed, setUnavailableBannerDismissed] = useState(false);
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -832,6 +844,13 @@ export default function StepProposalPreview({
   // All company identity in the document (logo, contact card, footer, social links, intro pages) comes from the
   // company's own settings; nothing here is hard-coded to one company.
   const content = useMemo(() => resolveProposalContent(company), [company]);
+  // The faint watermark follows the company's accent; Whyte on its own rose theme keeps its original tint exactly.
+  const { brandColor: customBrandColor, theme: brandTheme } = useCompanyBranding();
+  const watermarkStyle =
+    content.isDefaultCompany && !customBrandColor && brandTheme === "whyte-rose"
+      ? { color: "rgba(212, 106, 140, 0.1)" }
+      : { color: "var(--accent)", opacity: 0.1 };
+  const hasIncludes = content.includes.length > 0 || configuredTiers.length > 0 || configuredFinishes.length > 0;
 
   const proposalPages = useMemo(() => {
     return paginateQuotation(quotation, content.introPages);
@@ -840,30 +859,50 @@ export default function StepProposalPreview({
   const A4_WIDTH_MM = 210;
   const A4_HEIGHT_MM = 297;
 
-  const handleDownloadPDF = async () => {
-    if (!quotation || pageRefs.current.length === 0) return;
-
-    if (invalidGstinReason) {
-      toast.error(`Cannot generate PDF: ${invalidGstinReason}`);
-      return;
-    }
-
-    setDownloading(true);
-
+  // Renders every proposal page into one A4 PDF. Shared by "Download PDF" and "Send by email", so the emailed
+  // document is exactly the downloaded one.
+  const buildPdf = async () => {
     // The page is scaled down for on-screen mobile display (see
     // `previewScale` above). The export must always be captured at full,
     // unscaled resolution — a PDF generated from a phone should look
-    // identical to one generated from a desktop, not a shrunk-down capture of
-    // whatever the current screen happened to fit. Reset every page's
-    // transform before capturing, and restore it in `finally` no matter how
-    // capture goes, so a failed/cancelled download never leaves the
-    // on-screen preview stuck at full size.
+    // identical to one generated from a desktop.
+    //
+    // On mobile devices, both the parent `.proposal-page-slot` and the page
+    // wrapper can be constrained by the phone viewport width (e.g. 375px or
+    // 390px). We explicitly unconstrain all slots and pages to exact fixed
+    // A4 dimensions (794px width) before capturing, so no parent container
+    // or mobile flexbox shrinks or clips the capture canvas.
     const pagesToRestore = pageRefs.current.filter((el): el is HTMLDivElement => el !== null);
-    for (const el of pagesToRestore) el.style.transform = "none";
+    const slotsToRestore = pagesToRestore
+      .map((el) => el.parentElement as HTMLElement | null)
+      .filter((s): s is HTMLElement => s !== null);
+
+    const prevPageTransforms = pagesToRestore.map((el) => el.style.transform);
+    const prevPageWidths = pagesToRestore.map((el) => el.style.width);
+    const prevSlotWidths = slotsToRestore.map((s) => s.style.width);
+    const prevSlotHeights = slotsToRestore.map((s) => s.style.height);
+    const prevSlotMaxWidths = slotsToRestore.map((s) => s.style.maxWidth);
+
+    // Unconstrain slots and pages during capture
+    for (const slot of slotsToRestore) {
+      slot.style.width = `${PAGE_WIDTH_PX}px`;
+      slot.style.height = "auto";
+      slot.style.maxWidth = "none";
+    }
+    for (const el of pagesToRestore) {
+      el.style.transform = "none";
+      el.style.width = `${PAGE_WIDTH_PX}px`;
+      el.style.minWidth = `${PAGE_WIDTH_PX}px`;
+      el.style.maxWidth = `${PAGE_WIDTH_PX}px`;
+    }
 
     try {
-      if (document.fonts?.ready) {
-        await document.fonts.ready;
+      if (typeof document !== "undefined" && document.fonts) {
+        try {
+          await document.fonts.ready;
+        } catch {
+          // proceed even if font ready promise rejects
+        }
       }
 
       const [{ default: jsPDF }, htmlToImage] = await Promise.all([
@@ -882,19 +921,7 @@ export default function StepProposalPreview({
         const pageEl = pageRefs.current[i];
         if (!pageEl) continue;
 
-        // Ensure all images inside pageEl are fully DECODED, not just
-        // "loaded", before capturing. `img.complete` can already be `true`
-        // while the browser hasn't finished decoding the bitmap yet — the
-        // network fetch resolved, but there's nothing to paint into the
-        // canvas html-to-image builds, so the image region comes out blank.
-        // This is the actual cause of every image (local static assets and
-        // Cloudinary product photos alike) silently failing to appear in the
-        // exported PDF while rendering fine on screen: `img.decode()`
-        // guarantees the bitmap is actually ready to paint, which the old
-        // `complete` check never did. Falls back to the load/error listener
-        // for browsers without `decode()`, or if decoding itself rejects
-        // (e.g. a genuinely broken image) — either way we still proceed
-        // rather than hang the whole export on one bad image.
+        // Ensure all images inside pageEl are fully DECODED before capturing
         const images = Array.from(pageEl.querySelectorAll("img"));
         await Promise.all(
           images.map(async (img) => {
@@ -903,7 +930,7 @@ export default function StepProposalPreview({
                 await img.decode();
                 return;
               } catch {
-                // fall through to the load/error fallback below
+                // fall through to load/error fallback below
               }
             }
             if (img.complete && img.naturalWidth > 0) return;
@@ -918,38 +945,115 @@ export default function StepProposalPreview({
           pdf.addPage("a4", "portrait");
         }
 
-        // JPEG at a moderate pixelRatio keeps the file small (a few hundred
-        // KB/page instead of ~23MB/page as an uncompressed PNG at 3x), while
-        // staying crisp enough for text and product thumbnails.
+        const captureHeight = Math.max(PAGE_HEIGHT_PX, pageEl.offsetHeight || PAGE_HEIGHT_PX);
+
+        // JPEG at pixelRatio: 2 with explicit width and canvas dimensions guarantees
+        // identical cross-device output on desktop, Android, and iOS Safari without
+        // relying on mobile viewport measurements.
         const dataUrl = await htmlToImage.toJpeg(pageEl, {
           pixelRatio: 2,
-          quality: 0.85,
+          quality: 0.88,
           backgroundColor: "#ffffff",
           cacheBust: true,
+          width: PAGE_WIDTH_PX,
+          height: captureHeight,
+          canvasWidth: PAGE_WIDTH_PX * 2,
+          canvasHeight: captureHeight * 2,
         });
 
-        // Never stretch the captured page to a fixed A4 box: if a page's
-        // actual content overflowed its 1123px budget (rare, but possible
-        // for a dense room), its real aspect ratio differs from A4's
-        // 210:297. Compute placement that preserves that ratio — fitting
-        // to the page (shrinking uniformly on both axes, never distorting)
-        // instead of forcing a fixed height that would squash it.
-        const rect = pageEl.getBoundingClientRect();
-        const aspect = rect.height / rect.width;
+        // Compute placement preserving aspect ratio:
+        // Standard A4 aspect is 297 / 210 = 1.414285
+        // PAGE_HEIGHT_PX / PAGE_WIDTH_PX = 1123 / 794 = 1.414357
+        const aspect = captureHeight / PAGE_WIDTH_PX;
         const a4Aspect = A4_HEIGHT_MM / A4_WIDTH_MM;
         let drawWidth = A4_WIDTH_MM;
-        let drawHeight = A4_WIDTH_MM * aspect;
-        if (aspect > a4Aspect) {
+        let drawHeight = A4_HEIGHT_MM;
+        let offsetX = 0;
+        let offsetY = 0;
+
+        if (aspect > a4Aspect + 0.02) {
           drawHeight = A4_HEIGHT_MM;
           drawWidth = A4_HEIGHT_MM / aspect;
+          offsetX = (A4_WIDTH_MM - drawWidth) / 2;
         }
-        const offsetX = (A4_WIDTH_MM - drawWidth) / 2;
 
-        pdf.addImage(dataUrl, "JPEG", offsetX, 0, drawWidth, drawHeight, undefined, "FAST");
+        pdf.addImage(dataUrl, "JPEG", offsetX, offsetY, drawWidth, drawHeight, undefined, "FAST");
       }
 
+      return pdf;
+    } finally {
+      // Restore all slots and pages to their scaled layout
+      for (let i = 0; i < pagesToRestore.length; i++) {
+        pagesToRestore[i].style.transform = prevPageTransforms[i] || `scale(${previewScale})`;
+        pagesToRestore[i].style.width = prevPageWidths[i] || "";
+        pagesToRestore[i].style.minWidth = "";
+        pagesToRestore[i].style.maxWidth = "";
+      }
+      for (let i = 0; i < slotsToRestore.length; i++) {
+        slotsToRestore[i].style.width = prevSlotWidths[i] || "";
+        slotsToRestore[i].style.height = prevSlotHeights[i] || "";
+        slotsToRestore[i].style.maxWidth = prevSlotMaxWidths[i] || "";
+      }
+    }
+  };
+
+  const buildPdfBlob = async (): Promise<Blob> => (await buildPdf()).output("blob");
+
+  const handleDownloadPDF = async () => {
+    if (!quotation || pageRefs.current.length === 0) return;
+
+    if (invalidGstinReason) {
+      toast.error(`Cannot generate PDF: ${invalidGstinReason}`);
+      return;
+    }
+
+    setDownloading(true);
+    try {
+      const pdf = await buildPdf();
       const filename = content.fileName(quotation.quotationNumber);
-      pdf.save(filename);
+
+      const isIOS =
+        typeof navigator !== "undefined" &&
+        (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+      const pdfBlob = pdf.output("blob");
+
+      // On iOS devices, attempt native Web Share API (Save to Files / AirDrop / share sheet)
+      // to avoid WebKit download attribute suppression and gesture expiration issues.
+      let sharedNatively = false;
+      if (isIOS && typeof navigator !== "undefined" && navigator.canShare) {
+        try {
+          const pdfFile = new File([pdfBlob], filename, { type: "application/pdf" });
+          if (navigator.canShare({ files: [pdfFile] })) {
+            await navigator.share({
+              files: [pdfFile],
+              title: filename,
+            });
+            sharedNatively = true;
+          }
+        } catch (shareErr: unknown) {
+          if ((shareErr as Error)?.name === "AbortError") {
+            // User cancelled the native share sheet
+            return;
+          }
+          console.warn("Native share failed, falling back to download link:", shareErr);
+        }
+      }
+
+      if (!sharedNatively) {
+        const blobUrl = URL.createObjectURL(pdfBlob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        a.download = filename;
+        if (isIOS) a.target = "_blank";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        // Prolong Blob URL validity (60s) so mobile browser download stream completes
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+      }
+
       toast.success("Proposal PDF downloaded!");
       markQuotationSent();
     } catch (err: unknown) {
@@ -958,7 +1062,6 @@ export default function StepProposalPreview({
         "Failed to generate PDF. You can also use the Print button to Save as PDF."
       );
     } finally {
-      for (const el of pagesToRestore) el.style.transform = `scale(${previewScale})`;
       setDownloading(false);
     }
   };
@@ -1078,6 +1181,21 @@ export default function StepProposalPreview({
             <span className="sm:hidden">Print</span>
           </button>
 
+          {/* Email the PDF and track its delivery (saved quotations only; local offline drafts cannot be sent). */}
+          {quotation.id && !String(quotation.id).startsWith("draft_") && (
+            <button
+              type="button"
+              onClick={() => setDeliveryOpen(true)}
+              disabled={renderableRooms.length === 0 || !!invalidGstinReason}
+              title={invalidGstinReason ?? "Email this quotation and track its delivery"}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
+            >
+              <Mail size={14} />
+              <span className="hidden sm:inline">Send by Email</span>
+              <span className="sm:hidden">Send</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={handleDownloadPDF}
@@ -1090,6 +1208,19 @@ export default function StepProposalPreview({
           </button>
         </div>
       </div>
+
+      {deliveryOpen && quotation.id && (
+        <QuotationDeliveryModal
+          isOpen={deliveryOpen}
+          onClose={() => setDeliveryOpen(false)}
+          quotationId={String(quotation.id)}
+          quotationNumber={quotation.quotationNumber}
+          clientName={quotation.clientName}
+          clientEmail={quotation.clientEmail ?? null}
+          companyName={content.brandName}
+          buildPdfBlob={buildPdfBlob}
+        />
+      )}
 
       {invalidGstinReason && (
         <div className="max-w-3xl mx-auto mb-6 px-4 py-3 rounded-xl border border-red-200 bg-red-50 text-sm font-semibold text-red-700 print:hidden">
@@ -1134,7 +1265,7 @@ export default function StepProposalPreview({
                 ref={(el) => {
                   pageRefs.current[pageIdx] = el;
                 }}
-                className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-8 sm:p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
+                className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl border border-gray-200 shadow-md p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
                 style={{ boxSizing: "border-box", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
               >
               {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
@@ -1152,7 +1283,7 @@ export default function StepProposalPreview({
                       fontSize: Math.max(60, 150 - Math.max(0, content.watermark.length - 6) * 8),
                       fontWeight: 900,
                       letterSpacing: "-0.02em",
-                      color: "rgba(212, 106, 140, 0.1)",
+                      ...watermarkStyle,
                       display: "inline-block",
                       transform: "rotate(-18deg)",
                       lineHeight: 1,
@@ -1201,7 +1332,7 @@ export default function StepProposalPreview({
                           <ProposalLogo content={content} kind="cover" />
                           <div className="text-right">
                             <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
-                              Quotation Reference
+                              {content.text.quotationReference}
                             </span>
                             <p className="text-base font-black font-mono tracking-tight text-gray-950">
                               {quotation.quotationNumber}
@@ -1212,16 +1343,10 @@ export default function StepProposalPreview({
                           </div>
                         </div>
 
-                        {/* Title + Hero zone */}
-                        <div>
-                          <div className="w-[320px] space-y-2 pt-1">
-                            <h1 className="text-[54px] font-extrabold leading-[1.0] tracking-tight text-gray-950">
-                              Smart
-                              <br />
-                              Automation
-                              <br />
-                              <span className="text-accent">Proposal</span>
-                            </h1>
+                        {/* Title + Hero zone (a company's own cover picture sits beside the title) */}
+                        <div className={content.coverImageUrl ? "flex items-start justify-between gap-5" : undefined}>
+                          <div className="w-[320px] shrink-0 space-y-2 pt-1">
+                            <ProposalCoverTitle title={content.text.coverTitle} />
                             <div className="h-[3px] w-[130px] rounded-full bg-gradient-to-r from-accent to-accent/0" />
                             <p className="text-[12px] font-bold uppercase tracking-widest text-gray-500">
                               {content.isDefaultCompany ? (
@@ -1234,8 +1359,19 @@ export default function StepProposalPreview({
                             </p>
                           </div>
 
-                          {/* The cover illustration shows Whyte's own product: only the default company uses it. */}
-                          {content.isDefaultCompany && (
+                          {content.coverImageUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element -- the PDF is rasterised from this DOM
+                            <img
+                              src={content.coverImageUrl}
+                              alt={`${content.brandName} cover`}
+                              crossOrigin="anonymous"
+                              data-testid="cover-image"
+                              className="h-[250px] w-[370px] rounded-2xl border border-gray-100 object-cover"
+                            />
+                          )}
+
+                          {/* The cover illustration shows Whyte's own product: only the default company uses it, unless it set its own picture. */}
+                          {content.isDefaultCompany && !content.coverImageUrl && (
                             <div className="-mt-[140px] flex justify-end">
                               <img
                                 src="/proposal/whyte/cover-hero.webp"
@@ -1253,7 +1389,7 @@ export default function StepProposalPreview({
                             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
                               <div className="min-w-0 flex-1">
                                 <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent">
-                                  PREPARED EXCLUSIVELY FOR
+                                  {content.text.preparedFor}
                                 </p>
                                 <h2 className="mt-0.5 text-lg font-bold tracking-tight text-gray-950 leading-snug break-words [overflow-wrap:anywhere]">
                                   {quotation.clientName}
@@ -1262,7 +1398,7 @@ export default function StepProposalPreview({
                               <div className="flex items-center gap-1.5 text-xs text-gray-600 shrink-0">
                                 <MapPin size={12} className="text-accent shrink-0" />
                                 <span className="font-medium text-gray-700 break-words">
-                                  {quotation.clientAddress || "Site Location"}
+                                  {quotation.clientAddress || content.text.siteFallback}
                                 </span>
                               </div>
                             </div>
@@ -1285,16 +1421,16 @@ export default function StepProposalPreview({
                           <div className="grid grid-cols-3 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50/50 py-2">
                             <div className="px-5 min-w-0">
                               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
-                                Project Type
+                                {content.text.projectType}
                               </span>
                               <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
-                                {quotation.houseType?.name ?? "Residential Smart Home"}
+                                {quotation.houseType?.name ?? content.text.projectTypeFallback}
                               </span>
                             </div>
 
                             <div className="px-5 min-w-0">
                               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
-                                Automation Type
+                                {content.text.automationTypeLabel}
                               </span>
                               <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
                                 {content.automationType}
@@ -1303,7 +1439,7 @@ export default function StepProposalPreview({
 
                             <div className="px-5 min-w-0">
                               <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
-                                Project Scope
+                                {content.text.projectScope}
                               </span>
                               <span className="mt-0.5 text-xs font-semibold text-gray-900 block">
                                 {renderableRooms.length} {renderableRooms.length === 1 ? "Space" : "Spaces"} · {totalProducts} {totalProducts === 1 ? "Device" : "Devices"}
@@ -1314,7 +1450,7 @@ export default function StepProposalPreview({
                           {/* Row 3 — Slim Investment Strip */}
                           <div className="px-5 py-2.5 bg-pink-50/40 border-t border-pink-100/70 flex items-center justify-between">
                             <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-700">
-                              TOTAL INVESTMENT
+                              {content.text.totalInvestment}
                             </span>
                             <span className="text-lg font-black font-mono tracking-tight text-accent leading-none">
                               {formatCurrency(grandTotal, { decimals: 2 })}
@@ -1363,35 +1499,35 @@ export default function StepProposalPreview({
 
                         {/* Proven Milestone Statistics */}
                         <div className="grid grid-cols-4 gap-3 text-center">
-                          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-pink-200/90 shadow-2xs flex flex-col items-center justify-center">
-                            <p className="text-2xl sm:text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                          <div className="p-4 rounded-2xl bg-white border border-pink-200/90 shadow-2xs flex flex-col items-center justify-center">
+                            <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
                               1000+
                             </p>
-                            <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                            <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
                               INSTALLATIONS
                             </p>
                           </div>
-                          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
-                            <p className="text-2xl sm:text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                          <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                            <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
                               89000+
                             </p>
-                            <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                            <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
                               SWITCHES
                             </p>
                           </div>
-                          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
-                            <p className="text-2xl sm:text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                          <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                            <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
                               50+
                             </p>
-                            <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                            <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
                               PRODUCTS
                             </p>
                           </div>
-                          <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
-                            <p className="text-2xl sm:text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                          <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                            <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
                               25+
                             </p>
-                            <p className="text-[10px] sm:text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                            <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
                               FEATURES
                             </p>
                           </div>
@@ -1402,7 +1538,7 @@ export default function StepProposalPreview({
                           <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
                             Bespoke Automation Solutions
                           </h3>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div className="grid grid-cols-4 gap-2.5">
                             <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
                               <div className="h-20 bg-gray-100 overflow-hidden">
                                 <img
@@ -1713,7 +1849,7 @@ export default function StepProposalPreview({
                           <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
                             Whyte Tactus Touch Series Technology
                           </h3>
-                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 text-sm">
+                          <div className="grid grid-cols-3 gap-2.5 text-sm">
                             <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
                               <p className="font-bold text-gray-950 text-sm">
                                 Dual Intensity Light
@@ -1814,14 +1950,14 @@ export default function StepProposalPreview({
                           <div className="pb-2.5 border-b border-gray-200 flex items-end justify-between mb-3">
                             <div>
                               <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                                Proposed Smart Equipment & Specifications
+                                {content.text.productsEyebrow}
                               </span>
                               <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
-                                Product Summary &amp; Specifications
+                                {content.text.productsTitle}
                               </h2>
                             </div>
                             <p className="text-[13px] text-gray-500 font-medium text-right max-w-xs">
-                              Room-wise equipment details, panel specifications & itemized pricing
+                              {content.text.productsSubtitle}
                             </p>
                           </div>
                         )}
@@ -1847,7 +1983,7 @@ export default function StepProposalPreview({
                                   {floorLocation ? (
                                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{floorLocation}</p>
                                   ) : (
-                                    <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">Smart Space Configuration</p>
+                                    <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{content.text.spaceCaption}</p>
                                   )}
                                 </div>
                               </div>
@@ -1866,7 +2002,7 @@ export default function StepProposalPreview({
                                 <Icon size={13} className="text-accent shrink-0" />
                                 <span className="truncate">{getRoomFullTitle(room, renderableRooms, isMultiFloor)}</span>
                               </span>
-                              <span className="shrink-0 text-[10px] tracking-widest text-accent">CONTINUED</span>
+                              <span className="shrink-0 text-[10px] uppercase tracking-widest text-accent">{content.text.continuedBadge}</span>
                             </div>
                           )}
 
@@ -1881,7 +2017,7 @@ export default function StepProposalPreview({
 
                           {showRoomHeader && room.notes && (
                             <div className="px-4 py-1.5 border-b border-amber-100 text-[13px] text-amber-900">
-                              <span className="font-semibold">Space Note: </span>
+                              <span className="font-semibold">{content.text.spaceNote}: </span>
                               {room.notes}
                             </div>
                           )}
@@ -1929,7 +2065,7 @@ export default function StepProposalPreview({
                                       ) : (
                                         <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-200 text-gray-300">
                                           <Package size={28} />
-                                          <span className="text-[9px] font-semibold uppercase tracking-wider">No image</span>
+                                          <span className="text-[9px] font-semibold uppercase tracking-wider">{content.text.noImage}</span>
                                         </div>
                                       )}
                                     </div>
@@ -1967,7 +2103,7 @@ export default function StepProposalPreview({
                                         <p className="flex items-start gap-1.5 text-[13px] text-gray-600 break-words">
                                           <MapPin size={13} className="text-accent shrink-0 mt-0.5" />
                                           <span>
-                                            <span className="text-gray-400">Location: </span>
+                                            <span className="text-gray-400">{content.text.locationLabel}: </span>
                                             <span className="font-semibold text-gray-900">{location}</span>
                                           </span>
                                         </p>
@@ -2012,7 +2148,7 @@ export default function StepProposalPreview({
                                       >
                                         {formatCurrency(unitPrice)}
                                       </p>
-                                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">per unit</p>
+                                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">{content.text.perUnit}</p>
                                       {/* Grouped entries: the sum of each entry's own line total. */}
                                       {isGrouped && (
                                         <p
@@ -2020,7 +2156,7 @@ export default function StepProposalPreview({
                                             excluded ? "text-gray-400 line-through" : "text-gray-700"
                                           }`}
                                         >
-                                          <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">Total </span>
+                                          <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">{content.text.lineTotal} </span>
                                           {formatCurrency(row.lineTotal)}
                                         </p>
                                       )}
@@ -2034,7 +2170,7 @@ export default function StepProposalPreview({
                           {/* Room subtotal: its own distinct strip, always on the same page as the last product row */}
                           {!showRoomFooter && items.length > 0 && (
                             <div className="px-4 py-1.5 border-t border-gray-100 text-right text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                              Continued on next page
+                              {content.text.continuedNote}
                             </div>
                           )}
                           {showRoomFooter && items.length > 0 && (
@@ -2059,28 +2195,28 @@ export default function StepProposalPreview({
                         {/* Section Header — same eyebrow + h2 pattern as every other page. */}
                         <div>
                           <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                            Pricing & Commercial Summary
+                            {content.text.closingEyebrow}
                           </span>
                           <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
-                            Investment &amp; Next Steps
+                            {content.text.closingTitle}
                           </h2>
                         </div>
 
                         {/* Financial Summary */}
                         <div className="space-y-1.5">
                           <div className="pb-1 border-b border-gray-200 flex items-center justify-between">
-                            <h3 className="text-sm sm:text-base font-bold uppercase tracking-wider text-gray-950">
-                              Financial Summary
+                            <h3 className="text-base font-bold uppercase tracking-wider text-gray-950">
+                              {content.text.financialSummary}
                             </h3>
                             <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                              Investment Overview
+                              {content.text.investmentOverview}
                             </span>
                           </div>
 
                           <div className="p-3 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5 text-sm">
                             {/* Subtotal */}
                             <div className="flex justify-between items-center text-gray-600">
-                              <span className="font-medium text-gray-600">Subtotal</span>
+                              <span className="font-medium text-gray-600">{content.text.subtotal}</span>
                               <span className="font-mono font-medium text-gray-900">
                                 {formatCurrency(grossSubtotal, { decimals: 2 })}
                               </span>
@@ -2090,7 +2226,7 @@ export default function StepProposalPreview({
                             {clampedDiscount > 0 && (
                               <div className="flex justify-between items-center text-gray-600">
                                 <span className="flex items-center gap-1.5 font-medium text-gray-600">
-                                  <span>Discount</span>
+                                  <span>{content.text.discount}</span>
                                   {hasDiscount && quotation.discountType === "percentage" && (
                                     <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                                       {quotation.discountValue}%
@@ -2106,10 +2242,10 @@ export default function StepProposalPreview({
                             {/* Net Subtotal */}
                             <div className="pt-2 border-t border-gray-200/80 flex justify-between items-baseline py-0.5">
                               <div>
-                                <span className="font-bold text-gray-950 block text-sm sm:text-base">Net Subtotal</span>
-                                <span className="text-[11px] text-gray-400 font-medium">Taxable amount after discount</span>
+                                <span className="font-bold text-gray-950 block text-base">{content.text.netSubtotal}</span>
+                                <span className="text-[11px] text-gray-400 font-medium">{content.text.netSubtotalNote}</span>
                               </div>
-                              <span className="font-mono font-bold text-gray-950 text-base sm:text-lg">
+                              <span className="font-mono font-bold text-gray-950 text-lg">
                                 {formatCurrency(netSubtotal, { decimals: 2 })}
                               </span>
                             </div>
@@ -2118,7 +2254,7 @@ export default function StepProposalPreview({
                             <div className="p-3 rounded-lg bg-white border border-gray-200/80 space-y-1.5">
                               <div className="flex items-center justify-between pb-1 border-b border-gray-100">
                                 <span className="text-[11px] uppercase font-bold tracking-wider text-gray-500">
-                                  Tax Summary
+                                  {content.text.taxSummary}
                                 </span>
                                 <span className="text-[11px] font-mono font-bold text-accent px-1.5 py-0.5 rounded bg-accent/5 border border-accent/20">
                                   GST
@@ -2155,10 +2291,10 @@ export default function StepProposalPreview({
                             <div className="pt-2.5 border-t-2 border-gray-950/20 flex justify-between items-baseline">
                               <div>
                                 <span className="text-base font-black uppercase tracking-wider text-gray-950 block">
-                                  Grand Total
+                                  {content.text.grandTotal}
                                 </span>
                                 <span className="text-[11px] text-gray-400">
-                                  Total Investment (Incl. Taxes)
+                                  {content.text.grandTotalNote}
                                 </span>
                               </div>
                               <span className="text-2xl font-black font-mono text-gray-950 tracking-tight">
@@ -2171,75 +2307,45 @@ export default function StepProposalPreview({
                         {/* Final Investment Callout */}
                         <div className="p-3 rounded-2xl border border-accent-border/80 bg-accent-light/40 text-center space-y-0.5">
                           <p className="text-[11px] uppercase font-bold tracking-widest text-accent">
-                            ESTIMATED PROJECT INVESTMENT
+                            {content.text.estimateTitle}
                           </p>
                           <p className="text-2xl font-black font-mono tracking-tight text-gray-950">
                             {formatCurrency(grandTotal, { decimals: 2 })}
                           </p>
                           <p className="text-[13px] text-gray-500">
-                            Final pricing is based on the products and configuration selected in this proposal.
+                            {content.text.estimateNote}
                           </p>
                         </div>
 
                         {/* Proposal Includes & Commercial Information */}
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          {/* Proposal Includes */}
-                          <div className="p-3 rounded-xl border border-gray-200 bg-white space-y-1">
-                            <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">
-                              Proposal Includes
-                            </h4>
-                            <ul className="space-y-1 text-[13px] text-gray-600">
-                              <li>• Selected smart automation products</li>
-                              <li>• Room-wise space configuration & mapping</li>
-                              {configuredTiers.length > 0 && (
-                                <li>
-                                  • Selected automation tier:{" "}
-                                  {configuredTiers.join(", ")}
-                                </li>
-                              )}
-                              {configuredFinishes.length > 0 && (
-                                <li>
-                                  • Selected surface finish:{" "}
-                                  {configuredFinishes.join(", ")}
-                                </li>
-                              )}
-                              <li>
-                                • Product-specific installation location references
-                              </li>
-                              <li>
-                                • Project-wise pricing and investment breakdown
-                              </li>
-                            </ul>
-                          </div>
+                        <div className={`grid gap-3 text-sm ${hasIncludes ? "grid-cols-2" : "grid-cols-1"}`}>
+                          {/* Proposal Includes (the company's lines + this quotation's selections) */}
+                          <ProposalIncludes content={content} tiers={configuredTiers} finishes={configuredFinishes} />
 
                           {/* Commercial Terms & Validity */}
                           <div className="p-3 rounded-xl border border-gray-200 bg-white space-y-1">
                             <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">
-                              Commercial Terms & Validity
+                              {content.text.termsTitle}
                             </h4>
                             <div className="space-y-1 text-[13px] text-gray-600">
                               <p>
                                 <strong className="text-gray-900">
-                                  Validity:{" "}
+                                  {content.text.validityLabel}:{" "}
                                 </strong>
-                                {quotation.validUntil
-                                  ? `Valid until ${formatDate(
-                                      quotation.validUntil
-                                    )}`
-                                  : "Valid for 30 days from date of issue."}
+                                {proposalValidityText(content, quotation.validUntil, formatDate)}
                               </p>
-                              {quotation.terms && (
+                              {(quotation.terms || content.defaultTerms) && (
                                 <p>
                                   <strong className="text-gray-900">
-                                    Terms:{" "}
+                                    {content.text.termsLabel}:{" "}
                                   </strong>
-                                  {quotation.terms}
+                                  {quotation.terms || content.defaultTerms}
                                 </p>
                               )}
                               {quotation.notes && (
                                 <p>
                                   <strong className="text-gray-900">
-                                    Remarks:{" "}
+                                    {content.text.remarksLabel}:{" "}
                                   </strong>
                                   {quotation.notes}
                                 </p>
@@ -2256,38 +2362,8 @@ export default function StepProposalPreview({
                           </div>
                         </div>
 
-                        {/* Next Steps */}
-                        <div className="p-3 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5">
-                          <h4 className="font-bold uppercase tracking-wider text-gray-950 text-[11px]">
-                            Next Steps
-                          </h4>
-                          <ol className="grid grid-cols-4 gap-2 text-[13px] text-gray-700">
-                            <li className="p-1.5 bg-white rounded-lg border border-gray-200">
-                              <span className="font-bold text-gray-950 block text-sm">
-                                1. Review
-                              </span>
-                              Review the proposed automation configuration.
-                            </li>
-                            <li className="p-1.5 bg-white rounded-lg border border-gray-200">
-                              <span className="font-bold text-gray-950 block text-sm">
-                                2. Confirm
-                              </span>
-                              Confirm product selection and quantities.
-                            </li>
-                            <li className="p-1.5 bg-white rounded-lg border border-gray-200">
-                              <span className="font-bold text-gray-950 block text-sm">
-                                3. Align
-                              </span>
-                              Confirm on-site installation requirements.
-                            </li>
-                            <li className="p-1.5 bg-white rounded-lg border border-gray-200">
-                              <span className="font-bold text-gray-950 block text-sm">
-                                4. Proceed
-                              </span>
-                              Proceed with final order & commissioning.
-                            </li>
-                          </ol>
-                        </div>
+                        {/* Next Steps (the company's own steps; hidden when it has none) */}
+                        <ProposalNextSteps content={content} />
 
                         {/* Closing & contact card: the company's own details */}
                         <ProposalContactCard content={content} />

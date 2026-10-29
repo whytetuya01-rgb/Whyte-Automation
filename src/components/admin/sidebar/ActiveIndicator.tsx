@@ -18,6 +18,7 @@ export default function ActiveIndicator({ collapsed }: { collapsed: boolean }) {
       layoutId="nav-active"
       transition={SPRING}
       aria-hidden="true"
+      data-active-indicator=""
       // borderRadius as a style (not a class) so motion corrects it during the
       // layout animation instead of stretching the corners.
       style={{ borderRadius: 12 }}

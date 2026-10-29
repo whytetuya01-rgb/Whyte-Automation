@@ -10,6 +10,10 @@ export const INTERNAL_COMPANY_FIELDS = [
   "statusChangedBy",
   "statusChangedByName",
   "suspendedFromStatus",
+  // storage id of the cover picture (only the server manages the file)
+  "coverImagePublicId",
+  // the owner email verification token hash and its bookkeeping
+  "ownerEmailVerification",
 ] as const;
 
 type InternalField = (typeof INTERNAL_COMPANY_FIELDS)[number];

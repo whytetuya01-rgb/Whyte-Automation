@@ -128,3 +128,73 @@ export function ProposalAboutCompany({ about }: { about: AboutContent }) {
     </div>
   );
 }
+
+/**
+ * The cover's large title. Up to three words: one per line with the last word in the accent colour (the long-standing
+ * "Smart / Automation / Proposal" look). Longer titles wrap normally, last word still accented.
+ */
+export function ProposalCoverTitle({ title }: { title: string }) {
+  const words = title.trim().split(/\s+/).filter(Boolean);
+  const last = words.pop() ?? "";
+  return (
+    <h1 className="text-[54px] font-extrabold leading-[1.0] tracking-tight text-gray-950 [overflow-wrap:anywhere]">
+      {words.length <= 2
+        ? words.map((word, index) => (
+            <span key={index}>
+              {word}
+              <br />
+            </span>
+          ))
+        : `${words.join(" ")} `}
+      <span className="text-accent">{last}</span>
+    </h1>
+  );
+}
+
+/**
+ * "Proposal Includes": the company's lines, with the quotation's selected tier / finish lines inserted after the
+ * first two (where they have always appeared). Renders nothing when there is nothing to list.
+ */
+export function ProposalIncludes({ content, tiers, finishes }: { content: ProposalContent; tiers: string[]; finishes: string[] }) {
+  const selections = [
+    ...(tiers.length > 0 ? [`Selected automation tier: ${tiers.join(", ")}`] : []),
+    ...(finishes.length > 0 ? [`Selected surface finish: ${finishes.join(", ")}`] : []),
+  ];
+  const lines = [...content.includes.slice(0, 2), ...selections, ...content.includes.slice(2)];
+  if (lines.length === 0) return null;
+  return (
+    <div className="p-3 rounded-xl border border-gray-200 bg-white space-y-1" data-testid="proposal-includes">
+      <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">{content.text.includesTitle}</h4>
+      <ul className="space-y-1 text-[13px] text-gray-600">
+        {lines.map((line, index) => (
+          <li key={index}>• {line}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** "Next Steps": one box per step, numbered. Hidden when the company has removed every step. */
+export function ProposalNextSteps({ content }: { content: ProposalContent }) {
+  if (content.nextSteps.length === 0) return null;
+  return (
+    <div className="p-3 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5" data-testid="proposal-next-steps">
+      <h4 className="font-bold uppercase tracking-wider text-gray-950 text-[11px]">{content.text.nextStepsTitle}</h4>
+      <ol className="grid gap-2 text-[13px] text-gray-700" style={{ gridTemplateColumns: `repeat(${content.nextSteps.length}, minmax(0, 1fr))` }}>
+        {content.nextSteps.map((step, index) => (
+          <li key={index} className="p-1.5 bg-white rounded-lg border border-gray-200">
+            <span className="font-bold text-gray-950 block text-sm">
+              {index + 1}. {step.title}
+            </span>
+            {step.text}
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+/** Validity line text: the quotation's own date, or the company's default number of days. */
+export function proposalValidityText(content: ProposalContent, validUntil: string | Date | null | undefined, formatDate: (value: string | Date) => string): string {
+  return validUntil ? `Valid until ${formatDate(validUntil)}` : `Valid for ${content.validityDays} days from date of issue.`;
+}

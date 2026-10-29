@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DashboardCardProps {
   title: string;
   description?: string;
+  icon?: LucideIcon;
+  badge?: React.ReactNode;
   action?: { href: string; label: string };
   className?: string;
   /** Remove the body padding, for full-bleed lists and tables. */
@@ -12,26 +14,63 @@ interface DashboardCardProps {
   children: React.ReactNode;
 }
 
-/** The single card shell used by every dashboard widget. */
-export default function DashboardCard({ title, description, action, className, flush = false, children }: DashboardCardProps) {
+/**
+ * The canonical executive card shell used across the dashboard.
+ * Designed with Linear / Stripe aesthetics: clean white surface, subtle micro-shadow,
+ * crisp border, and structured typography.
+ */
+export default function DashboardCard({
+  title,
+  description,
+  icon: Icon,
+  badge,
+  action,
+  className,
+  flush = false,
+  children,
+}: DashboardCardProps) {
   return (
-    <section className={cn("bg-white rounded-2xl border border-[#E5E5E7] flex flex-col min-w-0", className)}>
-      <header className="flex items-start justify-between gap-3 px-4 sm:px-5 pt-4 sm:pt-5 pb-3">
+    <section
+      className={cn(
+        "bg-white rounded-2xl border border-[#E5E5E7] flex flex-col min-w-0",
+        "shadow-[0_1px_3px_0_rgba(0,0,0,0.02)] transition-all duration-200",
+        className
+      )}
+    >
+      <header className="flex items-start justify-between gap-3 px-5 pt-5 pb-3.5 border-b border-[#F0F0F2]">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-[#111111] leading-tight">{title}</h2>
-          {description && <p className="text-xs text-[#8A8A93] mt-0.5">{description}</p>}
+          <div className="flex items-center gap-2">
+            {Icon && (
+              <span className="w-6 h-6 rounded-lg bg-[#F6F6F7] border border-[#E5E5E7] flex items-center justify-center shrink-0 text-[#5F5F68]">
+                <Icon size={13} aria-hidden="true" />
+              </span>
+            )}
+            <h2 className="text-sm font-semibold text-[#111111] tracking-tight leading-tight flex items-center gap-2">
+              <span>{title}</span>
+              {badge}
+            </h2>
+          </div>
+          {description && (
+            <p className="text-xs text-[#8A8A93] mt-0.5 font-normal leading-relaxed">
+              {description}
+            </p>
+          )}
         </div>
+
         {action && (
           <Link
             href={action.href}
-            className="shrink-0 inline-flex items-center gap-1 text-xs font-medium text-[#5F5F68] hover:text-[var(--color-admin-primary-foreground,#B83E68)] transition-colors"
+            className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-[#5F5F68] hover:text-[#111111] hover:underline underline-offset-2 transition-colors self-center"
           >
-            {action.label}
+            <span>{action.label}</span>
             <ArrowRight size={13} aria-hidden="true" />
           </Link>
         )}
       </header>
-      <div className={cn("flex-1 min-w-0", flush ? "" : "px-4 sm:px-5 pb-4 sm:pb-5")}>{children}</div>
+
+      <div className={cn("flex-1 min-w-0", flush ? "" : "p-5")}>
+        {children}
+      </div>
     </section>
   );
 }

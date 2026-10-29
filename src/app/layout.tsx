@@ -5,9 +5,9 @@ import "./theme-presets.css";
 import WhyteToaster from "@/components/shared/WhyteToaster";
 import Providers from "./providers";
 import { BrandingProvider } from "@/components/providers/BrandingProvider";
-import { getCompanyBranding } from "@/lib/companyBranding";
+import { companyFaviconUrl, getCompanyBranding } from "@/lib/companyBranding";
 import { buildBrandStyleCss } from "@/lib/brandColor";
-import { accentSource } from "@/lib/themeTokens";
+import { accentSource, themeLayoutAttributes } from "@/lib/themeTokens";
 
 import PwaRegister from "@/components/pwa/PwaRegister";
 
@@ -25,20 +25,31 @@ const poppins = Poppins({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "Whyte Automations — Quotation Platform",
-  description: "Smart Home Quotation Management System for Whyte Automations Pvt. Ltd.",
-  manifest: "/manifest.json",
-  appleWebApp: {
-    capable: true,
-    statusBarStyle: "default",
-    title: "Whyte",
-  },
-  icons: {
-    icon: "/icons/icon-192.png",
-    apple: "/apple-touch-icon.png",
-  },
-};
+/**
+ * Browser tab title and icon follow the signed-in company (the same server-resolved branding as the page, deduplicated
+ * per request). Signed-out pages and the platform keep the Whyte title and icon. The installed-app (PWA) manifest and
+ * Apple web-app entries are platform-wide and unchanged.
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  const branding = await getCompanyBranding();
+  const companyIcon = companyFaviconUrl(branding.compactLogoUrl ?? branding.logoUrl, branding.settings.background);
+  return {
+    title: branding.companyName ? `${branding.companyName} — Quotation Platform` : "Whyte Automations — Quotation Platform",
+    description: branding.companyName
+      ? `Smart home quotations for ${branding.companyName}.`
+      : "Smart Home Quotation Management System for Whyte Automations Pvt. Ltd.",
+    manifest: "/manifest.json",
+    appleWebApp: {
+      capable: true,
+      statusBarStyle: "default",
+      title: "Whyte",
+    },
+    icons: {
+      icon: companyIcon ?? "/icons/icon-192.png",
+      apple: "/apple-touch-icon.png",
+    },
+  };
+}
 
 export default async function RootLayout({
   children,
@@ -52,6 +63,7 @@ export default async function RootLayout({
       lang="en"
       className={`${raleway.variable} ${poppins.variable}`}
       data-theme={branding.theme}
+      {...themeLayoutAttributes(branding.layout)}
       suppressHydrationWarning
     >
       <head>

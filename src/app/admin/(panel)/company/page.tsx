@@ -12,6 +12,7 @@ import { useCompany } from "@/lib/swr";
 import { Input, Textarea, Button } from "@/components/ui";
 import { emailError, gstinError, phoneError } from "@/lib/validation/fields";
 import DocumentContentEditor from "@/components/company/DocumentContentEditor";
+import CoverImageEditor from "@/components/company/CoverImageEditor";
 import type { DocumentSettings } from "@/lib/documentSettings";
 import LogoCustomizer, { appendLogoDraft, emptyLogoDraft, isLogoDraftDirty, type LogoDraft, type LogoFieldErrors } from "@/components/company/LogoCustomizer";
 import { normalizeLogoSettings } from "@/lib/logoSettings";
@@ -243,6 +244,14 @@ export default function CompanyPage() {
 
       {tab === "document" && fetched && (
         <div id="company-panel-document" role="tabpanel" aria-labelledby="company-tab-document" className="rounded-2xl border border-admin-grey-border bg-white p-4 shadow-xs sm:p-6">
+          <div className="mb-6 border-b border-admin-grey-border pb-6">
+            <CoverImageEditor
+              coverImageUrl={fetched.coverImageUrl ?? null}
+              onChanged={async () => {
+                await mutate();
+              }}
+            />
+          </div>
           <DocumentContentEditor company={fetched} saving={documentSaving} onSave={saveDocumentContent} />
         </div>
       )}

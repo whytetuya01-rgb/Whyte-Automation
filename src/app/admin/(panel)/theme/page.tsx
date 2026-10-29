@@ -5,6 +5,7 @@ import { Palette, Check, Eye, Sparkles, RotateCcw, Info, Building2 } from "lucid
 import PageHeader from "@/components/admin/PageHeader";
 import BrandColorEditor from "@/components/company/BrandColorEditor";
 import BrandingLivePreview from "@/components/company/BrandingLivePreview";
+import ThemeLayoutEditor from "@/components/company/ThemeLayoutEditor";
 import { useTheme } from "@/components/providers/ThemeProvider";
 import { useCompanyBranding } from "@/components/providers/BrandingProvider";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
@@ -264,6 +265,9 @@ export default function ThemeCustomizationPage() {
           })}
         </div>
       </div>
+
+      {/* ── Sidebar style, corner radius and content density ── */}
+      <ThemeLayoutEditor disabled={!hasCompany} />
 
       {/* ── Live preview of every accented surface ── */}
       <div className="rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-2xs space-y-5">

@@ -25,14 +25,25 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import type { SuperAdminDashboardData } from "@/lib/superAdminDashboardData";
+import CrmAnalyticsPreview from "@/components/admin/dashboard/CrmAnalyticsPreview";
+import { getDemoCrmAnalytics, type CrmAnalyticsData } from "@/lib/dashboard/demoData";
 
 interface SuperAdminDashboardProps {
   data: SuperAdminDashboardData;
   adminViewContent: React.ReactNode;
+  crmData?: CrmAnalyticsData | null;
+  canEnableDemo?: boolean;
+  initialTab?: "platform" | "business" | "crm";
 }
 
-export default function SuperAdminDashboard({ data, adminViewContent }: SuperAdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<"platform" | "business">("platform");
+export default function SuperAdminDashboard({
+  data,
+  adminViewContent,
+  crmData,
+  canEnableDemo,
+  initialTab,
+}: SuperAdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<"platform" | "business" | "crm">(initialTab || "platform");
 
   const { companies, dealers, users, quotations, recentActivity } = data;
   const approvedTotal = quotations.statusCounts.approved + quotations.statusCounts.delivered;
@@ -83,10 +94,38 @@ export default function SuperAdminDashboard({ data, adminViewContent }: SuperAdm
             <Layers size={14} />
             <span>Business & Catalog View</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("crm")}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              activeTab === "crm"
+                ? "bg-[#111111] text-white shadow-xs"
+                : "text-[#5F5F68] hover:text-[#111111]"
+            }`}
+          >
+            <Sparkles size={14} className={activeTab === "crm" ? "text-white" : "text-purple-600"} />
+            <span>CRM & Leads (Demo)</span>
+          </button>
         </div>
       </div>
 
-      {activeTab === "business" ? (
+      {activeTab === "crm" ? (
+        <div className="space-y-4">
+          <div className="p-3 bg-[#F6F6F7] border border-[#E5E5E7] rounded-xl text-xs text-[#5F5F68] flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Sparkles size={14} className="text-[var(--color-admin-primary,#D85B83)]" />
+              <span>Showing <strong className="font-semibold text-[#111111]">CRM Analytics, Leads, Opportunities & Sales Funnel</strong> (Illustrative Preview).</span>
+            </span>
+            <button
+              onClick={() => setActiveTab("platform")}
+              className="text-xs font-semibold text-[var(--color-admin-primary-foreground,#8A2B4D)] hover:underline cursor-pointer"
+            >
+              Back to Platform Oversight
+            </button>
+          </div>
+          <CrmAnalyticsPreview crm={crmData ?? (canEnableDemo ? getDemoCrmAnalytics() : null)} canEnableDemo={Boolean(canEnableDemo)} />
+        </div>
+      ) : activeTab === "business" ? (
         // Business View (Standard Admin Dashboard content for inspecting single-tenant catalog & quotation view)
         <div className="space-y-4">
           <div className="p-3 bg-blue-50/70 border border-blue-200/70 rounded-xl text-xs text-blue-800 flex items-center justify-between">
@@ -106,15 +145,43 @@ export default function SuperAdminDashboard({ data, adminViewContent }: SuperAdm
       ) : (
         // Superadmin Platform Oversight
         <div className="space-y-6">
+          {/* Quick Access Card: CRM & Leads Preview */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E5E5E7] shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className="w-9 h-9 rounded-xl bg-[var(--color-admin-primary-subtle,#FFF6F8)] text-[var(--color-admin-primary,#D85B83)] flex items-center justify-center shrink-0">
+                <Sparkles size={17} />
+              </div>
+              <div>
+                <h3 className="font-semibold text-[#111111] text-sm sm:text-base flex items-center gap-2">
+                  <span>CRM Analytics, Leads & Opportunity Funnel</span>
+                  <span className="text-[10px] font-medium bg-[var(--color-admin-primary-subtle,#FFF6F8)] text-[var(--color-admin-primary-foreground,#8A2B4D)] border border-[var(--color-admin-primary-border,#F1B8C8)] px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    Demo Ready
+                  </span>
+                </h3>
+                <p className="text-xs text-[#8A8A93] mt-0.5 font-normal">
+                  Explore interactive prospects, opportunity funnel by stage, lead sources attribution, and salesperson performance.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab("crm")}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#111111] hover:bg-[#1E1E22] text-white text-xs font-medium transition shrink-0 self-end sm:self-auto cursor-pointer"
+            >
+              <Sparkles size={13} className="text-[var(--color-admin-primary,#D85B83)]" />
+              <span>View CRM Pipeline</span>
+              <ArrowRight size={13} />
+            </button>
+          </div>
           {/* Urgent Alert Banner: Pending Company Reviews */}
           {companies.pendingReviewCount > 0 && (
-            <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/10 via-rose-500/5 to-purple-500/10 border-2 border-amber-300/80 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="relative overflow-hidden p-4 sm:p-5 rounded-2xl bg-gradient-to-r bg-amber-50/70 border border-amber-200/80 shadow-2xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div className="flex items-start sm:items-center gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <div className="w-9 h-9 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-2xs">
                   <AlertTriangle size={20} />
                 </div>
                 <div>
-                  <h3 className="font-bold text-gray-950 text-sm sm:text-base flex items-center gap-2">
+                  <h3 className="font-semibold text-[#111111] text-sm sm:text-base flex items-center gap-2">
                     Action Required: {companies.pendingReviewCount} Company Registration{companies.pendingReviewCount > 1 ? "s" : ""} Pending Review
                   </h3>
                   <p className="text-xs text-gray-600 mt-0.5">
@@ -124,7 +191,7 @@ export default function SuperAdminDashboard({ data, adminViewContent }: SuperAdm
               </div>
               <Link
                 href="/admin/companies"
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gray-950 text-white text-xs font-bold hover:bg-black transition shadow-xs shrink-0 self-end sm:self-auto"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#111111] text-white text-xs font-medium hover:bg-[#1E1E22] transition shadow-2xs shrink-0 self-end sm:self-auto"
               >
                 <span>Review Applications</span>
                 <ArrowRight size={14} />

@@ -13,7 +13,7 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import mongoose from "mongoose";
-import { loadBrandingForCompany, sanitizeLogoUrl, PLATFORM_BRANDING } from "../src/lib/companyBranding";
+import { companyFaviconUrl, loadBrandingForCompany, sanitizeLogoUrl, PLATFORM_BRANDING } from "../src/lib/companyBranding";
 
 let count = 0;
 const pass = (name: string) => {
@@ -32,6 +32,19 @@ async function main() {
   }
   pass("sanitizeLogoUrl accepts only absolute https URLs");
 
+  // ── browser-tab icon ──
+  const cloud = "https://res.cloudinary.com/demo/image/upload/v17/whyte/companies/10/branding/logo.png";
+  assert.equal(companyFaviconUrl(cloud, "white"), "https://res.cloudinary.com/demo/image/upload/c_pad,w_96,h_96,b_white,f_png/v17/whyte/companies/10/branding/logo.png");
+  assert.equal(companyFaviconUrl(cloud, "transparent"), "https://res.cloudinary.com/demo/image/upload/c_pad,w_96,h_96,b_transparent,f_png/v17/whyte/companies/10/branding/logo.png");
+  assert.equal(companyFaviconUrl("https://cdn.example.com/logo.png", "white"), "https://cdn.example.com/logo.png", "a non-Cloudinary https logo is used as it is");
+  for (const unsafe of ["http://res.cloudinary.com/demo/image/upload/x.png", "javascript:alert(1)", "data:image/png;base64,AA", "", null, undefined]) {
+    assert.equal(companyFaviconUrl(unsafe, "white"), null, `unsafe icon ${String(unsafe)}`);
+  }
+  const layoutSource = read("src", "app", "layout.tsx");
+  assert.ok(/export async function generateMetadata/.test(layoutSource) && /companyFaviconUrl\(branding\.compactLogoUrl \?\? branding\.logoUrl/.test(layoutSource), "the tab title and icon come from the server-resolved branding");
+  assert.ok(/manifest: "\/manifest\.json"/.test(layoutSource) && /title: "Whyte",/.test(layoutSource), "the installed-app (PWA) entries are unchanged");
+  pass("the browser tab icon is the company logo padded to a square (https only), and the title follows the company; PWA entries unchanged");
+
   // ── static guards ──
   const brandingSource = read("src", "lib", "companyBranding.ts");
   assert.ok(/getAuthenticatedActor\(\)/.test(brandingSource), "branding is resolved from the trusted actor");
@@ -46,11 +59,13 @@ async function main() {
   assert.ok(/animate-whyte-reveal/.test(loader) && /animate-whyte-glow/.test(loader), "loader animations are preserved");
   assert.ok(/CompanyLogo/.test(read("src", "components", "admin", "sidebar", "AnimatedLogo.tsx")), "admin header/sidebar logo uses the company logo");
   const dealerHeader = read("src", "app", "(app)", "layout.tsx");
-  assert.ok(/<WhyteLogo/.test(dealerHeader) && !/BrandLogo/.test(dealerHeader), "dealer header is out of scope and unchanged");
+  assert.ok(/<DealerHeaderLogo \/>/.test(dealerHeader) && !/<WhyteLogo/.test(dealerHeader), "the dealer header shows the company's logo (Whyte's only as the fallback)");
+  const dealerLogo = read("src", "components", "shared", "DealerHeaderLogo.tsx");
+  assert.ok(/useCompanyBranding\(\)/.test(dealerLogo) && /fallback=\{whyte\}/.test(dealerLogo), "it reads the server-resolved branding and falls back to the Whyte logo");
   const sw = read("public", "sw.js");
   assert.ok(/CLEAR_PAGE_CACHE/.test(sw) && /replace\) await clearCachedPages/.test(sw), "service worker drops cached pages on account change / sign-out");
   assert.ok(/clearCachedPages\(\)/.test(read("src", "components", "shared", "SignOutButton.tsx")), "sign-out clears cached pages");
-  pass("branding is server-resolved, never stored client-side, wired into loaders and header; dealer header untouched; SW page cache cleared per account");
+  pass("branding is server-resolved, never stored client-side, wired into loaders, the admin header and the dealer header; SW page cache cleared per account");
 
   assert.ok(/try \{[\s\S]*loadBrandingForCompany|catch \{\s*return PLATFORM_BRANDING/.test(brandingSource), "lookup failures degrade to the default");
   pass("lookup and request-level failures degrade to the default branding");
