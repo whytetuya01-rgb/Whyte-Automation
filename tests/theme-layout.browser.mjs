@@ -80,9 +80,10 @@ try {
   // ── dealer header logo and tab title / icon ──
   const dealerA = await newPage(cookie.dealerA);
   await dealerA.goto(`${baseUrl}/`, { waitUntil: "load" });
-  await dealerA.locator('header img[alt="Company alpha logo"]').waitFor();
+  // The visible one: right after load the page can briefly hold a hidden copy of the header (the settled page has one logo).
+  await dealerA.locator('header img[alt="Company alpha logo"]:visible').first().waitFor();
   assert.equal(await dealerA.title(), "Company alpha — Quotation Platform");
-  assert.equal(await dealerA.locator('link[rel="icon"]').first().getAttribute("href"), "https://logos.test/alpha.svg", "the tab icon is the company's logo");
+  assert.deepEqual(await dealerA.locator('link[rel="icon"]').evaluateAll((links) => links.map((link) => link.getAttribute("href"))), ["https://logos.test/alpha.svg"], "the company's logo is the only tab icon (no competing /favicon.ico link)");
   const dealerB = await newPage(cookie.dealerB);
   await dealerB.goto(`${baseUrl}/`, { waitUntil: "load" });
   assert.equal(await dealerB.locator('header img[alt="Company alpha logo"]').count(), 0, "B never sees A's logo");
@@ -109,7 +110,7 @@ try {
   await editor.getByRole("radio", { name: /High-Density/ }).click();
   s = await attrs(page);
   assert.deepEqual([s.sidebar, s.radius, s.density], ["floating", "sharp", "compact"], "choices show at once");
-  assert.equal(s.radiusXl, "0.375rem", "sharp corners shrink Tailwind's radius tokens");
+  assert.equal(parseFloat(s.radiusXl), 0.375, "sharp corners shrink Tailwind's radius tokens (the minifier writes .375rem)");
   assert.equal(s.sidebarCorner, "18px", "the floating sidebar is a rounded card");
   assert.equal((await stored(10)).themeLayout?.sidebarStyle ?? "classic", "classic", "nothing is saved yet");
   await editor.getByRole("button", { name: "Cancel changes" }).click();
@@ -136,7 +137,7 @@ try {
   assert.match(html, /<html[^>]*data-sidebar="floating"[^>]*data-radius="smooth"[^>]*data-density="compact"/, "the server renders the saved layout in the first HTML (no flash)");
   await page.reload({ waitUntil: "load" });
   s = await attrs(page);
-  assert.deepEqual([s.sidebar, s.radius, s.density, s.radiusXl], ["floating", "smooth", "compact", "1.125rem"], "after reload");
+  assert.deepEqual([s.sidebar, s.radius, s.density, parseFloat(s.radiusXl)], ["floating", "smooth", "compact", 1.125], "after reload");
   await dealerA.reload({ waitUntil: "load" });
   assert.equal((await attrs(dealerA)).radius, "smooth", "Company A's dealers get the company's corners too");
   await dealerA.context().close();

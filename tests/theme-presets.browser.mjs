@@ -140,7 +140,12 @@ try {
   assert.equal((await rootState(page)).accent, "#3f3f46", "the rest of the page keeps the saved accent");
   await panel.getByTestId("branding-live-preview-caption").getByText(/unsaved custom colour #166534/i).waitFor();
   for (const id of ["preview-sidebar-expanded", "preview-sidebar-collapsed", "preview-loader", "preview-dealer", "preview-quotation", "preview-focus-ring"]) await panel.getByTestId(id).waitFor();
-  assert.equal(await panel.getByRole("button", { name: "Accent button" }).evaluate((el) => getComputedStyle(el).backgroundColor), rgb("#166534"), "the real accent Button takes the draft colour");
+  // The button animates its colour change, so wait for the final colour rather than reading it mid-transition.
+  await panel.getByRole("button", { name: "Accent button" }).evaluate((el, expected) => new Promise((resolve, reject) => {
+    const started = Date.now();
+    const check = () => (getComputedStyle(el).backgroundColor === expected ? resolve(true) : Date.now() - started > 5000 ? reject(new Error(`the real accent Button takes the draft colour: ${getComputedStyle(el).backgroundColor}`)) : requestAnimationFrame(check));
+    check();
+  }), rgb("#166534"));
   assert.notEqual(await panel.getByRole("button", { name: "Primary button" }).evaluate((el) => getComputedStyle(el).backgroundColor), rgb("#166534"), "the primary Button stays black, as in the app");
   await page.getByRole("button", { name: "Cancel changes" }).first().click();
   await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-testid="branding-live-preview"]')).getPropertyValue("--accent").trim().toLowerCase() === "#3f3f46");

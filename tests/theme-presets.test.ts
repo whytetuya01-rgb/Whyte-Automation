@@ -19,7 +19,10 @@ import {
   deriveBrandPalette,
 } from "../src/lib/brandColor";
 import {
+  DEFAULT_LAYOUT_SETTINGS,
   DEFAULT_THEME,
+  normalizeThemeLayout,
+  themeLayoutAttributes,
   SITE_THEME_IDS,
   THEME_CONFIGS,
   THEME_LIST,
@@ -182,6 +185,18 @@ async function main() {
   assert.ok(/clearBrandColor: true/.test(page) && /await confirm\(/.test(page), "choosing a preset while a custom colour is active asks, then removes the colour");
   assert.ok(/\{ theme: newTheme, brandColor: null \}/.test(provider), "the preset and the colour removal are saved in one request");
   pass("one accent choice: a custom colour replaces the preset; choosing a preset asks, then removes the colour in the same save; previews never outlive the page");
+
+  // ── layout settings: sidebar style, corner radius, content density ──
+  assert.deepEqual(normalizeThemeLayout(undefined), DEFAULT_LAYOUT_SETTINGS);
+  assert.deepEqual(normalizeThemeLayout({ sidebarStyle: "floating", borderRadius: "round", contentDensity: "compact", extra: 1 }), { sidebarStyle: "floating", borderRadius: "balanced", contentDensity: "compact" }, "unknown values fall back to the default");
+  assert.deepEqual(themeLayoutAttributes({ sidebarStyle: "minimal", borderRadius: "sharp", contentDensity: "compact" }), { "data-sidebar": "minimal", "data-radius": "sharp", "data-density": "compact" });
+  for (const rule of ['html[data-radius="sharp"]', 'html[data-radius="smooth"]', "html[data-radius] .proposal-page", 'html[data-sidebar="floating"] [data-admin-sidebar]', 'html[data-sidebar="minimal"] [data-active-indicator]', 'html[data-density="compact"] .admin-theme']) {
+    assert.ok(globals.includes(rule), `globals.css styles ${rule}`);
+  }
+  assert.ok(/\{\.\.\.themeLayoutAttributes\(branding\.layout\)\}/.test(read("src", "app", "layout.tsx")), "the root layout renders the saved layout on <html>");
+  assert.ok(/normalizeThemeLayout\(company\.themeLayout\)/.test(read("src", "lib", "companyBranding.ts")), "the layout is resolved with the rest of the branding");
+  assert.ok(/layout: z/.test(themeRoute) && /themeLayout\.\$\{key\}/.test(themeRoute), "the theme API saves only the layout keys that were sent");
+  pass("layout settings are validated, rendered on <html> by the server, styled by token overrides, and keep the quotation document's own corners");
 }
 
 main()
