@@ -148,8 +148,8 @@ try {
 
   // ═══ 2. pending owner is turned away at sign-in ═══════════════════
   await page.goto(`${baseUrl}/admin/login`, { waitUntil: "domcontentloaded" });
-  await page.locator('#admin-identifier').fill("riya@skyline.example");
-  await page.locator('#admin-password').fill(PASSWORD);
+  await page.locator('#admin-identifier:visible').fill("riya@skyline.example");
+  await page.locator('#admin-password:visible').fill(PASSWORD);
   await page.locator('button[type="submit"]').first().click();
   await page.locator("text=Your company registration is awaiting approval").first().waitFor();
   assert.match(page.url(), /login/);
@@ -216,8 +216,8 @@ try {
   assert.equal((await db.collection("companies").findOne({ name: "Skyline Smart Homes Pvt. Ltd." })).status, "suspended");
   const blockedPage = await open("");
   await blockedPage.page.goto(`${baseUrl}/admin/login`, { waitUntil: "domcontentloaded" });
-  await blockedPage.page.locator("#admin-identifier").fill("riya@skyline.example");
-  await blockedPage.page.locator("#admin-password").fill(PASSWORD);
+  await blockedPage.page.locator("#admin-identifier:visible").fill("riya@skyline.example");
+  await blockedPage.page.locator("#admin-password:visible").fill(PASSWORD);
   await blockedPage.page.locator('button[type="submit"]').first().click();
   await blockedPage.page.locator("text=Your company account has been deactivated").first().waitFor();
   await blockedPage.context.close();
@@ -231,8 +231,8 @@ try {
   // ═══ 4. owner signs in; uploads a new logo from Company Settings ═══
   const owner = await open("");
   await owner.page.goto(`${baseUrl}/admin/login`, { waitUntil: "domcontentloaded" });
-  await owner.page.locator('#admin-identifier').fill("riya@skyline.example");
-  await owner.page.locator('#admin-password').fill(PASSWORD);
+  await owner.page.locator('#admin-identifier:visible').fill("riya@skyline.example");
+  await owner.page.locator('#admin-password:visible').fill(PASSWORD);
   await owner.page.locator('button[type="submit"]').first().click();
   await owner.page.waitForURL(/\/admin\/dashboard/);
   assert.equal(await owner.page.locator('a[href="/admin/companies"]').count(), 0, "a Company Owner has no Companies review menu");
@@ -256,7 +256,7 @@ try {
   // ═══ 5. phone layout ═══════════════════════════════════════════════
   const phone = await open("", { width: 375, height: 800 });
   await phone.page.goto(`${baseUrl}/register/company`, { waitUntil: "domcontentloaded" });
-  await phone.page.locator("#company-name").waitFor();
+  await phone.page.locator("#company-name:visible").waitFor();
   assert.equal(await phone.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true, "no horizontal scroll on the registration form");
   await shot(phone.page, "r-9-phone-form");
   await phone.page.goto(`${baseUrl}/register/company/submitted`, { waitUntil: "domcontentloaded" });
