@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem, ProductVariant } from "@/models";
-import { resolveVariantPricing } from "@/lib/pricing";
+import { resolveStoredVariantPricing, resolveVariantPricing } from "@/lib/pricing";
 import { getNextQuotationSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { withSession } from "@/lib/api-auth";
@@ -269,11 +269,7 @@ export async function POST(req: Request, context: RouteContext) {
           } | null | undefined;
 
           if (variant && (variant.price !== undefined || variant.priceWithoutTax !== undefined)) {
-            const pricing = resolveVariantPricing({
-              price: variant.price,
-              priceWithoutTax: variant.priceWithoutTax,
-              taxPercent: variant.taxPercent,
-            });
+            const pricing = resolveStoredVariantPricing(variant);
             defaultPrice = pricing.price;
             defaultPriceWithoutTax = pricing.priceWithoutTax;
             defaultTaxPercent = pricing.taxPercent;
@@ -281,11 +277,7 @@ export async function POST(req: Request, context: RouteContext) {
           } else if (item.productVariantId) {
             const liveVariant = await ProductVariant.findById(item.productVariantId).lean();
             if (liveVariant) {
-              const pricing = resolveVariantPricing({
-                price: liveVariant.price,
-                priceWithoutTax: liveVariant.priceWithoutTax,
-                taxPercent: liveVariant.taxPercent,
-              });
+              const pricing = resolveStoredVariantPricing(liveVariant);
               defaultPrice = pricing.price;
               defaultPriceWithoutTax = pricing.priceWithoutTax;
               defaultTaxPercent = pricing.taxPercent;

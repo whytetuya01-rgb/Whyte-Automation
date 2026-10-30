@@ -6,7 +6,7 @@ import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } fr
 import { parseQuotationId, updateQuotationItemSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationItem } from "@/lib/quotationNormalization";
 import { redactQuotationItemForRole } from "@/lib/variantRedaction";
-import { calculateFromTaxInclusivePrice, resolveVariantPricing } from "@/lib/pricing";
+import { calculateFromTaxInclusivePrice, resolveStoredVariantPricing } from "@/lib/pricing";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 import { actorFromSession } from "@/lib/softDelete/actor";
@@ -59,11 +59,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       if (variantId) {
         const v = await ProductVariant.findById(variantId).lean();
         if (v) {
-          return resolveVariantPricing({
-            price: v.price,
-            priceWithoutTax: v.priceWithoutTax,
-            taxPercent: v.taxPercent,
-          });
+          return resolveStoredVariantPricing(v);
         }
       }
       return null;
@@ -185,11 +181,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
       if (match) {
         data.productVariantId = match.id ?? match._id;
-        const variantPricing = resolveVariantPricing(
-          match.price !== undefined && match.price !== null && match.price !== ""
-            ? { price: match.price, taxPercent: match.taxPercent }
-            : { priceWithoutTax: match.priceWithoutTax, taxPercent: match.taxPercent }
-        );
+        const variantPricing = resolveStoredVariantPricing(match);
         data.unitPrice = mongoose.Types.Decimal128.fromString(variantPricing.price.toFixed(2));
         data.priceWithoutTax = mongoose.Types.Decimal128.fromString(variantPricing.priceWithoutTax.toFixed(2));
         data.taxAmount = mongoose.Types.Decimal128.fromString(variantPricing.taxAmount.toFixed(2));

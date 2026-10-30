@@ -6,7 +6,7 @@ import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } fr
 import { parseQuotationId, massUpdateRoomItemsSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
 import { redactQuotationRoomForRole } from "@/lib/variantRedaction";
-import { resolveVariantPricing } from "@/lib/pricing";
+import { resolveStoredVariantPricing } from "@/lib/pricing";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 import { withTransaction } from "@/lib/transaction";
@@ -165,11 +165,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         if (matchedVariant) {
           itemData.productVariantId = matchedVariant.id ?? matchedVariant._id;
 
-          const variantPricing = resolveVariantPricing(
-            matchedVariant.price !== undefined && matchedVariant.price !== null && matchedVariant.price !== ""
-              ? { price: matchedVariant.price, taxPercent: matchedVariant.taxPercent }
-              : { priceWithoutTax: matchedVariant.priceWithoutTax, taxPercent: matchedVariant.taxPercent }
-          );
+          const variantPricing = resolveStoredVariantPricing(matchedVariant);
 
           itemData.unitPrice = mongoose.Types.Decimal128.fromString(variantPricing.price.toFixed(2));
           itemData.priceWithoutTax = mongoose.Types.Decimal128.fromString(variantPricing.priceWithoutTax.toFixed(2));

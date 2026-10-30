@@ -241,3 +241,24 @@ export function resolveVariantPricing(params: {
     purchaseTaxPercent,
   };
 }
+
+/**
+ * The catalogue price a quotation item takes from a variant: the stored GST-inclusive `price` whenever the variant has
+ * a readable one (an explicit 0 for a free item included), split by its tax rate; `priceWithoutTax` only for a variant
+ * without a stored price. Every route that prices a quotation item from the catalogue (add, edit, re-select, clone)
+ * uses this, so they always agree.
+ *
+ * Not `resolveVariantPricing` directly: that prefers priceWithoutTax, and a variant loaded as a Mongoose document
+ * (not lean) carries the schema default priceWithoutTax "0.00" when its stored row has no such field, which priced a
+ * price-only variant at 0.
+ */
+export function resolveStoredVariantPricing(variant: {
+  price?: unknown;
+  priceWithoutTax?: unknown;
+  taxPercent?: unknown;
+}): VariantPricingCalculation {
+  const storedPrice = parseFinancialNumber(variant.price, NaN);
+  return Number.isFinite(storedPrice) && storedPrice >= 0
+    ? resolveVariantPricing({ price: storedPrice, taxPercent: variant.taxPercent })
+    : resolveVariantPricing({ priceWithoutTax: variant.priceWithoutTax, taxPercent: variant.taxPercent });
+}

@@ -8,7 +8,7 @@ import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-re
 import { createQuotationItemSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationItem } from "@/lib/quotationNormalization";
 import { redactQuotationItemForRole } from "@/lib/variantRedaction";
-import { resolveVariantPricing } from "@/lib/pricing";
+import { resolveStoredVariantPricing } from "@/lib/pricing";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 
@@ -223,11 +223,7 @@ export async function POST(req: Request, context: RouteContext) {
 
     const nextItemId = await getNextSequence("quotationItem", QuotationItem);
 
-    const variantPricing = resolveVariantPricing({
-      price: selectedVariant.price,
-      priceWithoutTax: selectedVariant.priceWithoutTax,
-      taxPercent: selectedVariant.taxPercent,
-    });
+    const variantPricing = resolveStoredVariantPricing(selectedVariant);
 
     const resolvedConfig =
       variantConfig && Object.keys(variantConfig).length > 0
