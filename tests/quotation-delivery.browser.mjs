@@ -88,11 +88,11 @@ try {
   await page.locator(".proposal-page").first().waitFor();
 
   // ── open and send ──
-  await page.getByRole("button", { name: /Send by Email/ }).click();
+  await page.getByRole("button", { name: "Send", exact: true }).click();
   const dialog = page.locator('[data-testid="quotation-delivery"]');
   await dialog.waitFor();
   assert.match(await page.getByLabel("Subject").inputValue(), /^Quotation QT-\d{4}-\d{3} from Acme Homes$/, "a sensible default subject");
-  await dialog.getByText("This quotation has not been emailed yet.").waitFor();
+  await dialog.getByText("This quotation has not been sent yet.").waitFor();
   await page.getByRole("button", { name: "Send Quotation" }).click();
   await dialog.getByText("Enter the client's email address.").waitFor();
   assert.equal(emails.length, 0, "nothing is sent without an address");

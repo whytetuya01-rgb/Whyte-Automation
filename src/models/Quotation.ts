@@ -16,6 +16,8 @@ export interface IQuotation extends SoftDeleteFields {
   clientPhone: string | null;
   clientEmail: string | null;
   clientAddress: string | null;
+  customerId?: number | null;
+  leadId?: string | null;
   houseTypeId: number | null;
   status: QuotationStatus;
   notes: string | null;
@@ -73,6 +75,8 @@ const QuotationSchema = new Schema<IQuotationDocument>(
     clientPhone: { type: String, default: null, trim: true },
     clientEmail: { type: String, default: null, trim: true },
     clientAddress: { type: String, default: null, trim: true },
+    customerId: { type: Number, ref: "Customer", default: null, index: true },
+    leadId: { type: String, ref: "Lead", default: null, index: true },
     houseTypeId: { type: Number, ref: "HouseType", default: null, index: true },
     status: {
       type: String,
@@ -160,6 +164,22 @@ QuotationSchema.virtual("rooms", {
   foreignField: "quotationId",
 });
 
+// Customer virtual relation
+QuotationSchema.virtual("customer", {
+  ref: "Customer",
+  localField: "customerId",
+  foreignField: "_id",
+  justOne: true,
+});
+
+// Lead virtual relation
+QuotationSchema.virtual("lead", {
+  ref: "Lead",
+  localField: "leadId",
+  foreignField: "_id",
+  justOne: true,
+});
+
 // Dealer virtual relation
 QuotationSchema.virtual("dealer", {
   ref: "AdminUser",
@@ -195,6 +215,12 @@ tenantScopePlugin(QuotationSchema);
 const existingQuotationModel = mongoose.models.Quotation as Model<IQuotationDocument> | undefined;
 
 if (existingQuotationModel) {
+  if (!existingQuotationModel.schema.path("customerId")) {
+    existingQuotationModel.schema.add({
+      customerId: { type: Number, ref: "Customer", default: null, index: true },
+      leadId: { type: String, ref: "Lead", default: null, index: true },
+    });
+  }
   const statusPath = existingQuotationModel.schema.path("status") as unknown as {
     enumValues: string[];
     enum: (options: { values: string[] }) => void;

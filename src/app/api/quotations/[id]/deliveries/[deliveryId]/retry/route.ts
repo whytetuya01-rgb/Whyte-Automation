@@ -8,7 +8,7 @@ import { checkRateLimit } from "@/lib/rateLimit";
 import { displayNameOf } from "@/lib/quotationAudit";
 import { isValidEmail } from "@/lib/validation/fields";
 import { attemptDelivery, deliveryRateLimit, markQuotationSentIfDraft, pushDeliveryEvent, sha256Hex } from "@/lib/quotationDelivery";
-import { toDeliveryDto } from "@/lib/quotationDeliveryShared";
+import { deliveryDto, linkState, linkUrlFor } from "@/lib/quotationLinks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,8 +39,9 @@ export async function POST(_req: Request, context: RouteContext) {
         throw new ApiError("FORBIDDEN", "You do not have permission to send this quotation.");
       }
 
-      const existing = await QuotationDelivery.findOne({ _id: deliveryId, quotationId }).select("status attempts").lean();
+      const existing = await QuotationDelivery.findOne({ _id: deliveryId, quotationId }).select("status attempts channel").lean();
       if (!existing) throw new ApiError("NOT_FOUND", "Delivery not found.");
+      if (existing.channel !== "email") throw new ApiError("CONFLICT", "Only an email delivery can be retried; share on WhatsApp again instead.");
       if (existing.status !== "failed") throw new ApiError("CONFLICT", "Only a failed delivery can be retried.");
       if (existing.attempts >= DELIVERY_MAX_ATTEMPTS) {
         throw new ApiError("CONFLICT", `This delivery has already been tried ${DELIVERY_MAX_ATTEMPTS} times. Send it again as a new delivery.`);
@@ -48,7 +49,7 @@ export async function POST(_req: Request, context: RouteContext) {
 
       // Claim it: only one request can move it from failed to queued.
       const delivery = await QuotationDelivery.findOneAndUpdate(
-        { _id: deliveryId, quotationId, status: "failed", attempts: { $lt: DELIVERY_MAX_ATTEMPTS } },
+        { _id: deliveryId, quotationId, channel: "email", status: "failed", attempts: { $lt: DELIVERY_MAX_ATTEMPTS } },
         { $set: { status: "queued" } },
         { returnDocument: "after" }
       );
@@ -76,11 +77,13 @@ export async function POST(_req: Request, context: RouteContext) {
         clientName: quotation.clientName,
         senderName: displayNameOf(sender),
         replyTo: sender?.email && isValidEmail(sender.email) ? sender.email : null,
+        // The same secure link as the first attempt (still active), so the client always gets one address.
+        viewUrl: linkState(delivery) === "active" ? linkUrlFor(delivery) : null,
       });
       await delivery.save();
       if (accepted) await markQuotationSentIfDraft(quotation, userId);
 
-      return apiSuccess(toDeliveryDto(delivery.toObject(), DELIVERY_MAX_ATTEMPTS));
+      return apiSuccess(deliveryDto(delivery.toObject()));
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/quotations/[id]/deliveries/[deliveryId]/retry" });

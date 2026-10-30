@@ -174,3 +174,49 @@ export async function getNextQuotationSequence(year: number, session?: mongoose.
   const floor = await maxQuotationSequence(companyId, year, session);
   return allocate(quotationCounterName(companyId, year), 1, floor, session);
 }
+
+/** Counter name for one company's lead reference numbers in one year. */
+export function leadCounterName(companyId: number, year: number): string {
+  return `leadNumber_${companyId}_${year}`;
+}
+
+export async function maxLeadSequence(
+  companyId: number,
+  year: number,
+  session?: mongoose.ClientSession
+): Promise<number> {
+  const prefix = `LD-${year}-`;
+  const { Lead } = await import("@/models/Lead");
+  const rows = await Lead.collection
+    .aggregate<{ max: number }>(
+      [
+        { $match: { companyId, referenceNumber: { $regex: `^LD-${year}-[0-9]+$` } } },
+        {
+          $group: {
+            _id: null,
+            max: {
+              $max: {
+                $convert: { input: { $substrCP: ["$referenceNumber", prefix.length, 20] }, to: "int", onError: 0, onNull: 0 },
+              },
+            },
+          },
+        },
+      ],
+      { session: session ?? undefined }
+    )
+    .toArray();
+  return rows[0]?.max ?? 0;
+}
+
+export async function getNextLeadSequence(year: number, session?: mongoose.ClientSession): Promise<number> {
+  const companyId = getTenantContext()?.companyId ?? null;
+  if (companyId === null) {
+    throw new TenantScopeViolationError(
+      "Lead numbers are issued per company, but this request has no company context."
+    );
+  }
+
+  await connectMongoDB();
+  const floor = await maxLeadSequence(companyId, year, session);
+  return allocate(leadCounterName(companyId, year), 1, floor, session);
+}

@@ -24,6 +24,7 @@ export {
 } from "./QuotationAuditEvent";
 export {
   QuotationDelivery,
+  DELIVERY_CHANNELS,
   DELIVERY_STATUSES,
   DELIVERY_MAX_ATTEMPTS,
   DELIVERY_MAX_EVENTS,
@@ -40,3 +41,7 @@ export { AdminUser, type IAdminUser, type IAdminUserDocument } from "./AdminUser
 export { RoleDefinition, type IRoleDefinition, type IRoleDefinitionDocument } from "./RoleDefinition";
 export { PlatformAccessLog, type IPlatformAccessLog, type IPlatformAccessLogDocument } from "./PlatformAccessLog";
 export { createDecimalField } from "./helpers";
+export { Customer, type ICustomer, type ICustomerDocument } from "./Customer";
+export { LeadSource, INITIAL_LEAD_SOURCES, type ILeadSource, type ILeadSourceDocument } from "./LeadSource";
+export { Lead, type ILead, type ILeadDocument } from "./Lead";
+export { CrmActivity, CRM_ACTIVITY_TYPES, type ICrmActivity, type ICrmActivityDocument } from "./CrmActivity";

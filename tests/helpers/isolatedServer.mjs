@@ -4,7 +4,7 @@ import { createRequire } from "node:module";
 import { createServer } from "node:net";
 import { cp, mkdtemp, mkdir, rm, symlink, writeFile, copyFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -64,7 +64,9 @@ export async function startIsolatedServer(label, users, options = {}) {
   const tempRoot = await mkdtemp(join(tmpdir(), `whyte-${label}-isolated-`));
   const distDir = `.next-${label}-test`;
   await mkdir(join(tempRoot, distDir));
-  await cp(join(repo, "src"), join(tempRoot, "src"), { recursive: true });
+  // ISOLATED_EXCLUDE_SRC="a/b,c" leaves those src/ paths out of the copy (e.g. someone else's unfinished file that does not build yet).
+  const excluded = (process.env.ISOLATED_EXCLUDE_SRC ?? "").split(",").map((part) => part.trim()).filter(Boolean).map((part) => join(repo, "src", part));
+  await cp(join(repo, "src"), join(tempRoot, "src"), { recursive: true, filter: (source) => !excluded.some((path) => source === path || source.startsWith(path + sep)) });
   await symlink(join(repo, "node_modules"), join(tempRoot, "node_modules"), "junction");
   await symlink(join(repo, "public"), join(tempRoot, "public"), "junction");
   await copyFile(join(repo, "tsconfig.json"), join(tempRoot, "tsconfig.json"));

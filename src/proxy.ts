@@ -25,7 +25,7 @@ import { UNAUTHENTICATED_MESSAGE } from "@/lib/api-response";
  */
 
 /** Public auth screens. Matched exactly, or as a parent path segment. */
-const PUBLIC_PAGES = ["/login", "/register", "/admin/login", "/admin/register", "/offline.html"];
+const PUBLIC_PAGES = ["/login", "/register", "/admin/login", "/admin/register", "/offline.html", "/q"];
 
 /** NextAuth framework endpoints that must stay reachable to sign in. */
 const PUBLIC_API_PREFIX = "/api/auth";
@@ -36,6 +36,9 @@ const PUBLIC_COMPANY_REGISTRATION_API = "/api/company/register";
 const PUBLIC_WEBHOOK_APIS: ReadonlySet<string> = new Set(["/api/webhooks/resend"]);
 /** Company-owner email verification from the emailed link (no session yet); both routes are rate limited. */
 const PUBLIC_VERIFICATION_APIS: ReadonlySet<string> = new Set(["/api/company/register/verify", "/api/company/register/resend-verification"]);
+/** Quotation view links held by clients (no session): the PDF (GET) and the view report (POST). The routes check the token. */
+const PUBLIC_QUOTATION_LINK_PDF = /^\/api\/public\/quotation-links\/[A-Za-z0-9_-]+\/pdf$/;
+const PUBLIC_QUOTATION_LINK_VIEW_API = "/api/public/quotation-links/view";
 const DEALER_LANDING_PAGE = "/dealer/access";
 const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
 
@@ -72,6 +75,10 @@ export async function proxy(request: NextRequest) {
   }
 
   if ((pathname === PUBLIC_REGISTRATION_API || pathname === PUBLIC_COMPANY_REGISTRATION_API || PUBLIC_WEBHOOK_APIS.has(pathname) || PUBLIC_VERIFICATION_APIS.has(pathname)) && request.method === "POST") {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
+  if ((PUBLIC_QUOTATION_LINK_PDF.test(pathname) && (request.method === "GET" || request.method === "HEAD")) || (pathname === PUBLIC_QUOTATION_LINK_VIEW_API && request.method === "POST")) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 

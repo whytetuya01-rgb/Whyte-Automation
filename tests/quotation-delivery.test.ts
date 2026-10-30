@@ -164,7 +164,7 @@ function main() {
   const webhook = read("src", "app", "api", "webhooks", "resend", "route.ts");
   assert.ok(/verifyWebhookSignature\(/.test(webhook) && /runUnscoped\("provider-webhook"/.test(webhook) && /runWithTenantContext\(\{ companyId: owner\.companyId/.test(webhook), "the webhook is signature-checked and updates inside the delivery's own company");
   const proxy = read("src", "proxy.ts");
-  assert.ok(/PUBLIC_WEBHOOK_APIS: ReadonlySet<string> = new Set\(\["\/api\/webhooks\/resend"\]\)/.test(proxy) && /PUBLIC_WEBHOOK_APIS\.has\(pathname\)\) && request\.method === "POST"/.test(proxy), "only POST to the webhook bypasses sign-in");
+  assert.ok(/PUBLIC_WEBHOOK_APIS: ReadonlySet<string> = new Set\(\["\/api\/webhooks\/resend"\]\)/.test(proxy) && /PUBLIC_WEBHOOK_APIS\.has\(pathname\)[^\n]*\) && request\.method === "POST"\)/.test(proxy), "only POST to the webhook bypasses sign-in");
   pass("static guards: access checks, rate limit, atomic retry, signed webhook scoped to the delivery's company, narrow public route");
 }
 

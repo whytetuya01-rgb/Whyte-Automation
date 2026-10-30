@@ -57,7 +57,19 @@ export const ALL_PERMISSIONS = [
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
 
-const PERMISSION_SET = new Set<string>(ALL_PERMISSIONS);
+export const PERMISSION_SET = new Set<string>(ALL_PERMISSIONS);
+
+export const CRM_PERMISSIONS = [
+  "crm:read",
+  "crm:manage",
+  "leads:read",
+  "leads:manage",
+  "customers:read",
+  "customers:manage",
+] as const;
+
+export type CrmPermission = (typeof CRM_PERMISSIONS)[number];
+const CRM_PERMISSION_SET = new Set<string>(CRM_PERMISSIONS);
 
 /**
  * Super Admin-exclusive permissions that must never be assigned or granted
@@ -196,6 +208,21 @@ export function hasPermission(
   if (!role) return false;
   const normRole = role.trim().toLowerCase();
   if (normRole === "sales") return false;
+
+  // CRM Permissions evaluation
+  if (typeof requiredPermission === "string" && CRM_PERMISSION_SET.has(requiredPermission)) {
+    if (normRole === "super_admin" || normRole === "company_owner" || normRole === "admin") return true;
+    if (Array.isArray(assignedPermissions) && assignedPermissions.length > 0) {
+      return assignedPermissions.includes(requiredPermission) || assignedPermissions.includes("crm:manage");
+    }
+    if (normRole === "sales_executive") {
+      return requiredPermission !== "crm:manage";
+    }
+    if (normRole === "dealer") {
+      return requiredPermission === "leads:read" || requiredPermission === "leads:manage" || requiredPermission === "customers:read";
+    }
+    return false;
+  }
 
   const target = typeof requiredPermission === "string" ? resolvePermission(requiredPermission) : null;
   if (!target) return false;

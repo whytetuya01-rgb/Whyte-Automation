@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { emailSchema } from "@/lib/validation/fields";
+import { normalizeWhatsAppNumber } from "@/lib/quotationDeliveryShared";
 import { sendEmail } from "@/lib/email/service";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
 import {
@@ -40,6 +41,32 @@ export const sendDeliverySchema = z
   .strict();
 
 export type SendDeliveryInput = z.infer<typeof sendDeliverySchema>;
+
+/** WhatsApp share: the client's number and the message (the secure link is appended by the server). */
+export const shareWhatsAppSchema = z
+  .object({
+    to: z
+      .string({ message: "Enter the client's WhatsApp number." })
+      .trim()
+      .min(1, "Enter the client's WhatsApp number.")
+      .max(24, "That number is too long.")
+      .transform((value, ctx) => {
+        const number = normalizeWhatsAppNumber(value);
+        if (!number) {
+          ctx.addIssue({ code: "custom", message: "Enter a valid mobile number with country code (a 10-digit Indian number is fine)." });
+          return z.NEVER;
+        }
+        return number;
+      }),
+    message: z
+      .string()
+      .trim()
+      .max(1500, "Message must be 1500 characters or fewer.")
+      .refine(noControlChars, "Message contains invalid characters.")
+      .optional()
+      .transform((value) => (value ? value : null)),
+  })
+  .strict();
 
 /** Sends (including retries) per user per hour (in-process; see `rateLimit.ts`). Tunable per deployment. */
 export function deliveryRateLimit(): { max: number; windowMs: number } {
@@ -104,11 +131,14 @@ export function renderQuotationEmail(input: {
   clientName: string;
   senderName: string | null;
   message: string | null;
+  /** Secure link to view the quotation online (opening it marks the delivery "Viewed"). */
+  viewUrl?: string | null;
 }): { html: string; text: string } {
   const greeting = `Dear ${input.clientName},`;
   const body = input.message ?? `Please find attached quotation ${input.quotationNumber} from ${input.companyName}.`;
   const signoff = [input.senderName, input.companyName].filter(Boolean).join("\n");
-  const text = `${greeting}\n\n${body}\n\nQuotation: ${input.quotationNumber} (PDF attached)\n\nRegards,\n${signoff}\n`;
+  const online = input.viewUrl ? `\nView it online: ${input.viewUrl}\n` : "";
+  const text = `${greeting}\n\n${body}\n\nQuotation: ${input.quotationNumber} (PDF attached)\n${online}\nRegards,\n${signoff}\n`;
   const paragraphs = body
     .split(/\n{2,}/)
     .map((block) => `<p style="margin:0 0 14px">${escapeHtml(block).replace(/\n/g, "<br>")}</p>`)
@@ -118,6 +148,7 @@ export function renderQuotationEmail(input: {
 <p style="margin:0 0 14px">${escapeHtml(greeting)}</p>
 ${paragraphs}
 <p style="margin:0 0 14px;padding:12px 14px;background:#f6f6f7;border-radius:8px;font-size:14px">Quotation <strong>${escapeHtml(input.quotationNumber)}</strong> is attached as a PDF.</p>
+${input.viewUrl ? `<p style="margin:0 0 14px"><a href="${escapeHtml(input.viewUrl)}" style="display:inline-block;background:#1e1e22;color:#ffffff;text-decoration:none;padding:11px 20px;border-radius:8px;font-weight:bold;font-size:14px">View Quotation Online</a></p>` : ""}
 <p style="margin:18px 0 0">Regards,<br>${signoff.split("\n").map(escapeHtml).join("<br>")}</p>
 </div></body></html>`;
   return { html, text };
@@ -130,7 +161,7 @@ ${paragraphs}
 export async function attemptDelivery(
   delivery: IQuotationDeliveryDocument,
   pdf: Buffer,
-  context: { companyName: string; quotationNumber: string; clientName: string; senderName: string | null; replyTo: string | null }
+  context: { companyName: string; quotationNumber: string; clientName: string; senderName: string | null; replyTo: string | null; viewUrl?: string | null }
 ): Promise<boolean> {
   const { html, text } = renderQuotationEmail({
     companyName: context.companyName,
@@ -138,6 +169,7 @@ export async function attemptDelivery(
     clientName: context.clientName,
     senderName: context.senderName,
     message: delivery.message,
+    viewUrl: context.viewUrl ?? null,
   });
   const result = await sendEmail({
     to: delivery.recipient,
@@ -169,7 +201,7 @@ export async function attemptDelivery(
 }
 
 /** First successful send of a draft quotation moves it to "sent", exactly like downloading or sharing it does. */
-export async function markQuotationSentIfDraft(quotation: IQuotationDocument, userId: number): Promise<boolean> {
+export async function markQuotationSentIfDraft(quotation: IQuotationDocument, userId: number, via: "email" | "whatsapp" = "email"): Promise<boolean> {
   if (quotation.status !== "draft") return false;
   quotation.status = "sent";
   quotation.sentAt = new Date();
@@ -181,7 +213,7 @@ export async function markQuotationSentIfDraft(quotation: IQuotationDocument, us
     performedBy: userId,
     previousValue: { status: "draft" },
     newValue: { status: "sent" },
-    metadata: { via: "email" },
+    metadata: { via },
   });
   return true;
 }

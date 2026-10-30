@@ -17,6 +17,11 @@ import {
   Palette,
   Building,
   Receipt,
+  Send,
+  Kanban,
+  UserCheck,
+  Contact,
+  SlidersHorizontal,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -56,9 +61,19 @@ const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: "CRM & LEADS",
+    items: [
+      { href: "/admin/crm/pipeline", label: "Pipeline", icon: Kanban },
+      { href: "/admin/crm/leads", label: "Leads", icon: UserCheck },
+      { href: "/admin/crm/customers", label: "Customers", icon: Contact },
+      { href: "/admin/crm/sources", label: "Lead Sources", icon: SlidersHorizontal },
+    ],
+  },
+  {
     title: "PROPOSALS & DEALERS",
     items: [
       { href: "/admin/quotations", label: "Quotations", icon: FileText },
+      { href: "/admin/deliveries", label: "Deliveries", icon: Send },
       { href: "/admin/dealers", label: "Dealers", icon: Store },
     ],
   },

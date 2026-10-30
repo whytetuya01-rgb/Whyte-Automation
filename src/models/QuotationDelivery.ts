@@ -10,9 +10,10 @@ import { tenantScopePlugin } from "@/lib/tenant/plugin";
  * Tenant-scoped: every query is filtered by the caller's company.
  */
 
-export const DELIVERY_CHANNELS = ["email"] as const;
+/** email: sent through the email provider. whatsapp: shared from the sender's own WhatsApp with a secure view link. */
+export const DELIVERY_CHANNELS = ["email", "whatsapp"] as const;
 export const DELIVERY_STATUSES = ["queued", "sent", "delivered", "read", "failed"] as const;
-export const DELIVERY_EVENT_TYPES = ["queued", "sent", "delivered", "read", "failed", "retried", "delayed", "complained"] as const;
+export const DELIVERY_EVENT_TYPES = ["queued", "sent", "delivered", "read", "failed", "retried", "delayed", "complained", "shared", "viewed", "link_revoked"] as const;
 
 export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
 export type DeliveryStatus = (typeof DELIVERY_STATUSES)[number];
@@ -52,6 +53,13 @@ export interface IQuotationDelivery {
   failedAt: Date | null;
   createdBy: number;
   createdByName: string | null;
+  /** Secure view link (/q/<token>): SHA-256 of the token for lookup, and an encrypted copy so it can be copied again. */
+  viewTokenHash: string | null;
+  viewTokenSealed: string | null;
+  viewExpiresAt: Date | null;
+  viewRevokedAt: Date | null;
+  viewCount: number;
+  lastViewedAt: Date | null;
   events: DeliveryEvent[];
   /** Provider notification ids already applied, so a re-delivered notification is never applied twice. */
   processedEventIds: string[];
@@ -90,6 +98,12 @@ const QuotationDeliverySchema = new Schema<IQuotationDeliveryDocument>(
     failedAt: { type: Date, default: null },
     createdBy: { type: Number, required: true },
     createdByName: { type: String, default: null },
+    viewTokenHash: { type: String, default: null },
+    viewTokenSealed: { type: String, default: null },
+    viewExpiresAt: { type: Date, default: null },
+    viewRevokedAt: { type: Date, default: null },
+    viewCount: { type: Number, default: 0, min: 0 },
+    lastViewedAt: { type: Date, default: null },
     events: {
       type: [
         new Schema(
@@ -114,6 +128,8 @@ const QuotationDeliverySchema = new Schema<IQuotationDeliveryDocument>(
       transform: (_doc, ret: Record<string, unknown>) => {
         ret.id = ret._id;
         delete ret.processedEventIds;
+        delete ret.viewTokenHash;
+        delete ret.viewTokenSealed;
         return ret;
       },
     },
@@ -122,6 +138,9 @@ const QuotationDeliverySchema = new Schema<IQuotationDeliveryDocument>(
 
 QuotationDeliverySchema.index({ companyId: 1, quotationId: 1, createdAt: -1 });
 // A provider message id belongs to exactly one delivery (sparse: queued/failed attempts have none).
+// A view-link token belongs to exactly one delivery.
+QuotationDeliverySchema.index({ viewTokenHash: 1 }, { unique: true, partialFilterExpression: { viewTokenHash: { $type: "string" } } });
+QuotationDeliverySchema.index({ companyId: 1, createdAt: -1 });
 QuotationDeliverySchema.index({ providerMessageId: 1 }, { unique: true, partialFilterExpression: { providerMessageId: { $type: "string" } } });
 
 tenantScopePlugin(QuotationDeliverySchema);

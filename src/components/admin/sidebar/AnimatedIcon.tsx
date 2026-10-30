@@ -28,6 +28,7 @@ export const NAV_ICON_ANIMATION_BY_HREF: Record<string, NavIconAnimation> = {
   "/admin/house-types": "house-types",
   "/admin/room-types": "room-types",
   "/admin/quotations": "quotations",
+  "/admin/deliveries": "generic",
   "/admin/dealers": "dealers",
   "/admin/activity": "activity",
   "/admin/companies": "company",
@@ -35,6 +36,10 @@ export const NAV_ICON_ANIMATION_BY_HREF: Record<string, NavIconAnimation> = {
   "/admin/roles": "generic",
   "/admin/company": "company",
   "/admin/theme": "generic",
+  "/admin/crm/leads": "generic",
+  "/admin/crm/pipeline": "generic",
+  "/admin/crm/customers": "generic",
+  "/admin/crm/sources": "generic",
 };
 
 interface AnimatedIconProps {

@@ -1218,7 +1218,7 @@ export default function StepProposalPreview({
                   type="button"
                   onClick={() => setDeliveryOpen(true)}
                   disabled={renderableRooms.length === 0 || !!invalidGstinReason}
-                  title={invalidGstinReason ?? "Email this quotation and track its delivery"}
+                  title={invalidGstinReason ?? "Send this quotation by email or WhatsApp and track it"}
                   className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs disabled:opacity-50"
                 >
                   <Mail size={14} />
@@ -1290,7 +1290,7 @@ export default function StepProposalPreview({
                 type="button"
                 onClick={() => setDeliveryOpen(true)}
                 disabled={renderableRooms.length === 0 || !!invalidGstinReason}
-                title={invalidGstinReason ?? "Email this quotation and track its delivery"}
+                title={invalidGstinReason ?? "Send this quotation by email or WhatsApp and track it"}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
               >
                 <Mail size={14} />
@@ -1331,6 +1331,7 @@ export default function StepProposalPreview({
           quotationNumber={quotation.quotationNumber}
           clientName={quotation.clientName}
           clientEmail={quotation.clientEmail ?? null}
+          clientPhone={quotation.clientPhone ?? null}
           companyName={content.brandName}
           buildPdfBlob={buildPdfBlob}
         />
