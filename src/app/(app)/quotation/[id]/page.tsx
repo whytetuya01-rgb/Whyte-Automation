@@ -80,7 +80,7 @@ export default async function QuotationPage(props: PageProps) {
                   {
                     // `isDeleted` added so the editor can flag an unavailable product.
                     path: "product",
-                    select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes isDeleted",
+                    select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes specs isDeleted",
                   },
                   {
                     path: "productVariant",

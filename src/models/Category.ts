@@ -3,6 +3,7 @@ import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 import { tenantScopePlugin } from "@/lib/tenant/plugin";
 import { SERIES_LIMITS, type CategorySeries } from "@/lib/productSeries";
+import { SPEC_FIELD_TYPES, SPEC_LIMITS, type SpecField } from "@/lib/productSpecs";
 
 export interface ICategory extends SoftDeleteFields {
   _id: number;
@@ -18,6 +19,8 @@ export interface ICategory extends SoftDeleteFields {
   variantFinishes: unknown | null;
   /** Top-level categories only: presented as a product series (absent on every category never marked). */
   series?: CategorySeries | null;
+  /** Specification fields its products (and its sub-categories' products) fill in; absent = none. */
+  specFields?: SpecField[] | null;
 }
 
 export interface ICategoryDocument extends Omit<ICategory, "id">, Document<number> {
@@ -46,6 +49,25 @@ const CategorySchema = new Schema<ICategoryDocument>(
         },
         { _id: false }
       ),
+      default: undefined,
+    },
+    specFields: {
+      type: [
+        new Schema(
+          {
+            key: { type: String, required: true },
+            label: { type: String, required: true, maxlength: SPEC_LIMITS.label },
+            type: { type: String, enum: SPEC_FIELD_TYPES, required: true },
+            unit: { type: String, default: null, maxlength: SPEC_LIMITS.unit },
+            options: { type: [String], default: undefined },
+            required: { type: Boolean, default: false },
+            showInPicker: { type: Boolean, default: false },
+            showOnPdf: { type: Boolean, default: false },
+            scope: { type: String, enum: ["product"], default: "product" },
+          },
+          { _id: false }
+        ),
+      ],
       default: undefined,
     },
   },
@@ -113,7 +135,7 @@ tenantScopePlugin(CategorySchema);
 // Next dev hot reload keeps an older compiled schema in mongoose.models, and Mongoose silently drops fields it does not
 // know: rebuild a cached model that predates the series block so saving a series is never lost.
 const cachedCategory = mongoose.models.Category;
-if (cachedCategory && !cachedCategory.schema.path("series.enabled")) {
+if (cachedCategory && (!cachedCategory.schema.path("series.enabled") || !cachedCategory.schema.path("specFields"))) {
   mongoose.deleteModel("Category");
 }
 

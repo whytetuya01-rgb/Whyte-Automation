@@ -30,6 +30,8 @@ export interface IProduct extends SoftDeleteFields {
   hsnCode?: string | null;
   /** GST rate the variants' GST-inclusive prices are split by; null = never set (variants keep their own). */
   gstRate?: number | null;
+  /** Specification values keyed by the category's field keys (see `@/lib/productSpecs`); absent = none. */
+  specs?: Record<string, string | number> | null;
 }
 
 export interface IProductDocument extends Omit<IProduct, "id">, Document<number> {
@@ -64,6 +66,7 @@ const ProductSchema = new Schema<IProductDocument>(
     matrixDimensions: { type: mongoose.Schema.Types.Mixed, default: null },
     hsnCode: { type: String, default: null, trim: true },
     gstRate: { type: Number, default: null, min: 0, max: 100 },
+    specs: { type: mongoose.Schema.Types.Mixed, default: undefined },
   },
   {
     _id: false,
@@ -130,8 +133,8 @@ ProductSchema.index({ companyId: 1, type: 1, isActive: 1 });
 softDeletePlugin(ProductSchema, { blockHardDelete: true });
 tenantScopePlugin(ProductSchema);
 
-// Dev hot reload keeps an older compiled model, which would silently drop the tax fields.
-if (mongoose.models.Product && !mongoose.models.Product.schema.path("gstRate")) {
+// Dev hot reload keeps an older compiled model, which would silently drop the tax and specification fields.
+if (mongoose.models.Product && (!mongoose.models.Product.schema.path("gstRate") || !mongoose.models.Product.schema.path("specs"))) {
   mongoose.deleteModel("Product");
 }
 

@@ -204,7 +204,7 @@ export async function PATCH(req: Request, context: RouteContext) {
             populate: [
               {
                 path: "product",
-                select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes",
+                select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes specs",
               },
               {
                 path: "productVariant",

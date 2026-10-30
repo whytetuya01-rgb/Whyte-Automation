@@ -45,7 +45,7 @@ async function fetchPopulatedQuotation(quotationId: string) {
               // `isDeleted` added so the response can flag an unavailable
               // product without exposing anything else from the catalog.
               path: "product",
-              select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes isDeleted",
+              select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes specs isDeleted",
             },
             {
               path: "productVariant",

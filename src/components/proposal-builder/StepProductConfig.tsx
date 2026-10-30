@@ -1248,6 +1248,16 @@ export default function StepProductConfig({
                             {prod.description}
                           </p>
                         )}
+                        {prod.specs && prod.specs.length > 0 && (
+                          <dl className="flex flex-wrap gap-1 pt-0.5" data-testid="picker-specs">
+                            {prod.specs.map((spec) => (
+                              <div key={spec.key} className="inline-flex max-w-full items-baseline gap-1 rounded bg-gray-50 px-1.5 py-0.5 text-[10px] text-gray-600">
+                                <dt className="shrink-0 text-gray-400">{spec.label}</dt>
+                                <dd className="min-w-0 truncate font-semibold text-gray-800">{spec.text}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
 
                         {/* Selected configuration preview */}
                         {(selectedTier || selectedFinish) && (

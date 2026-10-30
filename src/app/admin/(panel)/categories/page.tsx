@@ -21,6 +21,7 @@ import {
   MoreHorizontal,
   Tag,
   Layers,
+  ListChecks,
 } from "lucide-react";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
@@ -29,6 +30,7 @@ import { useConfirm } from "@/components/providers/ConfirmProvider";
 import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
 import SeriesSettingsModal from "@/components/admin/categories/SeriesSettingsModal";
+import SpecFieldsModal from "@/components/admin/categories/SpecFieldsModal";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { useCategories, useAdminProducts } from "@/lib/swr";
 import { Input, Button } from "@/components/ui";
@@ -39,10 +41,12 @@ import { Input, Button } from "@/components/ui";
 function CategoryMenu({
   onEdit,
   onSeries,
+  onSpecs,
   onDelete,
 }: {
   onEdit: () => void;
   onSeries: () => void;
+  onSpecs: () => void;
   onDelete: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -82,6 +86,13 @@ function CategoryMenu({
             className="flex items-center gap-2 w-full px-3 py-2 text-neutral-700 hover:bg-neutral-50 transition-colors"
           >
             <Layers size={13} className="text-neutral-400" /> Series settings
+          </button>
+          <button
+            type="button"
+            onClick={() => { setOpen(false); onSpecs(); }}
+            className="flex items-center gap-2 w-full px-3 py-2 text-neutral-700 hover:bg-neutral-50 transition-colors"
+          >
+            <ListChecks size={13} className="text-neutral-400" /> Specifications
           </button>
           <div className="my-1 border-t border-neutral-100" />
           <button
@@ -222,6 +233,7 @@ export default function CategoriesPage() {
   const confirm = useConfirm();
   // Top-level category whose product-series settings are open.
   const [seriesCategory, setSeriesCategory] = useState<Category | null>(null);
+  const [specCategory, setSpecCategory] = useState<Category | null>(null);
 
   const refreshAll = () => { mutateCategories(); mutateProducts(); };
 
@@ -469,11 +481,17 @@ export default function CategoriesPage() {
                         ) : (
                           <span className="text-[12px] text-neutral-400">No products yet</span>
                         )}
+                        {(cat.specFields?.length ?? 0) > 0 && (
+                          <span className="ml-1 inline-flex items-center gap-1 text-[12px] text-neutral-500" data-testid="spec-badge">
+                            <ListChecks size={11} aria-hidden="true" /> {cat.specFields?.length} spec{cat.specFields?.length === 1 ? "" : "s"}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <CategoryMenu
                       onEdit={() => handleEditOpen(cat)}
                       onSeries={() => setSeriesCategory(cat)}
+                      onSpecs={() => setSpecCategory(cat)}
                       onDelete={() => handleDelete(cat)}
                     />
                   </div>
@@ -553,6 +571,7 @@ export default function CategoriesPage() {
 
       {/* ── ADD MODAL ───────────────────────────────────────────────────────── */}
       <SeriesSettingsModal category={seriesCategory} onClose={() => setSeriesCategory(null)} onSaved={refreshAll} />
+      <SpecFieldsModal category={specCategory} onClose={() => setSpecCategory(null)} onSaved={refreshAll} />
 
       <Modal
         isOpen={showAddModal}

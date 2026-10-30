@@ -25,6 +25,7 @@ import {
 import { normalizeProduct, normalizeProducts } from "@/lib/quotationNormalization";
 import { assertProductTaxAllowed, loadCompanyTaxSettings } from "@/lib/productTax";
 import { gstSplitKeepingPrice } from "@/lib/taxSettings";
+import { assertProductSpecs, loadCategorySpecSources } from "@/lib/categorySpecs";
 import { redactProductsForRole } from "@/lib/variantRedaction";
 
 export const dynamic = "force-dynamic";
@@ -368,6 +369,9 @@ export async function POST(req: Request) {
       throw new ApiError("CONFLICT", "The selected category is inactive.", { field: "categoryId" });
     }
 
+    // Specification values are checked against the category's fields (inherited ones included).
+    const specs = assertProductSpecs(categoryId, await loadCategorySpecSources(), productData.specs ?? {});
+
     // 2. Validate the submitted final matrix against the category master matrix
     const matrixResult = validateFinalVariantMatrix({
       category,
@@ -464,6 +468,7 @@ export async function POST(req: Request) {
         matrixDimensions,
         hsnCode: productData.hsnCode ?? null,
         gstRate,
+        ...(Object.keys(specs).length > 0 ? { specs } : {}),
       });
 
       if (dbSession) {

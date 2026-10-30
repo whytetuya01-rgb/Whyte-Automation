@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo, useEffect } from "react";
+import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import {
@@ -41,6 +41,7 @@ import { resolveProposalContent, type IntroPageMode } from "@/lib/documentSettin
 import useSWR from "swr";
 import { swrFetcher } from "@/lib/swr";
 import { SERIES_PER_PAGE, seriesForDocument, type CompanySeriesCatalog } from "@/lib/productSeries";
+import { resolveItemSpecs, specFieldsForCategory, type CategorySpecSource, type DisplaySpec } from "@/lib/productSpecs";
 import QuotationDeliveryModal from "@/components/proposal-builder/QuotationDeliveryModal";
 import { useCompanyBranding } from "@/components/providers/BrandingProvider";
 import { QUOTATION_CGST_PERCENT, QUOTATION_SGST_PERCENT, calculateQuotationGst } from "@/lib/pricing";
@@ -485,7 +486,9 @@ function formatRowLocation(label: string | null, quantity: number, showQuantity:
  * or a long location wrap onto extra lines; the pagination budget must grow with them or the page overflows its
  * fixed 1123px canvas. A grouped row lists every distinct location of its entries on a line of its own.
  */
-function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation): number {
+type SpecsOf = (item: QuotationItem) => DisplaySpec[];
+
+function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation, specsOf: SpecsOf): number {
   const item = row.item;
   const nameLines = Math.max(1, Math.ceil(formatProposalProductName(item.product?.name).length / 34));
   const chipCount = [getItemModuleSize(item), getItemFinish(item, quotation), getItemColor(item), getItemTier(item, quotation), getItemConnectivity(item)].filter(Boolean).length;
@@ -501,14 +504,19 @@ function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation)
     const location = getItemLocation(item);
     locationLines = location ? Math.max(1, Math.ceil(location.length / 52)) : 0;
   }
-  const textHeight = nameLines * 22 + chipRows * 28 + locationLines * 22 + 24;
+  // Specifications wrap as chips: about 70 characters per line.
+  const specLines = (() => {
+    const specs = specsOf(item);
+    return specs.length ? Math.ceil(specs.reduce((sum, spec) => sum + spec.label.length + spec.text.length + 6, 0) / 70) : 0;
+  })();
+  const textHeight = nameLines * 22 + chipRows * 28 + locationLines * 22 + specLines * 22 + 24;
   return Math.max(PRODUCT_ROW_MIN_PX, textHeight + 25);
 }
 
 /**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  */
-function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, showOverview: boolean, seriesCount: number): ProposalPageSlice[] {
+function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, showOverview: boolean, seriesCount: number, specsOf: SpecsOf): ProposalPageSlice[] {
   const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
 
@@ -578,7 +586,7 @@ function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, show
       const showSectionHeader = isFirstProductRoomSection && isFirstSlice;
       const sectionH = showSectionHeader ? SECTION_TITLE_PX : 0;
       const roomH = isFirstSlice ? ROOM_HEADER_PX + extrasH : ROOM_CONTINUED_PX;
-      const firstItemH = estimateProductRowHeight(itemsLeft[0], quotation);
+      const firstItemH = estimateProductRowHeight(itemsLeft[0], quotation, specsOf);
       const minNeededH = sectionH + roomH + firstItemH + (itemsLeft.length === 1 ? ROOM_SUBTOTAL_PX : ROOM_CONTINUES_PX);
 
       if (currentSections.length > 0 && currentHeight + ROOM_GAP_PX + minNeededH > getCapacity()) {
@@ -599,7 +607,7 @@ function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, show
       let sliceH = (currentSections.length > 0 ? ROOM_GAP_PX : 0) + sectionH + roomH;
 
       while (itemsLeft.length > 0) {
-        const itemH = estimateProductRowHeight(itemsLeft[0], quotation);
+        const itemH = estimateProductRowHeight(itemsLeft[0], quotation, specsOf);
         const isLastItem = itemsLeft.length === 1;
         const requiredH = itemH + (isLastItem ? ROOM_SUBTOTAL_PX : ROOM_CONTINUES_PX);
 
@@ -876,9 +884,21 @@ export default function StepProposalPreview({
     [renderableRooms, isLocked, seriesCatalog]
   );
 
+  // Specifications the company marked "show on PDF", per quoted product (its category's fields, inherited ones
+  // included). Not loadable (offline draft, platform context) simply means none.
+  const { data: specCatalog } = useSWR<{ categories: CategorySpecSource[] }>("/api/catalog/spec-fields", swrFetcher, { revalidateOnFocus: false, shouldRetryOnError: false });
+  const specsOf = useCallback<SpecsOf>(
+    (item) => {
+      const categories = specCatalog?.categories;
+      if (!categories || !item.product) return [];
+      return resolveItemSpecs(specFieldsForCategory(item.product.categoryId ?? null, categories), item.product.specs, undefined, "pdf");
+    },
+    [specCatalog]
+  );
+
   const proposalPages = useMemo(() => {
-    return paginateQuotation(quotation, content.introPages, content.showOverview, documentSeries.length);
-  }, [quotation, content.introPages, content.showOverview, documentSeries.length]);
+    return paginateQuotation(quotation, content.introPages, content.showOverview, documentSeries.length, specsOf);
+  }, [quotation, content.introPages, content.showOverview, documentSeries.length, specsOf]);
 
   const A4_WIDTH_MM = 210;
   const A4_HEIGHT_MM = 297;
@@ -2140,6 +2160,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                 const sbLabel = item.sbNumber?.trim();
                                 const imgUrl = getItemImageUrl(item);
                                 const location = getItemLocation(item);
+                                const specs = specsOf(item);
                                 const excluded = !isLocked && (room.isUnavailable || item.isUnavailable);
                                 const chipClass =
                                   "text-[11px] font-semibold text-gray-600 bg-gray-100/80 px-2 py-0.5 rounded-full";
@@ -2200,6 +2221,17 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                           )}
                                           {connectivity && <span className={`${chipClass} uppercase`}>{connectivity}</span>}
                                         </div>
+                                      )}
+
+                                      {specs.length > 0 && (
+                                        <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-gray-600" data-testid="proposal-specs">
+                                          {specs.map((spec) => (
+                                            <div key={spec.key} className="flex gap-1">
+                                              <dt className="text-gray-400">{spec.label}:</dt>
+                                              <dd className="font-semibold text-gray-900">{spec.text}</dd>
+                                            </div>
+                                          ))}
+                                        </dl>
                                       )}
 
                                       {!isGrouped && location && (

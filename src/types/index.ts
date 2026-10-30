@@ -32,6 +32,8 @@ export interface Category {
   variantFinishes?: VariantOption[] | null;
   /** Top-level categories only: shown as a product series (see src/lib/productSeries.ts). */
   series?: import("@/lib/productSeries").CategorySeries | null;
+  /** Specification fields its products fill in (see src/lib/productSpecs.ts). */
+  specFields?: import("@/lib/productSpecs").SpecField[] | null;
 }
 
 /**
@@ -102,6 +104,8 @@ export interface Product {
   hsnCode?: string | null;
   /** GST rate the variants' GST-inclusive prices are split by; null = not set. */
   gstRate?: number | null;
+  /** Specification values keyed by the category's field keys. */
+  specs?: import("@/lib/productSpecs").ProductSpecs;
 }
 
 /**
@@ -128,6 +132,8 @@ export type EditorCatalogProduct = Pick<
     /** Display name only: the picker reads `category?.name`, never the rest of the category. */
     category?: Pick<Category, "id" | "name">;
     variants?: EditorCatalogVariant[];
+    /** Specifications the picker shows (label + formatted value), resolved on the server; absent when none. */
+    specs?: Array<{ key: string; label: string; text: string }>;
   };
 
 /**

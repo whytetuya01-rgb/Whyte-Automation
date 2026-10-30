@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { Input, Select, SearchableSelect, Textarea, Button, Switch, type SelectOption } from "@/components/ui";
 import { formatGstRate, taxCodeLabel, type TaxSettingsView } from "@/lib/taxSettings";
+import { SPEC_LIMITS, flattenCategoryTree, specFieldsForCategory } from "@/lib/productSpecs";
 import {
   calculateFromTaxExclusivePrice,
   calculateFromTaxInclusivePrice,
@@ -146,6 +147,16 @@ export default function ProductForm({
   });
   const gstTouchedRef = useRef(false);
   const savedGstRate = product?.gstRate ?? null;
+
+  // Specification values for the selected category's fields (inherited ones included); kept as text while editing.
+  const [specValues, setSpecValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(Object.entries(product?.specs ?? {}).map(([key, value]) => [key, String(value)]))
+  );
+  const [specErrors, setSpecErrors] = useState<Record<string, string>>({});
+  const specFields = useMemo(
+    () => specFieldsForCategory(form.categoryId ? Number(form.categoryId) : null, flattenCategoryTree(categories)),
+    [form.categoryId, categories]
+  );
 
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -685,7 +696,18 @@ export default function ProductForm({
       newErrors.categoryId = "Please select a Category.";
     }
 
-    if (Object.keys(newErrors).length > 0) {
+    const newSpecErrors: Record<string, string> = {};
+    for (const field of specFields) {
+      const value = (specValues[field.key] ?? "").trim();
+      if (!value) {
+        if (field.required) newSpecErrors[field.key] = `${field.label} is required.`;
+      } else if (field.type === "number" && !Number.isFinite(Number(value))) {
+        newSpecErrors[field.key] = `${field.label} must be a number.`;
+      }
+    }
+    setSpecErrors(newSpecErrors);
+
+    if (Object.keys(newErrors).length > 0 || Object.keys(newSpecErrors).length > 0) {
       setErrors(newErrors);
       notify.error("Validation Error", "Please fill in all required fields highlighted below.");
       return;
@@ -720,6 +742,15 @@ export default function ProductForm({
         hsnCode: form.hsnCode || null,
         gstRate: form.gstRate === "" ? null : Number(form.gstRate),
       };
+      // Only the selected category's fields are sent (a product that leaves them all blank, or moves to a category
+      // without fields, clears its values).
+      if (specFields.length > 0 || Object.keys(product?.specs ?? {}).length > 0) {
+        payload.specs = Object.fromEntries(
+          specFields
+            .filter((field) => (specValues[field.key] ?? "").trim() !== "")
+            .map((field) => [field.key, field.type === "number" ? Number(specValues[field.key]) : specValues[field.key].trim()])
+        );
+      }
 
       if (isEdit && product) {
         await apiJson.patch(`/api/products/${product.id}`, payload);
@@ -1015,6 +1046,55 @@ export default function ProductForm({
             </p>
           </div>
         </div>
+
+        {/* Specifications: the selected category's fields */}
+        {specFields.length > 0 && (
+          <div className="rounded-xl border border-neutral-200 bg-white p-4" data-testid="product-specs">
+            <div className="mb-3 flex items-center gap-1.5">
+              <ListChecks className="h-3.5 w-3.5 text-neutral-500" aria-hidden="true" />
+              <h3 className="text-xs font-semibold text-neutral-800">9. Specifications</h3>
+            </div>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              {specFields.map((field) => {
+                const value = specValues[field.key] ?? "";
+                const setValue = (next: string) => {
+                  setSpecValues((prev) => ({ ...prev, [field.key]: next }));
+                  if (specErrors[field.key]) setSpecErrors((prev) => ({ ...prev, [field.key]: "" }));
+                };
+                const label = `${field.label}${field.unit ? ` (${field.unit})` : ""}${field.required ? " *" : ""}`;
+                return (
+                  <div key={field.key} className="space-y-1.5" data-testid={`spec-input-${field.key}`}>
+                    {field.type === "select" ? (
+                      <Select
+                        label={label}
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        options={[{ value: "", label: "Not set" }, ...field.options.map((option) => ({ value: option, label: option }))]}
+                        error={specErrors[field.key] || undefined}
+                        ariaLabel={field.label}
+                      />
+                    ) : (
+                      <Input
+                        label={label}
+                        type={field.type === "number" ? "number" : "text"}
+                        inputMode={field.type === "number" ? "decimal" : undefined}
+                        step={field.type === "number" ? "any" : undefined}
+                        maxLength={field.type === "text" ? SPEC_LIMITS.text : undefined}
+                        value={value}
+                        onChange={(e) => setValue(e.target.value)}
+                        error={specErrors[field.key] || undefined}
+                        aria-label={field.label}
+                      />
+                    )}
+                    {field.categoryId !== Number(form.categoryId) && field.categoryName && (
+                      <p className="text-[11px] text-neutral-400">From {field.categoryName}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ============================================================== */}

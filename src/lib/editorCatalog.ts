@@ -1,5 +1,6 @@
 import { Category, Product, ProductVariant } from "@/models";
 import { normalizeProduct } from "@/lib/quotationNormalization";
+import { resolveItemSpecs, specFieldsForCategory } from "@/lib/productSpecs";
 import { serializeVariant } from "@/lib/productVariantService";
 import type { EditorCatalogProduct, EditorCatalogVariant } from "@/types";
 
@@ -20,7 +21,7 @@ import type { EditorCatalogProduct, EditorCatalogVariant } from "@/types";
  */
 
 const PRODUCT_PROJECTION =
-  "name code description type categoryId automationTier surfaceFinish price imageUrl moduleSize isActive isMatrix matrixDimensions";
+  "name code description type categoryId automationTier surfaceFinish price imageUrl moduleSize isActive isMatrix matrixDimensions specs";
 
 // `serializeVariant` derives price from price / priceWithoutTax / taxPercent and falls
 // back to config.series / config.finish when a variant has no tier / finish of its own.
@@ -29,7 +30,7 @@ const VARIANT_PROJECTION =
 
 type RawEditorProduct = { _id: number } & Record<string, unknown>;
 type RawEditorVariant = Parameters<typeof serializeVariant>[0];
-type RawEditorCategory = { _id: number; name?: string | null };
+type RawEditorCategory = { _id: number; name?: string | null; parentId?: number | null; specFields?: unknown };
 
 export interface EditorCatalogSources {
   /** Active products in display order. */
@@ -69,9 +70,12 @@ export function buildEditorCatalog({ products, variants, categories }: EditorCat
     if (category.name) categoryNames.set(Number(category._id), category.name);
   }
 
+  const specSources = categories.map((category) => ({ id: Number(category._id), parentId: category.parentId ?? null, name: category.name ?? undefined, specFields: category.specFields }));
+
   return products.map((raw) => {
     const product = normalizeProduct({ ...raw, variants: [] });
     const categoryName = product.categoryId !== null ? categoryNames.get(product.categoryId) : undefined;
+    const specs = resolveItemSpecs(specFieldsForCategory(product.categoryId, specSources), product.specs, undefined, "picker");
     return {
       id: product.id,
       name: product.name,
@@ -87,6 +91,7 @@ export function buildEditorCatalog({ products, variants, categories }: EditorCat
       isActive: product.isActive,
       isMatrix: product.isMatrix,
       matrixDimensions: product.matrixDimensions,
+      ...(specs.length > 0 ? { specs } : {}),
       ...(categoryName !== undefined && product.categoryId !== null
         ? { category: { id: product.categoryId, name: categoryName } }
         : {}),
@@ -100,7 +105,7 @@ export async function loadEditorCatalogSources(): Promise<EditorCatalogSources> 
   const [products, variants, categories] = await Promise.all([
     Product.find({ isActive: true }).select(PRODUCT_PROJECTION).sort({ sortOrder: 1, createdAt: -1 }).lean(),
     ProductVariant.find({ isActive: true }).select(VARIANT_PROJECTION).sort({ sortOrder: 1, _id: 1 }).lean(),
-    Category.find({}).select("name").lean(),
+    Category.find({}).select("name parentId specFields").lean(),
   ]);
 
   return {

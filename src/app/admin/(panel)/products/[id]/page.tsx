@@ -33,6 +33,7 @@ import ProductForm from "@/components/admin/ProductForm";
 import ProductVariantsEditModal from "@/components/admin/ProductVariantsEditModal";
 import { Button, Switch, Badge } from "@/components/ui";
 import { formatGstRate } from "@/lib/taxSettings";
+import { flattenCategoryTree, resolveItemSpecs, specFieldsForCategory } from "@/lib/productSpecs";
 
 const TYPE_CONFIG: Record<string, { label: string; badgeVariant: "info" | "secondary" | "default" | "warning" | "success" | "outline" }> = {
   switch_board: { label: "Switch Board", badgeVariant: "info" },
@@ -575,6 +576,27 @@ export default function ProductDetailPage() {
                   )}
                 </span>
               </div>
+
+              {(() => {
+                const fields = specFieldsForCategory(product.categoryId, flattenCategoryTree(categories));
+                if (fields.length === 0) return null;
+                const shown = new Map(resolveItemSpecs(fields, product.specs).map((spec) => [spec.key, spec.text]));
+                return (
+                  <div className="sm:col-span-2 pt-2 border-t border-neutral-100" data-testid="product-specs-view">
+                    <span className="text-neutral-400 font-medium block">Specifications</span>
+                    <dl className="mt-1 grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2">
+                      {fields.map((field) => (
+                        <div key={field.key} className="flex min-w-0 justify-between gap-3 rounded-lg bg-neutral-50 px-2.5 py-1.5">
+                          <dt className="text-neutral-500">{field.label}</dt>
+                          <dd className="min-w-0 break-words text-right font-semibold text-neutral-900">
+                            {shown.get(field.key) ?? <span className="font-normal italic text-neutral-400">Not set</span>}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                );
+              })()}
 
               {displayNotes && (
                 <div className="sm:col-span-2 pt-2 border-t border-neutral-100">

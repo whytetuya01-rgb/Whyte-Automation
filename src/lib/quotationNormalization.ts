@@ -2,6 +2,7 @@ import type { Quotation, QuotationRoom, QuotationItem, QuotationItemVariantSumma
 import { serializeVariant } from "@/lib/productVariantService";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { normalizeProductGstRate } from "@/lib/taxSettings";
+import { normalizeProductSpecs } from "@/lib/productSpecs";
 import { isProtectedQuotationStatus, isRoomUnavailable } from "@/lib/quotationAvailability";
 
 /**
@@ -78,6 +79,7 @@ export function normalizeProduct(product: any): Product {
     variants,
     hsnCode: typeof product.hsnCode === "string" && product.hsnCode ? product.hsnCode : null,
     gstRate: normalizeProductGstRate(product.gstRate),
+    specs: normalizeProductSpecs(product.specs),
   };
 }
 

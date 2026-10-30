@@ -16,6 +16,7 @@ import { updateProductSchema } from "@/lib/validation/product";
 import { normalizeProduct } from "@/lib/quotationNormalization";
 import { applyGstRateToVariants, assertProductTaxAllowed, loadCompanyTaxSettings, type GstApplyResult } from "@/lib/productTax";
 import { normalizeProductGstRate } from "@/lib/taxSettings";
+import { assertProductSpecs, loadCategorySpecSources } from "@/lib/categorySpecs";
 import { redactProductForRole } from "@/lib/variantRedaction";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
@@ -162,6 +163,12 @@ export async function PATCH(req: Request, context: RouteContext) {
         { hsnCode: existingProduct.hsnCode, gstRate: existingProduct.gstRate }
       );
     }
+    // Specification values (when sent) replace the product's, checked against its (new) category's fields.
+    if (data.specs !== undefined) {
+      const targetCategoryId = (data.categoryId as number | undefined) ?? existingProduct.categoryId;
+      data.specs = targetCategoryId === null ? {} : assertProductSpecs(targetCategoryId, await loadCategorySpecSources(), data.specs ?? {});
+    }
+
     // Only a CHANGED rate re-splits the variants' GST-inclusive prices; the prices themselves never change.
     const newGstRate = typeof data.gstRate === "number" && data.gstRate !== normalizeProductGstRate(existingProduct.gstRate) ? data.gstRate : null;
     let taxChange: GstApplyResult | null = null;
