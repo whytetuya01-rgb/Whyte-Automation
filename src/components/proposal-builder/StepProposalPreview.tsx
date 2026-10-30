@@ -1265,6 +1265,19 @@ export default function StepProposalPreview({
               <span>{copied ? "Copied" : "Share"}</span>
             </button>
 
+            {quotation.id && !String(quotation.id).startsWith("draft_") && (
+              <button
+                type="button"
+                onClick={() => setDeliveryOpen(true)}
+                disabled={renderableRooms.length === 0 || !!invalidGstinReason}
+                title={invalidGstinReason ?? "Email this quotation and track its delivery"}
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
+              >
+                <Mail size={14} />
+                <span>Send</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handlePrint}
