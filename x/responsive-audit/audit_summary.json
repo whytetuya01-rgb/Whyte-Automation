@@ -1,0 +1,476 @@
+[
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 320,
+    "name": "320px (iPhone SE 1)",
+    "status": "ERROR",
+    "error": "page.goto: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/login\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 360,
+    "name": "360px (Android Compact)",
+    "scrollWidth": 360,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 375,
+    "name": "375px (iPhone SE 2/8)",
+    "scrollWidth": 375,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 390,
+    "name": "390px (iPhone 12/13/14)",
+    "scrollWidth": 390,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 412,
+    "name": "412px (Samsung/Pixel)",
+    "scrollWidth": 412,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 430,
+    "name": "430px (iPhone Pro Max)",
+    "scrollWidth": 430,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 600,
+    "name": "600px (Foldable/Small Tablet)",
+    "scrollWidth": 600,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 768,
+    "name": "768px (iPad/Tablet)",
+    "scrollWidth": 768,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 1024,
+    "name": "1024px (Small Desktop/iPad Pro)",
+    "scrollWidth": 1024,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 1280,
+    "name": "1280px (Laptop)",
+    "scrollWidth": 1280,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 1440,
+    "name": "1440px (Desktop HD)",
+    "scrollWidth": 1440,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Dealer Login",
+    "path": "/login",
+    "viewport": 1920,
+    "name": "1920px (Full HD)",
+    "scrollWidth": 1920,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 320,
+    "name": "320px (iPhone SE 1)",
+    "status": "ERROR",
+    "error": "page.goto: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/admin/login\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 360,
+    "name": "360px (Android Compact)",
+    "scrollWidth": 360,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 375,
+    "name": "375px (iPhone SE 2/8)",
+    "scrollWidth": 375,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 390,
+    "name": "390px (iPhone 12/13/14)",
+    "scrollWidth": 390,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 412,
+    "name": "412px (Samsung/Pixel)",
+    "scrollWidth": 412,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 430,
+    "name": "430px (iPhone Pro Max)",
+    "scrollWidth": 430,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 600,
+    "name": "600px (Foldable/Small Tablet)",
+    "scrollWidth": 600,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 768,
+    "name": "768px (iPad/Tablet)",
+    "scrollWidth": 768,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 1024,
+    "name": "1024px (Small Desktop/iPad Pro)",
+    "scrollWidth": 1024,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 1280,
+    "name": "1280px (Laptop)",
+    "scrollWidth": 1280,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 1440,
+    "name": "1440px (Desktop HD)",
+    "scrollWidth": 1440,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Login",
+    "path": "/admin/login",
+    "viewport": 1920,
+    "name": "1920px (Full HD)",
+    "scrollWidth": 1920,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 320,
+    "name": "320px (iPhone SE 1)",
+    "status": "ERROR",
+    "error": "page.goto: Timeout 15000ms exceeded.\nCall log:\n\u001b[2m  - navigating to \"http://localhost:3000/register\", waiting until \"domcontentloaded\"\u001b[22m\n"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 360,
+    "name": "360px (Android Compact)",
+    "scrollWidth": 360,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 375,
+    "name": "375px (iPhone SE 2/8)",
+    "scrollWidth": 375,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 390,
+    "name": "390px (iPhone 12/13/14)",
+    "scrollWidth": 390,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 412,
+    "name": "412px (Samsung/Pixel)",
+    "scrollWidth": 412,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 430,
+    "name": "430px (iPhone Pro Max)",
+    "scrollWidth": 430,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 600,
+    "name": "600px (Foldable/Small Tablet)",
+    "scrollWidth": 600,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 768,
+    "name": "768px (iPad/Tablet)",
+    "scrollWidth": 768,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 1024,
+    "name": "1024px (Small Desktop/iPad Pro)",
+    "scrollWidth": 1024,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 1280,
+    "name": "1280px (Laptop)",
+    "scrollWidth": 1280,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 1440,
+    "name": "1440px (Desktop HD)",
+    "scrollWidth": 1440,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Public Registration",
+    "path": "/register",
+    "viewport": 1920,
+    "name": "1920px (Full HD)",
+    "scrollWidth": 1920,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 320,
+    "name": "320px (iPhone SE 1)",
+    "scrollWidth": 320,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 360,
+    "name": "360px (Android Compact)",
+    "scrollWidth": 360,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 375,
+    "name": "375px (iPhone SE 2/8)",
+    "scrollWidth": 375,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 390,
+    "name": "390px (iPhone 12/13/14)",
+    "scrollWidth": 390,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 412,
+    "name": "412px (Samsung/Pixel)",
+    "scrollWidth": 412,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 430,
+    "name": "430px (iPhone Pro Max)",
+    "scrollWidth": 430,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 600,
+    "name": "600px (Foldable/Small Tablet)",
+    "scrollWidth": 600,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 768,
+    "name": "768px (iPad/Tablet)",
+    "scrollWidth": 768,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 1024,
+    "name": "1024px (Small Desktop/iPad Pro)",
+    "scrollWidth": 1024,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 1280,
+    "name": "1280px (Laptop)",
+    "scrollWidth": 1280,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 1440,
+    "name": "1440px (Desktop HD)",
+    "scrollWidth": 1440,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  },
+  {
+    "page": "Admin Registration",
+    "path": "/admin/register",
+    "viewport": 1920,
+    "name": "1920px (Full HD)",
+    "scrollWidth": 1920,
+    "hasOverflow": false,
+    "clippedButtons": [],
+    "status": "PASS"
+  }
+]
