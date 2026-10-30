@@ -4,7 +4,7 @@ import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { updateCustomerSchema } from "@/lib/validation/crm";
-import { crmVisibilityFilter, recordCrmActivity } from "@/lib/crmService";
+import { assertValidLeadAssignees, crmVisibilityFilter, findCustomerByContact, isDuplicateKey, quotationGrandTotals, recordCrmActivity } from "@/lib/crmService";
 
 export const dynamic = "force-dynamic";
 
@@ -37,13 +37,15 @@ export async function GET(_req: Request, context: RouteContext) {
 
       // Find all quotations for this customer
       const quotations = await Quotation.find({ customerId, companyId })
-        .select("_id quotationNumber status clientName grandTotal createdAt")
+        .select("_id quotationNumber status clientName createdAt")
         .sort({ createdAt: -1 })
         .lean();
+      // The total is worked out from the quotation's items, exactly as the quotation screens do.
+      const totals = await quotationGrandTotals(quotations.map((q) => String(q._id)));
 
       // Find all leads for this customer
       const leads = await Lead.find({ customerId, companyId })
-        .select("_id referenceNumber status priority estimatedBudget projectType createdAt")
+        .select("_id referenceNumber status priority estimatedBudget projectType createdAt nextFollowUpAt expectedClosingDate lostReason")
         .sort({ createdAt: -1 })
         .lean();
 
@@ -56,7 +58,7 @@ export async function GET(_req: Request, context: RouteContext) {
       return apiSuccess({
         ...customer,
         id: customer._id,
-        quotations: quotations.map((q) => ({ ...q, id: q._id })),
+        quotations: quotations.map((q) => ({ ...q, id: q._id, grandTotal: totals.get(String(q._id))?.grandTotal ?? 0 })),
         leads: leads.map((l) => ({ ...l, id: l._id })),
         activities: activities.map((a) => ({ ...a, id: a._id })),
       });
@@ -90,6 +92,24 @@ export async function PATCH(req: Request, context: RouteContext) {
       const body = await readJsonBody(req);
       const input = updateCustomerSchema.parse(body);
 
+      if (input.phone !== undefined || input.email !== undefined) {
+        const clash = await findCustomerByContact(
+          companyId,
+          input.phone !== undefined ? input.phone : null,
+          input.email !== undefined ? input.email : null,
+          customerId
+        );
+        if (clash) {
+          throw new ApiError("CONFLICT", `Another customer already has this ${input.phone && clash.phone ? "phone number" : "email"} (${clash.name}).`);
+        }
+      }
+
+      await assertValidLeadAssignees({
+        companyId,
+        dealerId: role !== "dealer" && input.dealerId && input.dealerId !== customer.dealerId ? input.dealerId : null,
+        assignedSalesId: input.assignedSalesId && input.assignedSalesId !== customer.assignedSalesId ? input.assignedSalesId : null,
+      });
+
       if (input.name) customer.name = input.name;
       if (input.phone !== undefined) customer.phone = input.phone;
       if (input.whatsapp !== undefined) customer.whatsapp = input.whatsapp;
@@ -103,7 +123,12 @@ export async function PATCH(req: Request, context: RouteContext) {
       if (input.notes !== undefined) customer.notes = input.notes;
 
       customer.updatedAt = new Date();
-      await customer.save();
+      try {
+        await customer.save();
+      } catch (error) {
+        if (!isDuplicateKey(error)) throw error;
+        throw new ApiError("CONFLICT", "Another customer already has this phone number.", { field: "phone" });
+      }
 
       await recordCrmActivity({
         companyId,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   X,
@@ -45,6 +45,16 @@ export default function LeadDetailDrawer({
   const router = useRouter();
   const [converting, setConverting] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+
+  // Escape closes the drawer, like any dialog.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen || !lead) return null;
 
@@ -129,7 +139,15 @@ export default function LeadDetailDrawer({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-black/40 backdrop-blur-xs flex justify-end animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 overflow-hidden bg-black/40 backdrop-blur-xs flex justify-end animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Lead ${lead.referenceNumber}`}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
       <div className="w-full max-w-2xl bg-white h-full shadow-2xl flex flex-col overflow-y-auto animate-in slide-in-from-right duration-200 border-l border-neutral-200">
         {/* Header */}
         <header className="sticky top-0 z-10 bg-white/95 backdrop-blur-xs border-b border-neutral-200 px-5 py-4 flex items-center justify-between gap-3">
@@ -162,6 +180,7 @@ export default function LeadDetailDrawer({
             <button
               type="button"
               onClick={onClose}
+              aria-label="Close"
               className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition cursor-pointer"
             >
               <X size={18} />
@@ -195,8 +214,9 @@ export default function LeadDetailDrawer({
                   <option value="contacted">2. Contacted</option>
                   <option value="site_visit">3. Site Visit</option>
                   <option value="quoted">4. Quoted</option>
-                  <option value="won">5. Won 🎉</option>
-                  <option value="lost">6. Lost</option>
+                  <option value="negotiation">5. Negotiation</option>
+                  <option value="won">6. Won 🎉</option>
+                  <option value="lost">7. Lost</option>
                 </select>
               </div>
             </div>

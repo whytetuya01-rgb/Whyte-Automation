@@ -207,6 +207,26 @@ export interface QuotationRoom {
 export interface Quotation {
   id: string;
   quotationNumber: string;
+  customerId?: number | null;
+  customer?: {
+    id: number;
+    name: string;
+    phone?: string | null;
+    whatsapp?: string | null;
+    email?: string | null;
+    billingAddress?: string | null;
+    siteAddress?: string | null;
+    gstNumber?: string | null;
+    customerType?: string;
+  } | null;
+  leadId?: string | null;
+  lead?: {
+    id: string;
+    referenceNumber: string;
+    customerName: string;
+    status: string;
+    priority: string;
+  } | null;
   clientName: string;
   clientGstNumber: string | null;
   clientPhone: string | null;

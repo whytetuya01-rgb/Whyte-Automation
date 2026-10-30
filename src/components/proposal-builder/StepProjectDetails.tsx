@@ -11,6 +11,7 @@ import { RadioGroup } from "@/components/ui/Radio";
 import CityAutocomplete from "@/components/ui/CityAutocomplete";
 import IndiaPhoneInput, { extractNationalDigits } from "@/components/ui/IndiaPhoneInput";
 import { emailError, gstinError, phoneError } from "@/lib/validation/fields";
+import CustomerAutocomplete from "./CustomerAutocomplete";
 
 interface Props {
   initialData?: Partial<Quotation>;
@@ -38,6 +39,8 @@ export interface ProjectFormData {
    * Super Admin / Admin only: sales executive assigned to this quotation.
    */
   assignedSalesId?: number | null;
+  customerId?: number | null;
+  leadId?: string | null;
 }
 
 interface DealerOption {
@@ -64,6 +67,8 @@ export default function StepProjectDetails({
   const initialProjectName = matchProject ? matchProject[1].trim() : "";
   const cleanNotes = matchProject ? existingNotes.replace(/^Project:\s*[^\n|]+(\||\n)?/i, "").trim() : existingNotes;
 
+  const [linkedCustomer, setLinkedCustomer] = useState<any>((initialData as any)?.customer ?? null);
+
   const [form, setForm] = useState<ProjectFormData>({
     clientName: initialData?.clientName ?? "",
     projectName: initialProjectName,
@@ -76,7 +81,22 @@ export default function StepProjectDetails({
     notes: cleanNotes,
     dealerId: initialData?.dealerId ?? null,
     assignedSalesId: initialData?.assignedSalesId ?? null,
+    customerId: (initialData as any)?.customerId ?? null,
+    leadId: (initialData as any)?.leadId ?? null,
   });
+
+  useEffect(() => {
+    if ((initialData as any)?.customerId && !linkedCustomer) {
+      fetch(`/api/crm/customers?search=${(initialData as any).customerId}&pageSize=1`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((res) => {
+          const items = res?.data?.data || res?.data || [];
+          const found = items.find((c: any) => c.id === (initialData as any).customerId);
+          if (found) setLinkedCustomer(found);
+        })
+        .catch(() => {});
+    }
+  }, [(initialData as any)?.customerId, linkedCustomer]);
 
   const { data: session } = useSession();
   const sessionUser = session?.user as { role?: string; permissions?: string[] } | undefined;
@@ -195,6 +215,40 @@ export default function StepProjectDetails({
     return Object.keys(errs).length === 0;
   };
 
+  const handleSelectCustomer = (customer: any) => {
+    setLinkedCustomer(customer);
+    setForm((prev) => ({
+      ...prev,
+      customerId: customer.id,
+      clientName: customer.name || prev.clientName,
+      clientPhone: customer.phone || prev.clientPhone,
+      clientEmail: customer.email || prev.clientEmail,
+      location: customer.siteAddress || customer.billingAddress || prev.location,
+      clientGstNumber: customer.gstNumber || prev.clientGstNumber,
+      assignedSalesId: canAssignSales && customer.assignedSalesId ? customer.assignedSalesId : prev.assignedSalesId,
+      dealerId: canAssignDealer && customer.dealerId ? customer.dealerId : prev.dealerId,
+    }));
+    if (canAssignDealer && customer.dealerId) {
+      setOwnerMode("dealer");
+    }
+    setErrors((prev) => ({
+      ...prev,
+      clientName: "",
+      location: "",
+      clientPhone: "",
+      clientEmail: "",
+      dealerId: "",
+    }));
+  };
+
+  const handleUnlinkCustomer = () => {
+    setLinkedCustomer(null);
+    setForm((prev) => ({
+      ...prev,
+      customerId: null,
+    }));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
@@ -203,6 +257,8 @@ export default function StepProjectDetails({
       ...form,
       dealerId: canAssignDealer ? (ownerMode === "dealer" ? form.dealerId : null) : undefined,
       assignedSalesId: canAssignSales ? form.assignedSalesId : undefined,
+      customerId: form.customerId !== undefined ? form.customerId : null,
+      leadId: form.leadId ?? null,
     });
   };
 
@@ -245,6 +301,15 @@ export default function StepProjectDetails({
                   <Building size={14} className="text-gray-950" />
                   Project Identity
                 </h3>
+
+                {/* Central CRM Customer Search & Link */}
+                <CustomerAutocomplete
+                  linkedCustomerId={form.customerId}
+                  linkedCustomer={linkedCustomer}
+                  onSelectCustomer={handleSelectCustomer}
+                  onUnlinkCustomer={handleUnlinkCustomer}
+                  disabled={isSaving}
+                />
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Client Name */}

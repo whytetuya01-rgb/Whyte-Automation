@@ -26,6 +26,7 @@ export const leadStatusEnum = z.enum([
   "contacted",
   "site_visit",
   "quoted",
+  "negotiation",
   "won",
   "lost",
 ]);

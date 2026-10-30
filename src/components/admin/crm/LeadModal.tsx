@@ -6,16 +6,18 @@ import { Button, Input, Select, Textarea } from "@/components/ui";
 import IndiaPhoneInput from "@/components/ui/IndiaPhoneInput";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
-import type { Lead, LeadPriority, LeadSource, LeadStatus } from "@/types/crm";
+import type { Customer, Lead, LeadPriority, LeadSource, LeadStatus } from "@/types/crm";
 
 interface LeadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSaved: () => void;
   lead?: Lead | null;
+  /** A new lead for this existing customer: their details are filled in and the lead is linked to them. */
+  customer?: Customer | null;
 }
 
-export default function LeadModal({ isOpen, onClose, onSaved, lead }: LeadModalProps) {
+export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: LeadModalProps) {
   const isEditing = Boolean(lead);
 
   const [customerName, setCustomerName] = useState("");
@@ -97,13 +99,13 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead }: LeadModalP
       setDealerId(lead.dealerId ? String(lead.dealerId) : "");
       setNotes(lead.notes || "");
     } else {
-      // Defaults for new lead
-      setCustomerName("");
-      setPhone("");
-      setSameWhatsapp(true);
-      setWhatsapp("");
-      setEmail("");
-      setSiteAddress("");
+      // Defaults for new lead (an existing customer's details when the lead is for them)
+      setCustomerName(customer?.name ?? "");
+      setPhone(customer?.phone ?? "");
+      setSameWhatsapp(!customer?.whatsapp || customer.whatsapp === customer.phone);
+      setWhatsapp(customer?.whatsapp ?? "");
+      setEmail(customer?.email ?? "");
+      setSiteAddress(customer?.siteAddress ?? "");
       setLocation("");
       setProjectType("");
       setEstimatedBudget("");
@@ -115,7 +117,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead }: LeadModalP
       setDealerId("");
       setNotes("");
     }
-  }, [isOpen, lead]);
+  }, [isOpen, lead, customer]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -128,6 +130,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead }: LeadModalP
     try {
       const selectedSource = sources.find((s) => s.id === sourceId);
       const payload = {
+        ...(!isEditing && customer ? { customerId: customer.id } : {}),
         customerName: customerName.trim(),
         phone: phone.trim() || undefined,
         whatsapp: (sameWhatsapp ? phone.trim() : whatsapp.trim()) || undefined,
@@ -150,8 +153,18 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead }: LeadModalP
         await apiJson.patch(`/api/crm/leads/${lead.id}`, payload);
         notify.success("Lead updated", `${customerName}'s lead updated.`);
       } else {
-        await apiJson.post("/api/crm/leads", payload);
+        const created = await apiJson.post<{
+          possibleDuplicates?: { leads: Array<{ referenceNumber: string; customerName: string }>; customer: { name: string } | null };
+        }>("/api/crm/leads", payload);
         notify.success("Lead created", `New lead for ${customerName} added.`);
+        const duplicates = created?.possibleDuplicates;
+        if (duplicates && (duplicates.leads.length > 0 || duplicates.customer)) {
+          const parts = [
+            duplicates.leads.length > 0 ? `open lead${duplicates.leads.length > 1 ? "s" : ""} ${duplicates.leads.map((l) => l.referenceNumber).join(", ")}` : null,
+            duplicates.customer ? `customer ${duplicates.customer.name}` : null,
+          ].filter(Boolean);
+          notify.info("Already in the CRM?", `This phone or email also appears on ${parts.join(" and ")}.`);
+        }
       }
 
       onSaved();
@@ -167,7 +180,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead }: LeadModalP
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={isEditing ? `Edit Lead — ${lead?.referenceNumber}` : "New CRM Lead"}
+      title={isEditing ? `Edit Lead — ${lead?.referenceNumber}` : customer ? `New enquiry — ${customer.name}` : "New CRM Lead"}
       size="lg"
     >
       <form onSubmit={handleSubmit} className="space-y-4">

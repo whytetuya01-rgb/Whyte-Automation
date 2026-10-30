@@ -4,6 +4,7 @@ import { emailSchema } from "@/lib/validation/fields";
 import { normalizeWhatsAppNumber } from "@/lib/quotationDeliveryShared";
 import { sendEmail } from "@/lib/email/service";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
+import { syncLeadWithQuotation } from "@/lib/crmService";
 import {
   DELIVERY_MAX_EVENTS,
   type DeliveryEventType,
@@ -215,6 +216,7 @@ export async function markQuotationSentIfDraft(quotation: IQuotationDocument, us
     newValue: { status: "sent" },
     metadata: { via },
   });
+  await syncLeadWithQuotation({ leadId: quotation.leadId, quotationId: quotation._id, quotationNumber: quotation.quotationNumber, event: "sent", userId });
   return true;
 }
 

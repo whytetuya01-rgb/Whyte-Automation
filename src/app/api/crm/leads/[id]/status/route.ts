@@ -4,7 +4,7 @@ import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { updateLeadStatusSchema } from "@/lib/validation/crm";
-import { crmVisibilityFilter, recordCrmActivity } from "@/lib/crmService";
+import { crmVisibilityFilter, LEGACY_NEGOTIATION_NOTE, recordCrmActivity } from "@/lib/crmService";
 
 export const dynamic = "force-dynamic";
 
@@ -37,7 +37,8 @@ export async function PATCH(req: Request, context: RouteContext) {
       const oldStatus = lead.status;
       const newStatus = input.status;
 
-      if (oldStatus === newStatus && !input.lostReason && !input.notes) {
+      const hasLegacyNegotiationNote = lead.notes === LEGACY_NEGOTIATION_NOTE && newStatus !== "negotiation";
+      if (oldStatus === newStatus && !input.lostReason && !input.notes && !hasLegacyNegotiationNote) {
         return apiSuccess({ id: lead._id, status: newStatus, unchanged: true });
       }
 
@@ -55,8 +56,10 @@ export async function PATCH(req: Request, context: RouteContext) {
         lead.lostAt = null;
       }
 
-      if (input.notes) {
-        lead.notes = input.notes;
+      // A note given with a move belongs to the timeline entry below. It never replaces the lead's own notes.
+      // (Cards moved to Negotiation by the first version carried a canned note instead of a status; drop it.)
+      if (lead.notes === LEGACY_NEGOTIATION_NOTE && newStatus !== "negotiation") {
+        lead.notes = null;
       }
 
       lead.updatedAt = new Date();
@@ -76,7 +79,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         customerId: lead.customerId,
         type: "status_change",
         title: statusTitle,
-        description: `Stage moved from "${oldStatus}" to "${newStatus}".`,
+        description: `Stage moved from "${oldStatus}" to "${newStatus}".${input.notes ? ` Note: ${input.notes}` : ""}`,
         performedBy: userId,
       });
 

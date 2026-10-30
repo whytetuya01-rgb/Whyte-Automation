@@ -1,335 +1,237 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, use } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Contact,
-  ArrowLeft,
-  Phone,
-  MessageCircle,
-  Mail,
-  MapPin,
-  Building,
-  FileText,
-  User,
-  Plus,
-  ExternalLink,
-  Edit2,
-  Calendar,
-} from "lucide-react";
-import PageHeader from "@/components/admin/PageHeader";
-import LoadingSpinner from "@/components/shared/LoadingSpinner";
-import { Button } from "@/components/ui";
+import { AlertCircle, ArrowLeft, Clock, FileText, LayoutDashboard, TrendingUp } from "lucide-react";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
-import type { Customer, Quotation, Lead, CrmActivity } from "@/types/crm";
-import { CUSTOMER_TYPE_LABELS, LEAD_STATUS_CONFIG } from "@/types/crm";
-import ActivityTimeline from "@/components/admin/crm/ActivityTimeline";
+import { cn } from "@/lib/utils";
+import type { CustomerProfile, Lead } from "@/types/crm";
+import { ACTIVITY_FILTERS, computeCustomerStats, filterActivities, type ActivityFilterId } from "@/lib/crmCustomerInsights";
 import CustomerModal from "@/components/admin/crm/CustomerModal";
-import { normalizeWhatsAppNumber } from "@/lib/quotationDeliveryShared";
+import ActivityTimeline from "@/components/admin/crm/ActivityTimeline";
+import LeadDetailDrawer from "@/components/admin/crm/LeadDetailDrawer";
+import LeadModal from "@/components/admin/crm/LeadModal";
+import ProfileHeader from "@/components/admin/crm/customer/ProfileHeader";
+import OverviewTab from "@/components/admin/crm/customer/OverviewTab";
+import QuotationsTab from "@/components/admin/crm/customer/QuotationsTab";
+import LeadsTab from "@/components/admin/crm/customer/LeadsTab";
+import { useConfirm } from "@/components/providers/ConfirmProvider";
+
+type TabId = "overview" | "quotations" | "leads" | "timeline";
+const TAB_IDS: TabId[] = ["overview", "quotations", "leads", "timeline"];
+
+function ProfileSkeleton() {
+  return (
+    <div className="space-y-4" aria-busy="true" aria-label="Loading customer" data-testid="profile-skeleton">
+      <div className="h-4 w-32 animate-pulse rounded bg-neutral-200" />
+      <div className="overflow-hidden rounded-3xl border border-neutral-200 bg-white">
+        <div className="h-28 animate-pulse bg-neutral-200" />
+        <div className="space-y-4 px-8 pb-8">
+          <div className="-mt-12 h-24 w-24 animate-pulse rounded-3xl bg-neutral-300 ring-4 ring-white" />
+          <div className="h-7 w-64 animate-pulse rounded bg-neutral-200" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-24 animate-pulse rounded-2xl bg-neutral-100" />
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="h-64 animate-pulse rounded-2xl bg-neutral-100" />
+    </div>
+  );
+}
 
 export default function CustomerProfilePage({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = use(params);
   const router = useRouter();
-  const { id } = use(params);
+  const confirm = useConfirm();
 
-  const [customer, setCustomer] = useState<
-    (Customer & { quotations?: Quotation[]; leads?: Lead[]; activities?: CrmActivity[] }) | null
-  >(null);
+  const [customer, setCustomer] = useState<CustomerProfile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [modalOpen, setModalOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [activityFilter, setActivityFilter] = useState<ActivityFilterId>("all");
 
-  const fetchCustomer = async () => {
-    setLoading(true);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [enquiryModalOpen, setEnquiryModalOpen] = useState(false);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
+  const hasLoaded = useRef(false);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // The open tab lives in the address (?tab=leads), so a reload or a shared link lands on the same tab.
+  useEffect(() => {
+    const tab = new URLSearchParams(window.location.search).get("tab");
+    if (tab && (TAB_IDS as string[]).includes(tab)) setActiveTab(tab as TabId);
+  }, []);
+  const selectTab = useCallback((tab: TabId) => {
+    setActiveTab(tab);
+    const url = new URL(window.location.href);
+    if (tab === "overview") url.searchParams.delete("tab");
+    else url.searchParams.set("tab", tab);
+    window.history.replaceState(null, "", url);
+  }, []);
+
+  // Only the first load shows the skeleton; later refreshes (after logging an activity, editing...) update in place.
+  const fetchProfile = useCallback(async () => {
+    if (!hasLoaded.current) setLoading(true);
     try {
-      const res = await apiJson.get<
-        Customer & { quotations?: Quotation[]; leads?: Lead[]; activities?: CrmActivity[] }
-      >(`/api/crm/customers/${id}`);
-      if (res) {
-        setCustomer(res);
-      }
+      const res = await apiJson.get<CustomerProfile>(`/api/crm/customers/${resolvedParams.id}`);
+      if (res) setCustomer(res);
     } catch (err) {
-      notifyApiError(err, "Failed to load customer profile");
+      if (!hasLoaded.current) notifyApiError(err, "Failed to load customer profile");
+      else notifyApiError(err, "Could not refresh the profile");
     } finally {
+      hasLoaded.current = true;
       setLoading(false);
+    }
+  }, [resolvedParams.id]);
+
+  useEffect(() => {
+    void fetchProfile();
+  }, [fetchProfile]);
+
+  const openLead = async (leadId: string) => {
+    try {
+      const lead = await apiJson.get<Lead>(`/api/crm/leads/${leadId}`);
+      if (lead) setSelectedLead(lead);
+    } catch (err) {
+      notifyApiError(err, "Failed to load enquiry details");
     }
   };
 
-  useEffect(() => {
-    fetchCustomer();
-  }, [id]);
+  const handleArchive = async () => {
+    if (!customer) return;
+    const ok = await confirm({
+      title: "Archive customer",
+      message: `Are you sure you want to archive "${customer.name}"? Quotations and lead records will remain safely intact in historical state.`,
+      confirmText: "Archive customer",
+      variant: "danger",
+    });
+    if (!ok) return;
+    try {
+      await apiJson.delete(`/api/crm/customers/${customer.id}`);
+      notify.success("Customer archived", `"${customer.name}" has been safely archived.`);
+      router.push("/admin/crm/customers");
+    } catch (err) {
+      notifyApiError(err, "Failed to archive customer");
+    }
+  };
 
-  if (loading) {
-    return (
-      <div className="py-24 flex justify-center items-center">
-        <LoadingSpinner />
-      </div>
-    );
-  }
+  const stats = useMemo(() => (customer ? computeCustomerStats(customer) : null), [customer]);
+  const activities = useMemo(() => filterActivities(customer?.activities ?? [], activityFilter), [customer?.activities, activityFilter]);
 
-  if (!customer) {
+  if (loading && !customer) return <ProfileSkeleton />;
+
+  if (!customer || !stats) {
     return (
-      <div className="py-20 text-center space-y-3">
-        <h3 className="text-base font-bold text-neutral-900">Customer not found</h3>
-        <Link href="/admin/crm/customers" className="text-xs font-semibold text-accent hover:underline">
-          Return to Customer Directory
+      <div className="m-6 rounded-2xl border border-neutral-200 bg-white p-10 text-center" data-testid="customer-not-found">
+        <AlertCircle size={40} className="mx-auto mb-3 text-neutral-400" aria-hidden="true" />
+        <h1 className="text-lg font-bold text-neutral-900">Customer not found</h1>
+        <p className="mb-5 mt-1 text-sm text-neutral-500">The requested customer profile does not exist or you do not have permission to view it.</p>
+        <Link href="/admin/crm/customers" className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-neutral-800">
+          <ArrowLeft size={16} aria-hidden="true" />
+          Back to customers
         </Link>
       </div>
     );
   }
 
-  const handleOpenWhatsApp = () => {
-    const rawNumber = customer.whatsapp || customer.phone;
-    if (!rawNumber) {
-      notify.error("No phone number", "This customer has no phone or WhatsApp number.");
-      return;
-    }
-    const clean = normalizeWhatsAppNumber(rawNumber);
-    if (!clean) return;
-    window.open(`https://api.whatsapp.com/send?phone=${clean}`, "_blank");
+  const newQuotationUrl = `/quotation/new?customerId=${customer.id}&clientName=${encodeURIComponent(customer.name)}&clientPhone=${encodeURIComponent(customer.phone || "")}&clientEmail=${encodeURIComponent(customer.email || "")}&location=${encodeURIComponent(customer.siteAddress || customer.billingAddress || "")}`;
+
+  const tabs: Array<{ id: TabId; label: string; icon: typeof FileText; count?: number }> = [
+    { id: "overview", label: "Overview", icon: LayoutDashboard },
+    { id: "quotations", label: "Quotations", icon: FileText, count: stats.quotationCount },
+    { id: "leads", label: "Enquiries", icon: TrendingUp, count: stats.leadCount },
+    { id: "timeline", label: "Activity", icon: Clock, count: customer.activities?.length ?? 0 },
+  ];
+
+  const onTabKeyDown = (event: React.KeyboardEvent, index: number) => {
+    const next = event.key === "ArrowRight" ? (index + 1) % tabs.length : event.key === "ArrowLeft" ? (index - 1 + tabs.length) % tabs.length : event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : null;
+    if (next === null) return;
+    event.preventDefault();
+    selectTab(tabs[next].id);
+    tabRefs.current[tabs[next].id]?.focus();
   };
 
   return (
-    <div className="space-y-5">
-      {/* Back button */}
-      <div>
-        <Link
-          href="/admin/crm/customers"
-          className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-500 hover:text-neutral-900 transition"
-        >
-          <ArrowLeft size={14} />
-          <span>Back to Customers</span>
-        </Link>
-      </div>
+    <div className="space-y-6 pb-12">
+      <ProfileHeader customer={customer} stats={stats} newQuotationUrl={newQuotationUrl} onEdit={() => setEditModalOpen(true)} onArchive={() => void handleArchive()} onNewEnquiry={() => setEnquiryModalOpen(true)} />
 
-      <PageHeader
-        title={customer.name}
-        subtitle={`${CUSTOMER_TYPE_LABELS[customer.customerType] || customer.customerType} • Client Profile & History`}
-        icon={Contact}
-        actions={
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" size="sm" onClick={() => setModalOpen(true)}>
-              <Edit2 size={13} className="mr-1.5" />
-              <span>Edit Profile</span>
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={() => router.push(`/quotation/new`)}
-            >
-              <Plus size={14} className="mr-1" />
-              <span>New Quotation</span>
-            </Button>
-          </div>
-        }
-      />
-
-      {/* Profile Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Contact Info Card */}
-        <div className="p-4 bg-white rounded-2xl border border-neutral-200 shadow-2xs space-y-3 text-xs">
-          <h4 className="font-bold text-neutral-900 uppercase tracking-wider text-[11px] pb-2 border-b border-neutral-100">
-            Contact Details
-          </h4>
-          {customer.phone && (
-            <div className="flex items-center justify-between text-neutral-600">
-              <span className="flex items-center gap-1.5">
-                <Phone size={13} className="text-neutral-400" /> Phone:
-              </span>
-              <a href={`tel:${customer.phone}`} className="font-semibold text-neutral-900 hover:underline">
-                {customer.phone}
-              </a>
-            </div>
-          )}
-          {(customer.whatsapp || customer.phone) && (
-            <div className="flex items-center justify-between text-neutral-600">
-              <span className="flex items-center gap-1.5">
-                <MessageCircle size={13} className="text-green-600" /> WhatsApp:
-              </span>
+      <div className="-mx-1 overflow-x-auto px-1">
+        <div role="tablist" aria-label="Customer sections" className="flex min-w-max gap-1 border-b border-neutral-200">
+          {tabs.map((tab, index) => {
+            const Icon = tab.icon;
+            const selected = activeTab === tab.id;
+            return (
               <button
+                key={tab.id}
+                ref={(node) => {
+                  tabRefs.current[tab.id] = node;
+                }}
+                role="tab"
                 type="button"
-                onClick={handleOpenWhatsApp}
-                className="font-semibold text-green-700 hover:underline cursor-pointer"
+                id={`tab-${tab.id}`}
+                aria-selected={selected}
+                aria-controls={`panel-${tab.id}`}
+                tabIndex={selected ? 0 : -1}
+                data-testid={`tab-${tab.id}`}
+                onClick={() => selectTab(tab.id)}
+                onKeyDown={(event) => onTabKeyDown(event, index)}
+                className={cn(
+                  "-mb-px flex items-center gap-2 border-b-2 px-4 pb-3 pt-2 text-sm font-bold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                  selected ? "border-neutral-950 text-neutral-950" : "border-transparent text-neutral-500 hover:text-neutral-800"
+                )}
               >
-                Chat on WhatsApp
+                <Icon size={16} aria-hidden="true" />
+                {tab.label}
+                {tab.count !== undefined && <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", selected ? "bg-neutral-900 text-white" : "bg-neutral-100 text-neutral-700")}>{tab.count}</span>}
               </button>
-            </div>
-          )}
-          {customer.email && (
-            <div className="flex items-center justify-between text-neutral-600">
-              <span className="flex items-center gap-1.5">
-                <Mail size={13} className="text-neutral-400" /> Email:
-              </span>
-              <a href={`mailto:${customer.email}`} className="font-semibold text-neutral-900 hover:underline truncate max-w-[150px]">
-                {customer.email}
-              </a>
-            </div>
-          )}
-          {customer.gstNumber && (
-            <div className="flex items-center justify-between text-neutral-600">
-              <span className="flex items-center gap-1.5">
-                <Building size={13} className="text-neutral-400" /> GSTIN:
-              </span>
-              <span className="font-mono font-bold text-neutral-900">{customer.gstNumber}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Addresses Card */}
-        <div className="p-4 bg-white rounded-2xl border border-neutral-200 shadow-2xs space-y-3 text-xs">
-          <h4 className="font-bold text-neutral-900 uppercase tracking-wider text-[11px] pb-2 border-b border-neutral-100">
-            Addresses
-          </h4>
-          <div>
-            <span className="font-semibold text-neutral-400 text-[10px] uppercase block">
-              Site / Project Location
-            </span>
-            <p className="text-neutral-800 mt-0.5 leading-relaxed">
-              {customer.siteAddress || "Not specified"}
-            </p>
-          </div>
-          <div className="pt-2 border-t border-neutral-100">
-            <span className="font-semibold text-neutral-400 text-[10px] uppercase block">
-              Billing Address
-            </span>
-            <p className="text-neutral-800 mt-0.5 leading-relaxed">
-              {customer.billingAddress || "Same as site location"}
-            </p>
-          </div>
-        </div>
-
-        {/* Relationship & Assignment Card */}
-        <div className="p-4 bg-white rounded-2xl border border-neutral-200 shadow-2xs space-y-3 text-xs">
-          <h4 className="font-bold text-neutral-900 uppercase tracking-wider text-[11px] pb-2 border-b border-neutral-100">
-            Account Management
-          </h4>
-          <div className="flex items-center justify-between text-neutral-600">
-            <span>Sales Representative:</span>
-            <strong className="text-neutral-900">
-              {customer.assignedSales?.name || "Unassigned"}
-            </strong>
-          </div>
-          <div className="flex items-center justify-between text-neutral-600">
-            <span>Assigned Dealer:</span>
-            <strong className="text-neutral-900">
-              {customer.dealer?.companyName || customer.dealer?.name || "Direct Company"}
-            </strong>
-          </div>
-          <div className="flex items-center justify-between text-neutral-600">
-            <span>Customer Since:</span>
-            <strong className="text-neutral-900">
-              {new Date(customer.createdAt).toLocaleDateString("en-IN")}
-            </strong>
-          </div>
+            );
+          })}
         </div>
       </div>
 
-      {/* Quotations & Leads History */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Quotations List */}
-        <div className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-2xs space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
-            <h4 className="font-bold text-neutral-900 text-sm flex items-center gap-2">
-              <FileText size={16} className="text-accent" />
-              <span>Quotations ({customer.quotations?.length ?? 0})</span>
-            </h4>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(`/quotation/new`)}
-            >
-              <Plus size={13} className="mr-1" /> New
-            </Button>
-          </div>
+      <div role="tabpanel" id={`panel-${activeTab}`} aria-labelledby={`tab-${activeTab}`} tabIndex={0} className="focus-visible:outline-none">
+        {activeTab === "overview" && <OverviewTab customer={customer} onShowTab={selectTab} onEdit={() => setEditModalOpen(true)} />}
 
-          {!customer.quotations || customer.quotations.length === 0 ? (
-            <div className="py-8 text-center text-xs text-neutral-400 bg-neutral-50/50 rounded-xl border border-dashed border-neutral-200">
-              No quotations created for this customer yet.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {customer.quotations.map((q) => (
-                <Link
-                  key={q.id}
-                  href={`/quotation/${q.id}`}
-                  className="flex items-center justify-between p-3 rounded-xl border border-neutral-200 hover:border-neutral-300 hover:bg-neutral-50/60 transition group text-xs"
-                >
-                  <div>
-                    <span className="font-mono font-bold text-neutral-900 group-hover:text-accent transition">
-                      {q.quotationNumber}
-                    </span>
-                    <div className="text-[11px] text-neutral-400 mt-0.5">
-                      {new Date(q.createdAt).toLocaleDateString("en-IN")}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="capitalize font-semibold text-[11px] px-2 py-0.5 rounded bg-neutral-100 text-neutral-700">
-                      {q.status}
-                    </span>
-                    <ExternalLink size={13} className="text-neutral-400 group-hover:text-accent" />
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </div>
+        {activeTab === "quotations" && <QuotationsTab quotations={customer.quotations ?? []} statusCounts={stats.statusCounts} newQuotationUrl={newQuotationUrl} />}
 
-        {/* Leads History */}
-        <div className="bg-white p-4 rounded-2xl border border-neutral-200 shadow-2xs space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-neutral-100">
-            <h4 className="font-bold text-neutral-900 text-sm flex items-center gap-2">
-              <Contact size={16} className="text-accent" />
-              <span>Project Leads ({customer.leads?.length ?? 0})</span>
-            </h4>
-          </div>
+        {activeTab === "leads" && <LeadsTab leads={customer.leads ?? []} onOpen={(id) => void openLead(id)} onNewEnquiry={() => setEnquiryModalOpen(true)} />}
 
-          {!customer.leads || customer.leads.length === 0 ? (
-            <div className="py-8 text-center text-xs text-neutral-400 bg-neutral-50/50 rounded-xl border border-dashed border-neutral-200">
-              No previous inquiries or leads recorded.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {customer.leads.map((l) => {
-                const st = LEAD_STATUS_CONFIG[l.status] || LEAD_STATUS_CONFIG.new;
+        {activeTab === "timeline" && (
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs sm:p-6" data-testid="timeline-tab">
+            <div className="mb-4 flex flex-wrap gap-1.5" role="group" aria-label="Filter activity">
+              {ACTIVITY_FILTERS.map((filter) => {
+                const active = activityFilter === filter.id;
+                const count = filterActivities(customer.activities ?? [], filter.id).length;
+                if (filter.id !== "all" && count === 0 && !active) return null;
                 return (
-                  <div
-                    key={l.id}
-                    className="flex items-center justify-between p-3 rounded-xl border border-neutral-200 bg-neutral-50/40 text-xs"
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setActivityFilter(filter.id)}
+                    aria-pressed={active}
+                    data-testid={`activity-filter-${filter.id}`}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                      active ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
+                    )}
                   >
-                    <div>
-                      <span className="font-mono font-bold text-accent">{l.referenceNumber}</span>
-                      <div className="text-[11px] text-neutral-600 font-medium mt-0.5">
-                        {l.projectType || "General Inquiry"}
-                      </div>
-                    </div>
-                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${st.bg} ${st.text} ${st.border}`}>
-                      {st.label}
-                    </span>
-                  </div>
+                    {filter.label}
+                    <span className={cn("rounded-full px-1.5 text-[10px]", active ? "bg-white/20" : "bg-neutral-100 text-neutral-600")}>{count}</span>
+                  </button>
                 );
               })}
             </div>
-          )}
-        </div>
+            <ActivityTimeline activities={activities} customerId={customer.id} onActivityAdded={() => void fetchProfile()} />
+          </div>
+        )}
       </div>
 
-      {/* Activity Timeline */}
-      <div className="bg-white p-5 rounded-2xl border border-neutral-200 shadow-2xs">
-        <ActivityTimeline
-          activities={customer.activities || []}
-          customerId={customer.id}
-          onActivityAdded={fetchCustomer}
-        />
-      </div>
-
-      <CustomerModal
-        isOpen={modalOpen}
-        customer={customer}
-        onClose={() => setModalOpen(false)}
-        onSaved={fetchCustomer}
-      />
+      <CustomerModal isOpen={editModalOpen} customer={customer} onClose={() => setEditModalOpen(false)} onSaved={() => void fetchProfile()} />
+      <LeadModal isOpen={enquiryModalOpen} customer={customer} onClose={() => setEnquiryModalOpen(false)} onSaved={() => void fetchProfile()} />
+      <LeadDetailDrawer lead={selectedLead} isOpen={Boolean(selectedLead)} onClose={() => setSelectedLead(null)} onLeadUpdated={() => void fetchProfile()} />
     </div>
   );
 }

@@ -164,12 +164,9 @@ export default function PipelinePage() {
     const before = stages;
     setStages((current) => withCardMoved(current, leadId, targetStage));
     try {
-      // Negotiation is stored as the "quoted" lead status.
-      const leadStatus = targetStage === "negotiation" ? "quoted" : targetStage;
       await apiJson.patch(`/api/crm/leads/${leadId}/status`, {
-        status: leadStatus,
+        status: targetStage,
         lostReason: lostReasonText,
-        notes: targetStage === "negotiation" ? "Negotiation & customer revisions in progress" : undefined,
       });
       notify.success("Opportunity moved", "Pipeline stage updated.");
       void fetchPipeline();

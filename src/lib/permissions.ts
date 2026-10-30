@@ -212,14 +212,11 @@ export function hasPermission(
   // CRM Permissions evaluation
   if (typeof requiredPermission === "string" && CRM_PERMISSION_SET.has(requiredPermission)) {
     if (normRole === "super_admin" || normRole === "company_owner" || normRole === "admin") return true;
+    // Dealers and Sales Executives have no CRM screens and no CRM permission in their defaults: CRM is for the
+    // admin roles (and custom roles explicitly granted CRM permissions).
+    if (normRole === "dealer" || normRole === "sales_executive") return false;
     if (Array.isArray(assignedPermissions) && assignedPermissions.length > 0) {
       return assignedPermissions.includes(requiredPermission) || assignedPermissions.includes("crm:manage");
-    }
-    if (normRole === "sales_executive") {
-      return requiredPermission !== "crm:manage";
-    }
-    if (normRole === "dealer") {
-      return requiredPermission === "leads:read" || requiredPermission === "leads:manage" || requiredPermission === "customers:read";
     }
     return false;
   }

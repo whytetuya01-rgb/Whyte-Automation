@@ -63,7 +63,7 @@ const LeadSchema = new Schema<ILeadDocument>(
     description: { type: String, default: null },
     status: {
       type: String,
-      enum: ["new", "contacted", "site_visit", "quoted", "won", "lost"],
+      enum: ["new", "contacted", "site_visit", "quoted", "negotiation", "won", "lost"],
       default: "new",
       index: true,
     },

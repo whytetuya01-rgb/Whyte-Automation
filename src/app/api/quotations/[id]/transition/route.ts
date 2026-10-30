@@ -8,6 +8,7 @@ import { calculateDealerEarning, resolveCustomerDiscountPercent, toPlainNumber }
 import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { parseQuotationId, transitionQuotationSchema } from "@/lib/validation/quotation";
 import { quotationHasProducts } from "@/lib/quotationProducts";
+import { syncLeadWithQuotation } from "@/lib/crmService";
 
 export const dynamic = "force-dynamic";
 
@@ -90,6 +91,16 @@ export async function POST(req: Request, context: RouteContext) {
       previousValue: { status: currentStatus },
       newValue: { status: quotation.status },
     });
+
+    if (action === "approve" || action === "reject") {
+      await syncLeadWithQuotation({
+        leadId: quotation.leadId,
+        quotationId,
+        quotationNumber: quotation.quotationNumber,
+        event: action === "approve" ? "approved" : "rejected",
+        userId,
+      });
+    }
 
     return apiSuccess({
       id: quotation._id,

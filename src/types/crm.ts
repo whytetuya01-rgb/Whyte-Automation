@@ -1,7 +1,7 @@
 import type { AdminUser, Quotation, PaginatedResponse } from "@/types";
 export type { AdminUser, Quotation, PaginatedResponse };
 
-export type LeadStatus = "new" | "contacted" | "site_visit" | "quoted" | "won" | "lost";
+export type LeadStatus = "new" | "contacted" | "site_visit" | "quoted" | "negotiation" | "won" | "lost";
 export type LeadPriority = "low" | "medium" | "high" | "urgent";
 
 export const LEAD_STATUS_CONFIG: Record<
@@ -12,8 +12,9 @@ export const LEAD_STATUS_CONFIG: Record<
   contacted: { label: "Contacted", bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200", step: 2 },
   site_visit: { label: "Site Visit", bg: "bg-purple-50", text: "text-purple-700", border: "border-purple-200", step: 3 },
   quoted: { label: "Quoted", bg: "bg-amber-50", text: "text-amber-800", border: "border-amber-200", step: 4 },
-  won: { label: "Won", bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", step: 5 },
-  lost: { label: "Lost", bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200", step: 5 },
+  negotiation: { label: "Negotiation", bg: "bg-pink-50", text: "text-pink-700", border: "border-pink-200", step: 5 },
+  won: { label: "Won", bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", step: 6 },
+  lost: { label: "Lost", bg: "bg-rose-50", text: "text-rose-700", border: "border-rose-200", step: 6 },
 };
 
 export const LEAD_PRIORITY_CONFIG: Record<
@@ -88,6 +89,30 @@ export interface Customer {
   // Computed / aggregated
   quotationsCount?: number;
   leadsCount?: number;
+}
+
+export interface CustomerProfile extends Customer {
+  quotations: Array<{
+    id: string;
+    quotationNumber: string;
+    clientName: string;
+    status: string;
+    grandTotal: number;
+    createdAt: string;
+  }>;
+  leads: Array<{
+    id: string;
+    referenceNumber: string;
+    projectType?: string | null;
+    estimatedBudget?: number | null;
+    status: LeadStatus;
+    priority: LeadPriority;
+    createdAt: string;
+    nextFollowUpAt?: string | null;
+    expectedClosingDate?: string | null;
+    lostReason?: string | null;
+  }>;
+  activities: CrmActivity[];
 }
 
 export interface Lead {

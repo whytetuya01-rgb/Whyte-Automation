@@ -25,14 +25,16 @@ import {
 import {
   crmVisibilityFilter,
   ensureCompanyLeadSources,
+  phoneMatchRegex,
   PIPELINE_STAGES,
+  scopedQuery,
 } from "../src/lib/crmService";
 import {
   LEAD_STATUS_CONFIG,
   LEAD_PRIORITY_CONFIG,
 } from "../src/types/crm";
 import { INITIAL_LEAD_SOURCES } from "../src/models";
-import { hasPermission, CRM_PERMISSIONS } from "../src/lib/permissions";
+import { hasPermission, CRM_PERMISSIONS, DEALER_DEFAULT_PERMISSIONS, SALES_EXECUTIVE_DEFAULT_PERMISSIONS } from "../src/lib/permissions";
 
 let count = 0;
 const pass = (name: string) => {
@@ -52,18 +54,17 @@ function main() {
     assert.equal(hasPermission("admin", [], "customers:manage"), true);
     assert.equal(hasPermission("company_owner", [], "leads:read"), true);
 
-    // Sales executive has read and manage access to leads and read access to crm
-    assert.equal(hasPermission("sales_executive", [], "leads:read"), true);
-    assert.equal(hasPermission("sales_executive", [], "leads:manage"), true);
-    assert.equal(hasPermission("sales_executive", [], "crm:read"), true);
-    assert.equal(hasPermission("sales_executive", [], "customers:read"), true);
-
-    // Dealer has access to their own leads and customers, but not company-wide CRM settings
-    assert.equal(hasPermission("dealer", [], "leads:read"), true);
-    assert.equal(hasPermission("dealer", [], "leads:manage"), true);
-    assert.equal(hasPermission("dealer", [], "customers:read"), true);
-    assert.equal(hasPermission("dealer", [], "crm:read"), false);
-    assert.equal(hasPermission("dealer", [], "crm:manage"), false);
+    // Dealers and Sales Executives have no CRM access. Real sessions carry their default permission list (never an
+    // empty one), so that is what is checked here; an empty list must not grant anything either.
+    const salesDefaults = Array.from(SALES_EXECUTIVE_DEFAULT_PERMISSIONS);
+    const dealerDefaults = Array.from(DEALER_DEFAULT_PERMISSIONS);
+    for (const permission of CRM_PERMISSIONS) {
+      assert.equal(hasPermission("sales_executive", salesDefaults, permission), false, `sales_executive ${permission}`);
+      assert.equal(hasPermission("sales_executive", [], permission), false, `sales_executive [] ${permission}`);
+      assert.equal(hasPermission("dealer", dealerDefaults, permission), false, `dealer ${permission}`);
+      assert.equal(hasPermission("dealer", [], permission), false, `dealer [] ${permission}`);
+      assert.equal(hasPermission("dealer", [permission], permission), false, `dealer cannot be granted ${permission}`);
+    }
 
     // Configurable admin requires explicit assigned permission
     assert.equal(hasPermission("configurable_admin", [], "leads:read"), false);
@@ -91,6 +92,36 @@ function main() {
     assert.deepEqual(dealerFilter, { dealerId: 99 });
 
     pass("CRM visibility scoping: strict tenant and role-based data partitioning");
+  }
+
+  // ── 2b. Requested filters and search can only narrow the visibility rule, never replace it ──
+  {
+    const search = { $or: [{ customerName: /x/i }, { phone: /x/i }] };
+    const salesRule = crmVisibilityFilter({ role: "sales_executive", userId: 42 });
+    const sales = scopedQuery(7, salesRule, [{ status: "new" }, search]);
+    assert.deepEqual(sales, { companyId: 7, $and: [salesRule, { status: "new" }, search] }, "visibility, filters and search must all hold");
+    assert.equal("$or" in sales, false, "no top-level $or that could override the visibility rule");
+
+    // A dealer asking for another dealer's id: both conditions stay, so nothing of the other dealer can match.
+    const dealerRule = crmVisibilityFilter({ role: "dealer", userId: 9 });
+    const crafted = scopedQuery(7, dealerRule, [{ dealerId: 10 }]);
+    assert.deepEqual(crafted, { companyId: 7, $and: [{ dealerId: 9 }, { dealerId: 10 }] });
+    assert.equal("dealerId" in crafted, false, "dealerId is never a top-level key that the request could overwrite");
+    assert.deepEqual(scopedQuery(7, {}, []), { companyId: 7 }, "an admin with no filters sees the whole company");
+    assert.deepEqual(scopedQuery(7, {}, [{ status: "won" }]), { companyId: 7, $and: [{ status: "won" }] });
+    pass("Filters and search are ANDed with the visibility rule (scopedQuery), never assigned over it");
+  }
+
+  // ── 2c. Phone numbers match however they were typed ──
+  {
+    const rx = phoneMatchRegex("9876500055");
+    assert.ok(rx);
+    for (const same of ["9876500055", "+91 98765 00055", "98765-00055", "098765 00055", "+91-9876500055", " 91 98765 00055 "]) assert.ok(rx.test(same), same);
+    for (const other of ["9876500056", "19876500055", "987650005", "+44 98765 00055", "98765000555"]) assert.equal(rx.test(other), false, other);
+    assert.equal(phoneMatchRegex("12345"), null, "short numbers are compared as typed");
+    assert.equal(phoneMatchRegex("5876500055"), null, "not an Indian mobile: compared as typed");
+    assert.equal(phoneMatchRegex(null), null);
+    pass("Phone matching: one Indian mobile number is the same person in any common format, and only that number");
   }
 
   // ── 3. Zod Schemas Validation: Leads ──
@@ -193,6 +224,12 @@ function main() {
       "won",
       "lost",
     ]);
+
+    // Negotiation is a real status with its own badge, between Quoted and Won/Lost
+    assert.ok(LEAD_STATUS_CONFIG.negotiation, "negotiation status exists");
+    assert.ok(LEAD_STATUS_CONFIG.negotiation.step > LEAD_STATUS_CONFIG.quoted.step && LEAD_STATUS_CONFIG.negotiation.step < LEAD_STATUS_CONFIG.won.step);
+    assert.ok(updateLeadSchema.safeParse({ status: "negotiation" }).success);
+    assert.deepEqual(PIPELINE_STAGES.map((stage) => stage.id), ["new", "contacted", "site_visit", "quoted", "negotiation", "won", "lost"]);
 
     // Check status config badges
     assert.ok(LEAD_STATUS_CONFIG.new.bg.includes("blue"));

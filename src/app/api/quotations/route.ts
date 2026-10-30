@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, HouseTypeRoomTemplate, HouseType } from "@/models";
+import { claimLeadForQuotation, finalizeLeadLink, recordCrmActivity, resolveOrCreateCustomer, validateQuotationLinks } from "@/lib/crmService";
 import { getNextQuotationSequence, reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
@@ -353,6 +354,13 @@ async function createQuotation(
     const targetSalesId = ownership.assignedSalesId;
     const allocatedPercent = ownership.allocatedPercent;
 
+    // `customerId` and `leadId` come from the client, so nothing about them is trusted until checked: each must exist in
+    // this company and be visible to the caller, and the caller must hold the CRM permission for it. A lead that
+    // already has a quotation is refused here, and again atomically when it is claimed below.
+    const links = await validateQuotationLinks({ role, userId, permissions, companyId }, { customerId: rest.customerId, leadId: rest.leadId });
+    rest.customerId = links.customerId ?? null;
+    rest.leadId = links.leadId ?? null;
+
     const requestedCustomerDiscount =
       customerDiscountPercent !== undefined && customerDiscountPercent !== null
         ? Number(customerDiscountPercent)
@@ -402,9 +410,35 @@ async function createQuotation(
         ? mongoose.Types.Decimal128.fromString(requestedCustomerDiscount.toFixed(2))
         : (discountValue !== undefined && discountValue !== null ? mongoose.Types.Decimal128.fromString(discountValue.toFixed(2)) : null);
 
+      let resolvedCustomerId = rest.customerId ?? null;
+      if (companyId && !resolvedCustomerId && rest.clientName?.trim() && (rest.clientPhone?.trim() || rest.clientEmail?.trim())) {
+        try {
+          resolvedCustomerId = await resolveOrCreateCustomer({
+            companyId: (companyId as number),
+            name: rest.clientName,
+            phone: rest.clientPhone,
+            email: rest.clientEmail,
+            siteAddress: rest.clientAddress,
+            gstNumber: rest.clientGstNumber,
+            assignedSalesId: targetSalesId,
+            dealerId: targetDealerId,
+            userId,
+          });
+        } catch (err) {
+          console.error("Auto customer resolution error:", err);
+        }
+      }
+
+      // Take the lead with one conditional update (inside this transaction when there is one), so it can never end up
+      // pointing at two quotations, whatever else is happening to it.
+      if (links.leadId && companyId) {
+        await claimLeadForQuotation({ companyId, leadId: links.leadId, quotationId, session: dbSession });
+      }
+
       const newQuotation = new Quotation({
         _id: quotationId,
         ...rest,
+        customerId: resolvedCustomerId,
         quotationNumber,
         houseTypeId: houseTypeId ?? null,
         status: "draft",
@@ -496,8 +530,39 @@ async function createQuotation(
         dbSession
       );
 
+      if (resolvedCustomerId && companyId) {
+        try {
+          await recordCrmActivity({
+            companyId: (companyId as number),
+            customerId: resolvedCustomerId,
+            leadId: rest.leadId ?? null,
+            quotationId,
+            type: "note",
+            title: "Quotation Created",
+            description: `Quotation ${quotationNumber} initialized for ${rest.clientName}`,
+            performedBy: userId,
+          });
+        } catch (err) {
+          console.error("CRM activity error on quotation create:", err);
+        }
+      }
+
       return newQuotation;
     });
+
+    // The lead was claimed inside the transaction, so the rest of its update waits until that has committed (writing
+    // to it from inside would wait on the transaction's own lock). An early lead moves to Quoted; Quoted / Negotiation /
+    // Won / Lost are never moved; the timeline records the link.
+    if (links.leadId && companyId) {
+      await finalizeLeadLink({
+        companyId,
+        leadId: links.leadId,
+        quotationId: String(createdQuotation._id),
+        quotationNumber: createdQuotation.quotationNumber,
+        customerId: createdQuotation.customerId ?? null,
+        userId,
+      });
+    }
 
     const plain = createdQuotation.toJSON ? createdQuotation.toJSON() : createdQuotation;
     return apiSuccess(redactQuotationForRole(plain as any, role, permissions), { status: 201 });

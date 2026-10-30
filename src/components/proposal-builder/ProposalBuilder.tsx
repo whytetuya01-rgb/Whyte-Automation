@@ -387,6 +387,8 @@ export default function ProposalBuilder({
           clientGstNumber: formData.clientGstNumber.trim() || null,
           houseTypeId: formData.houseTypeId,
           notes: notesWithProject,
+          customerId: formData.customerId ?? null,
+          leadId: formData.leadId ?? null,
         };
         const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
         setOfflineDraft(nextDraft);
@@ -415,6 +417,8 @@ export default function ProposalBuilder({
             clientGstNumber: formData.clientGstNumber.trim() || null,
             houseTypeId: formData.houseTypeId,
             notes: notesWithProject,
+            ...(formData.customerId ? { customerId: formData.customerId } : {}),
+            ...(formData.leadId ? { leadId: formData.leadId } : {}),
             ...(formData.dealerId ? { dealerId: formData.dealerId } : {}),
             ...(formData.assignedSalesId ? { assignedSalesId: formData.assignedSalesId } : {}),
           }),
@@ -455,6 +459,8 @@ export default function ProposalBuilder({
             clientGstNumber: formData.clientGstNumber.trim() || null,
             houseTypeId: formData.houseTypeId,
             notes: notesWithProject,
+            ...(formData.customerId !== undefined ? { customerId: formData.customerId } : {}),
+            ...(formData.leadId !== undefined ? { leadId: formData.leadId } : {}),
           }),
         });
 

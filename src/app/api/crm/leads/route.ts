@@ -1,5 +1,5 @@
 import { connectMongoDB } from "@/lib/mongodb";
-import { Lead, Customer, LeadSource } from "@/models";
+import { Lead } from "@/models";
 import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
@@ -7,7 +7,7 @@ import { createLeadSchema } from "@/lib/validation/crm";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { parseSearchQueryParam, parseStringQueryParam, parseIntQueryParam } from "@/lib/validation/common";
 import { getNextLeadSequence } from "@/lib/counter";
-import { crmVisibilityFilter, recordCrmActivity } from "@/lib/crmService";
+import { assertValidLeadAssignees, crmVisibilityFilter, findCustomerByContact, phoneMatchRegex, recordCrmActivity, resolveLeadReferences, scopedQuery } from "@/lib/crmService";
 
 export const dynamic = "force-dynamic";
 
@@ -33,27 +33,19 @@ export async function GET(req: Request) {
       const salesId = parseIntQueryParam(searchParams, "assignedSalesId");
       const dealerId = parseIntQueryParam(searchParams, "dealerId");
 
-      const query: Record<string, unknown> = {
-        companyId,
-        ...crmVisibilityFilter({ role, userId }),
-      };
-
-      if (status && status !== "all") query.status = status;
-      if (priority && priority !== "all") query.priority = priority;
-      if (salesId) query.assignedSalesId = salesId;
-      if (dealerId) query.dealerId = dealerId;
-
+      // Visibility and every requested filter must all hold: a parameter can only narrow the result.
+      const requested: Array<Record<string, unknown>> = [];
+      if (status && status !== "all") requested.push({ status });
+      if (priority && priority !== "all") requested.push({ priority });
+      if (salesId) requested.push({ assignedSalesId: salesId });
+      if (dealerId) requested.push({ dealerId });
       if (search) {
         const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-        query.$or = [
-          { customerName: rx },
-          { referenceNumber: rx },
-          { phone: rx },
-          { email: rx },
-          { projectType: rx },
-          { location: rx },
-        ];
+        requested.push({
+          $or: [{ customerName: rx }, { referenceNumber: rx }, { phone: rx }, { email: rx }, { projectType: rx }, { location: rx }],
+        });
       }
+      const query = scopedQuery(companyId, crmVisibilityFilter({ role, userId }), requested);
 
       const total = await Lead.countDocuments(query);
       const leads = await Lead.find(query)
@@ -98,25 +90,20 @@ export async function POST(req: Request) {
       const body = await readJsonBody(req);
       const input = createLeadSchema.parse(body);
 
+      // Enforce assignment scoping: dealers can only assign to themselves
+      const assignedDealerId = role === "dealer" ? userId : (input.dealerId ?? null);
+      const assignedSalesId = input.assignedSalesId ?? null;
+      await assertValidLeadAssignees({ companyId, dealerId: assignedDealerId, assignedSalesId });
+      const references = await resolveLeadReferences({ companyId, role, userId, customerId: input.customerId, sourceId: input.sourceId });
+
       const createdOn = new Date();
       const year = createdOn.getFullYear();
       const seq = await getNextLeadSequence(year);
       const referenceNumber = `LD-${year}-${String(seq).padStart(4, "0")}`;
       const leadId = `ld_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 
-      // Resolve source name if sourceId was passed
-      let sourceName = input.sourceName || null;
-      if (input.sourceId && !sourceName) {
-        const src = await LeadSource.findById(input.sourceId).select("name").lean();
-        if (src) sourceName = src.name;
-      }
-
-      // Enforce assignment scoping: dealers can only assign to themselves
-      let assignedDealerId = input.dealerId ?? null;
-      let assignedSalesId = input.assignedSalesId ?? null;
-      if (role === "dealer") {
-        assignedDealerId = userId;
-      }
+      // The source's own name is used when a source is chosen; free text only applies without one.
+      const sourceName = input.sourceId ? references.sourceName : input.sourceName || null;
 
       const newLead = await Lead.create({
         _id: leadId,
@@ -157,7 +144,32 @@ export async function POST(req: Request) {
         performedBy: userId,
       });
 
-      return apiSuccess({ id: newLead._id, referenceNumber: newLead.referenceNumber }, { status: 201 });
+      // Warn (never block) when the same person is already in the CRM: other open leads and the saved customer.
+      const phoneMatch = phoneMatchRegex(input.phone) ?? (input.phone?.trim() || null);
+      const sameContact = [
+        ...(phoneMatch ? [{ phone: phoneMatch }] : []),
+        ...(input.email ? [{ email: input.email.trim().toLowerCase() }] : []),
+      ];
+      const duplicateLeads = sameContact.length
+        ? await Lead.find({ companyId, _id: { $ne: leadId }, status: { $nin: ["won", "lost"] }, $or: sameContact })
+            .select("_id referenceNumber customerName status")
+            .sort({ createdAt: 1 })
+            .limit(5)
+            .lean()
+        : [];
+      const existingCustomer = await findCustomerByContact(companyId, input.phone, input.email);
+
+      return apiSuccess(
+        {
+          id: newLead._id,
+          referenceNumber: newLead.referenceNumber,
+          possibleDuplicates: {
+            leads: duplicateLeads.map((l) => ({ id: l._id, referenceNumber: l.referenceNumber, customerName: l.customerName, status: l.status })),
+            customer: existingCustomer ? { id: existingCustomer._id, name: existingCustomer.name } : null,
+          },
+        },
+        { status: 201 }
+      );
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "POST /api/crm/leads" });

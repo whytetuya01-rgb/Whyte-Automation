@@ -7,7 +7,7 @@ import { createCustomerSchema } from "@/lib/validation/crm";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { parseSearchQueryParam, parseStringQueryParam, parseIntQueryParam } from "@/lib/validation/common";
 import { getNextSequence } from "@/lib/counter";
-import { crmVisibilityFilter, recordCrmActivity } from "@/lib/crmService";
+import { assertValidLeadAssignees, crmVisibilityFilter, findCustomerByContact, isDuplicateKey, recordCrmActivity, scopedQuery, settleNewCustomer } from "@/lib/crmService";
 
 export const dynamic = "force-dynamic";
 
@@ -30,26 +30,16 @@ export async function GET(req: Request) {
       const salesId = parseIntQueryParam(searchParams, "assignedSalesId");
       const dealerId = parseIntQueryParam(searchParams, "dealerId");
 
-      const query: Record<string, unknown> = {
-        companyId,
-        ...crmVisibilityFilter({ role, userId }),
-      };
-
-      if (customerType && customerType !== "all") query.customerType = customerType;
-      if (salesId) query.assignedSalesId = salesId;
-      if (dealerId) query.dealerId = dealerId;
-
+      // Visibility and every requested filter must all hold: a parameter can only narrow the result.
+      const requested: Array<Record<string, unknown>> = [];
+      if (customerType && customerType !== "all") requested.push({ customerType });
+      if (salesId) requested.push({ assignedSalesId: salesId });
+      if (dealerId) requested.push({ dealerId });
       if (search) {
         const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-        query.$or = [
-          { name: rx },
-          { phone: rx },
-          { email: rx },
-          { gstNumber: rx },
-          { billingAddress: rx },
-          { siteAddress: rx },
-        ];
+        requested.push({ $or: [{ name: rx }, { phone: rx }, { email: rx }, { gstNumber: rx }, { billingAddress: rx }, { siteAddress: rx }] });
       }
+      const query = scopedQuery(companyId, crmVisibilityFilter({ role, userId }), requested);
 
       const total = await Customer.countDocuments(query);
       const customers = await Customer.find(query)
@@ -103,41 +93,55 @@ export async function POST(req: Request) {
       const body = await readJsonBody(req);
       const input = createCustomerSchema.parse(body);
 
-      // Check for duplicate phone or email in this company
-      const orClauses: Array<Record<string, unknown>> = [];
-      if (input.phone) orClauses.push({ phone: input.phone });
-      if (input.email) orClauses.push({ email: input.email });
+      // One customer per phone number (in any format) or email in this company
+      const duplicateError = (existing: { name: string; email: string | null }) => {
+        const sameEmail = Boolean(input.email) && existing.email === input.email?.toLowerCase();
+        return new ApiError("CONFLICT", `A customer with this ${sameEmail ? "email" : "phone number"} already exists (${existing.name}).`, {
+          field: sameEmail ? "email" : "phone",
+        });
+      };
+      const existing = await findCustomerByContact(companyId, input.phone, input.email);
+      if (existing) throw duplicateError(existing);
 
-      if (orClauses.length > 0) {
-        const existing = await Customer.findOne({ companyId, $or: orClauses }).lean();
-        if (existing) {
-          throw new ApiError(
-            "CONFLICT",
-            `A customer with this ${existing.phone === input.phone ? "phone number" : "email"} already exists (${existing.name}).`,
-            { field: existing.phone === input.phone ? "phone" : "email" }
-          );
-        }
-      }
+      // The assigned dealer and salesperson must be active people of this company.
+      const dealerId = role === "dealer" ? userId : (input.dealerId ?? null);
+      await assertValidLeadAssignees({ companyId, dealerId: role === "dealer" ? null : dealerId, assignedSalesId: input.assignedSalesId ?? null });
 
       const nextId = await getNextSequence("customer", Customer);
-      const customer = await Customer.create({
-        _id: nextId,
-        companyId,
-        name: input.name,
-        phone: input.phone ?? null,
-        whatsapp: input.whatsapp ?? input.phone ?? null,
-        email: input.email ?? null,
-        billingAddress: input.billingAddress ?? null,
-        siteAddress: input.siteAddress ?? null,
-        gstNumber: input.gstNumber ?? null,
-        customerType: input.customerType,
-        assignedSalesId: input.assignedSalesId ?? null,
-        dealerId: role === "dealer" ? userId : (input.dealerId ?? null),
-        notes: input.notes ?? null,
-        createdBy: userId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
+      let customer;
+      try {
+        customer = await Customer.create({
+          _id: nextId,
+          companyId,
+          name: input.name,
+          phone: input.phone ?? null,
+          whatsapp: input.whatsapp ?? input.phone ?? null,
+          email: input.email ?? null,
+          billingAddress: input.billingAddress ?? null,
+          siteAddress: input.siteAddress ?? null,
+          gstNumber: input.gstNumber ?? null,
+          customerType: input.customerType,
+          assignedSalesId: input.assignedSalesId ?? null,
+          dealerId,
+          notes: input.notes ?? null,
+          createdBy: userId,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      } catch (error) {
+        // The unique phone index refused this one: an identical request created the customer a moment earlier.
+        // Answer with the controlled duplicate response, never the database's own error.
+        if (!isDuplicateKey(error)) throw error;
+        const winner = await findCustomerByContact(companyId, input.phone, input.email);
+        throw duplicateError(winner ?? { name: "an existing customer", email: null });
+      }
+
+      // If an identical request got in first, only the older record is kept and this one is refused.
+      const winnerId = await settleNewCustomer(companyId, customer._id, input.phone ?? null, input.email ?? null);
+      if (winnerId !== null) {
+        const winner = await findCustomerByContact(companyId, input.phone, input.email);
+        throw duplicateError(winner ?? { name: "an existing customer", email: null });
+      }
 
       await recordCrmActivity({
         companyId,

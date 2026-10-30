@@ -6,6 +6,7 @@ import { isBathroomLikeRoomName } from "@/lib/utils";
 import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationSchema } from "@/lib/validation/quotation";
+import { claimLeadForQuotation, finalizeLeadLink, recordQuotationCustomerLink, releaseLeadClaim, resolveOrCreateCustomer, validateQuotationLinks } from "@/lib/crmService";
 
 import { normalizeQuotation } from "@/lib/quotationNormalization";
 import { redactQuotationForRole } from "@/lib/variantRedaction";
@@ -25,6 +26,8 @@ async function fetchPopulatedQuotation(quotationId: string) {
   return Quotation.findById(quotationId)
     .populate({ path: "houseType" })
     .populate({ path: "dealer", select: "id name email firstName lastName contactNumber companyName gstNumber businessEmail address" })
+    .populate({ path: "customer", select: "id name phone whatsapp email billingAddress siteAddress gstNumber customerType" })
+    .populate({ path: "lead", select: "id referenceNumber customerName status priority" })
     .populate({
       path: "rooms",
       options: { sort: { sortOrder: 1 } },
@@ -167,6 +170,20 @@ export async function PATCH(req: Request, context: RouteContext) {
 
       const data: Record<string, unknown> = { ...rest };
 
+      // `customerId` / `leadId` come from the client. A value equal to the current link, or null / missing, changes
+      // nothing (unlinking is not done through a quotation edit). A different value is a re-link, which needs the CRM
+      // permission and an existing, visible record in this company; a quotation already linked to a lead can never be
+      // moved to another lead, and a lead that already has a quotation cannot be taken over.
+      const links = await validateQuotationLinks(
+        { role, userId, permissions, companyId: existing.companyId },
+        { customerId: rest.customerId, leadId: rest.leadId },
+        { customerId: existing.customerId, leadId: existing.leadId, quotationId }
+      );
+      delete data.customerId;
+      delete data.leadId;
+      if (links.customerId !== undefined) data.customerId = links.customerId;
+      if (links.leadId !== undefined) data.leadId = links.leadId;
+
       if (requestedDealerId !== undefined) {
         if (!hasPermission(role, permissions, "quotations:assign_dealer")) {
           throw new ApiError("FORBIDDEN", "You do not have permission to assign dealers.");
@@ -278,7 +295,65 @@ export async function PATCH(req: Request, context: RouteContext) {
 
       data.updatedAt = new Date();
 
-      const quotation = await Quotation.findByIdAndUpdate(quotationId, { $set: data }, { new: true });
+      if (
+        existing.customerId == null &&
+        data.customerId === undefined &&
+        ((data.clientName as string) || existing.clientName) &&
+        ((data.clientPhone as string) || existing.clientPhone || (data.clientEmail as string) || existing.clientEmail)
+      ) {
+        try {
+          const autoCustId = await resolveOrCreateCustomer({
+            companyId: existing.companyId,
+            name: ((data.clientName as string) || existing.clientName).trim(),
+            phone: (data.clientPhone as string) || existing.clientPhone || null,
+            email: (data.clientEmail as string) || existing.clientEmail || null,
+            siteAddress: (data.clientAddress as string) || existing.clientAddress || null,
+            gstNumber: (data.clientGstNumber as string) || existing.clientGstNumber || null,
+            assignedSalesId: (data.assignedSalesId as number) ?? existing.assignedSalesId ?? null,
+            dealerId: (data.dealerId as number) ?? existing.dealerId ?? null,
+            userId,
+          });
+          if (autoCustId) {
+            data.customerId = autoCustId;
+          }
+        } catch (err) {
+          console.error("Auto customer resolution error on quotation patch:", err);
+        }
+      }
+
+      if (links.leadId) {
+        await claimLeadForQuotation({ companyId: existing.companyId, leadId: links.leadId, quotationId });
+      }
+      let quotation;
+      try {
+        quotation = await Quotation.findByIdAndUpdate(quotationId, { $set: data }, { new: true });
+      } catch (error) {
+        if (links.leadId) await releaseLeadClaim({ companyId: existing.companyId, leadId: links.leadId, quotationId });
+        throw error;
+      }
+
+      // Every real relationship change leaves a trail: "Linked" on the new customer, "Unlinked" on the previous one.
+      if (data.customerId && data.customerId !== existing.customerId) {
+        await recordQuotationCustomerLink({
+          companyId: existing.companyId,
+          quotationId,
+          quotationNumber: existing.quotationNumber,
+          previousCustomerId: existing.customerId ?? null,
+          customerId: Number(data.customerId),
+          leadId: (data.leadId as string) || existing.leadId || null,
+          userId,
+        });
+      }
+      if (links.leadId && quotation) {
+        await finalizeLeadLink({
+          companyId: existing.companyId,
+          leadId: links.leadId,
+          quotationId,
+          quotationNumber: existing.quotationNumber,
+          customerId: (data.customerId as number | undefined) ?? existing.customerId ?? null,
+          userId,
+        });
+      }
       if (!quotation) {
         throw new ApiError("NOT_FOUND", "Quotation not found.");
       }

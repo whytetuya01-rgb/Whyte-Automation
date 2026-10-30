@@ -113,7 +113,17 @@ CustomerSchema.pre("save", function (this: ICustomerDocument) {
 // Indexing for search, filtering, and tenant isolation
 CustomerSchema.index({ companyId: 1, createdAt: -1 });
 CustomerSchema.index({ companyId: 1, name: 1 });
-CustomerSchema.index({ companyId: 1, phone: 1 });
+CustomerSchema.index(
+  { companyId: 1, phone: 1 },
+  {
+    name: "uniq_active_company_phone",
+    unique: true,
+    partialFilterExpression: {
+      phone: { $type: "string" },
+      isDeleted: false,
+    },
+  }
+);
 CustomerSchema.index({ companyId: 1, email: 1 });
 CustomerSchema.index({ companyId: 1, assignedSalesId: 1 });
 CustomerSchema.index({ companyId: 1, dealerId: 1 });

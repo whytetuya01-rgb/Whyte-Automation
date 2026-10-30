@@ -7,6 +7,7 @@ import { parseQuotationId } from "@/lib/validation/quotation";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 import { quotationHasProducts } from "@/lib/quotationProducts";
+import { syncLeadWithQuotation } from "@/lib/crmService";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ export async function POST(_req: Request, context: RouteContext) {
         previousValue: { status: "draft" },
         newValue: { status: "sent" },
       });
+      await syncLeadWithQuotation({ leadId: quotation.leadId, quotationId, quotationNumber: quotation.quotationNumber, event: "sent", userId });
     }
 
     return apiSuccess({

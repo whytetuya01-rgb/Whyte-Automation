@@ -4,7 +4,7 @@ import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { updateLeadSchema } from "@/lib/validation/crm";
-import { crmVisibilityFilter, recordCrmActivity } from "@/lib/crmService";
+import { assertValidLeadAssignees, crmVisibilityFilter, recordCrmActivity, resolveLeadReferences } from "@/lib/crmService";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +76,16 @@ export async function PATCH(req: Request, context: RouteContext) {
       const body = await readJsonBody(req);
       const input = updateLeadSchema.parse(body);
 
+      await assertValidLeadAssignees({
+        companyId,
+        dealerId: role !== "dealer" && input.dealerId !== lead.dealerId ? input.dealerId : null,
+        assignedSalesId: input.assignedSalesId !== lead.assignedSalesId ? input.assignedSalesId : null,
+      });
+
+      const newSource = input.sourceId && input.sourceId !== lead.sourceId
+        ? await resolveLeadReferences({ companyId, role, userId, sourceId: input.sourceId })
+        : null;
+
       const changes: string[] = [];
       if (input.customerName && input.customerName !== lead.customerName) {
         changes.push(`Name changed to "${input.customerName}"`);
@@ -107,8 +117,11 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
       if (input.sourceId !== undefined) {
         lead.sourceId = input.sourceId;
+        if (input.sourceId === null) lead.sourceName = input.sourceName ?? null;
       }
-      if (input.sourceName !== undefined) {
+      if (newSource) {
+        lead.sourceName = newSource.sourceName;
+      } else if (input.sourceName !== undefined && input.sourceId === undefined && !lead.sourceId) {
         lead.sourceName = input.sourceName;
       }
       if (input.assignedSalesId !== undefined && input.assignedSalesId !== lead.assignedSalesId) {
@@ -179,7 +192,7 @@ export async function DELETE(_req: Request, context: RouteContext) {
       }
 
       await Lead.collection.updateOne(
-        { _id: lead._id as any },
+        { _id: lead._id } as never,
         {
           $set: {
             isDeleted: true,

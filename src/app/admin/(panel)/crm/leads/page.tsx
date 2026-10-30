@@ -154,6 +154,7 @@ export default function LeadsPage() {
             { id: "contacted", label: "Contacted" },
             { id: "site_visit", label: "Site Visit" },
             { id: "quoted", label: "Quoted" },
+            { id: "negotiation", label: "Negotiation" },
             { id: "won", label: "Won 🎉" },
             { id: "lost", label: "Lost" },
           ].map((st) => {
