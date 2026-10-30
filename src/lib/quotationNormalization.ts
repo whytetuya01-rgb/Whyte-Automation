@@ -1,6 +1,7 @@
 import type { Quotation, QuotationRoom, QuotationItem, QuotationItemVariantSummary, Category, RoomType, HouseType, Product, ProductVariant } from "@/types";
 import { serializeVariant } from "@/lib/productVariantService";
 import { calculateQuotationGst } from "@/lib/pricing";
+import { normalizeProductGstRate } from "@/lib/taxSettings";
 import { isProtectedQuotationStatus, isRoomUnavailable } from "@/lib/quotationAvailability";
 
 /**
@@ -75,6 +76,8 @@ export function normalizeProduct(product: any): Product {
         }))
       : null,
     variants,
+    hsnCode: typeof product.hsnCode === "string" && product.hsnCode ? product.hsnCode : null,
+    gstRate: normalizeProductGstRate(product.gstRate),
   };
 }
 

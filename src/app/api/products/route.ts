@@ -23,6 +23,8 @@ import {
   validateFinalVariantMatrix,
 } from "@/lib/productVariantService";
 import { normalizeProduct, normalizeProducts } from "@/lib/quotationNormalization";
+import { assertProductTaxAllowed, loadCompanyTaxSettings } from "@/lib/productTax";
+import { gstSplitKeepingPrice } from "@/lib/taxSettings";
 import { redactProductsForRole } from "@/lib/variantRedaction";
 
 export const dynamic = "force-dynamic";
@@ -352,6 +354,9 @@ export async function POST(req: Request) {
     }
     await assertProductImageAllowed(productData.imagePublicId, companyId);
 
+    // The HSN/SAC code and GST rate must come from the company's own lists.
+    assertProductTaxAllowed(await loadCompanyTaxSettings(companyId), { hsnCode: productData.hsnCode, gstRate: productData.gstRate });
+
     // 1. Authoritative category validation
     const category = await Category.findById(categoryId);
     if (!category) {
@@ -376,6 +381,13 @@ export async function POST(req: Request) {
 
     // 3. Normalise rows and enforce per-product variant code uniqueness
     const finalVariants = normalizeVariantRows(variantsInput);
+
+    // A product GST rate re-splits each variant's GST-inclusive price by that rate; the price itself never changes.
+    const gstRate = productData.gstRate ?? null;
+    const taxSplits = finalVariants.map((row) => (gstRate === null ? null : gstSplitKeepingPrice(row.price, gstRate)));
+    if (gstRate !== null && taxSplits.some((split) => split === null)) {
+      throw new ApiError("VALIDATION_ERROR", "A variant price cannot be kept at this GST rate.", { field: "gstRate" });
+    }
 
     const duplicateCode = findDuplicateVariantCode(
       finalVariants.map((row) => ({ id: null, variantCode: row.variantCode }))
@@ -450,6 +462,8 @@ export async function POST(req: Request) {
         isActive: productData.isActive ?? true,
         isMatrix: matrix.hasMatrix,
         matrixDimensions,
+        hsnCode: productData.hsnCode ?? null,
+        gstRate,
       });
 
       if (dbSession) {
@@ -472,8 +486,12 @@ export async function POST(req: Request) {
           variantCode: row.variantCode,
         },
         price: mongoose.Types.Decimal128.fromString(row.price.toFixed(2)),
-        priceWithoutTax: mongoose.Types.Decimal128.fromString(row.priceWithoutTax.toFixed(2)),
-        taxPercent: mongoose.Types.Decimal128.fromString(row.taxPercent.toFixed(2)),
+        priceWithoutTax: (() => {
+          const split = taxSplits[index];
+          if (!split) return mongoose.Types.Decimal128.fromString(row.priceWithoutTax.toFixed(2));
+          return split.priceWithoutTax === null ? null : mongoose.Types.Decimal128.fromString(split.priceWithoutTax.toFixed(2));
+        })(),
+        taxPercent: mongoose.Types.Decimal128.fromString((taxSplits[index]?.taxPercent ?? row.taxPercent).toFixed(2)),
         cost: mongoose.Types.Decimal128.fromString(row.cost.toFixed(2)),
         purchaseTaxPercent: mongoose.Types.Decimal128.fromString(row.purchaseTaxPercent.toFixed(2)),
         sortOrder: index,

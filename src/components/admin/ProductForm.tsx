@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import useSWR from "swr";
 import { Product, ProductVariant, Category } from "@/types";
 import notify from "@/lib/notify";
 import { ApiClientError, apiJson, notifyApiError } from "@/lib/apiClient";
@@ -25,8 +26,11 @@ import {
   LayoutGrid,
   ListChecks,
   Wand2,
+  FileDigit,
+  Percent,
 } from "lucide-react";
-import { Input, Select, Textarea, Button, Switch } from "@/components/ui";
+import { Input, Select, SearchableSelect, Textarea, Button, Switch, type SelectOption } from "@/components/ui";
+import { formatGstRate, taxCodeLabel, type TaxSettingsView } from "@/lib/taxSettings";
 import {
   calculateFromTaxExclusivePrice,
   calculateFromTaxInclusivePrice,
@@ -130,9 +134,18 @@ export default function ProductForm({
     imagePublicId: product?.imagePublicId ?? "",
     isActive: product?.isActive ?? true,
     sortOrder: product?.sortOrder ?? 0,
+    hsnCode: product?.hsnCode ?? "",
+    gstRate: product?.gstRate !== undefined && product?.gstRate !== null ? String(product.gstRate) : "",
   });
 
   const confirm = useConfirm();
+
+  // GST rate and HSN/SAC code come from the company's lists (GST & HSN/SAC page).
+  const { data: taxSettings } = useSWR<TaxSettingsView>("/api/catalog/tax-settings", (url: string) => apiJson.get<TaxSettingsView>(url), {
+    revalidateOnFocus: false,
+  });
+  const gstTouchedRef = useRef(false);
+  const savedGstRate = product?.gstRate ?? null;
 
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -398,6 +411,49 @@ export default function ProductForm({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [variantMatrix, selectedCategory, isEdit]);
 
+  // Create mode: the product GST rate re-splits each new variant's GST-inclusive price (the price stays as entered).
+  useEffect(() => {
+    if (isEdit || form.gstRate === "") return;
+    const rateText = form.gstRate;
+    const rate = Number(rateText);
+    setEditableRows((prev) =>
+      prev.map((r) => {
+        const price = Number(r.price);
+        if (r.price.trim() === "" || !Number.isFinite(price) || price < 0) return { ...r, taxPercent: rateText };
+        const { priceWithoutTax, taxAmount } = calculateFromTaxInclusivePrice(price, rate);
+        return { ...r, taxPercent: rateText, priceWithoutTax: priceWithoutTax.toFixed(2), taxAmount: taxAmount.toFixed(2) };
+      })
+    );
+  }, [isEdit, form.gstRate, variantMatrix, selectedCategory]);
+
+  // A new product starts at the company's default GST rate.
+  useEffect(() => {
+    if (isEdit || gstTouchedRef.current || !taxSettings) return;
+    const rateText = String(taxSettings.defaultGstRate);
+    setForm((prev) => (prev.gstRate === "" ? { ...prev, gstRate: rateText } : prev));
+  }, [isEdit, taxSettings]);
+
+  const hsnOptions = useMemo<SelectOption[]>(() => {
+    const rows = taxSettings?.hsnCodes ?? [];
+    const options: SelectOption[] = rows
+      .filter((row) => row.isActive || row.code === form.hsnCode)
+      .map((row) => ({ value: row.code, label: taxCodeLabel(row), searchTerms: [row.code, row.description ?? ""], ...(row.isActive ? {} : { subLabel: "Inactive" }) }));
+    if (form.hsnCode && !rows.some((row) => row.code === form.hsnCode)) options.push({ value: form.hsnCode, label: `${form.hsnCode} (not in your list)` });
+    return [{ value: "", label: "Not classified" }, ...options];
+  }, [taxSettings, form.hsnCode]);
+
+  const gstOptions = useMemo<SelectOption[]>(() => {
+    const allowed = taxSettings?.gstRates ?? [];
+    const rates = new Set(allowed);
+    if (form.gstRate !== "") rates.add(Number(form.gstRate));
+    return [
+      { value: "", label: "Not set" },
+      ...[...rates].sort((a, b) => a - b).map((rate) => ({ value: String(rate), label: formatGstRate(rate), disabled: Boolean(taxSettings) && !allowed.includes(rate) })),
+    ];
+  }, [taxSettings, form.gstRate]);
+
+  const gstRateChanged = isEdit && form.gstRate !== "" && Number(form.gstRate) !== savedGstRate;
+
   /** Update a single field of one editable row */
   const updateRow = (comboKey: string, field: "variantCode" | "price", value: string) => {
     setEditableRows((prev) =>
@@ -661,6 +717,8 @@ export default function ProductForm({
         imagePublicId: form.imagePublicId.trim() || null,
         isActive: form.isActive,
         sortOrder: Number(form.sortOrder) || 0,
+        hsnCode: form.hsnCode || null,
+        gstRate: form.gstRate === "" ? null : Number(form.gstRate),
       };
 
       if (isEdit && product) {
@@ -911,6 +969,51 @@ export default function ProductForm({
               ))}
             </Select>
           </div>
+
+          {/* 7. HSN/SAC Code */}
+          <div className="space-y-1.5" data-testid="product-hsn-field">
+            <label className="text-xs font-semibold text-neutral-800 flex items-center gap-1.5">
+              <FileDigit className="h-3.5 w-3.5 text-neutral-500" />
+              7. HSN/SAC Code
+            </label>
+            <SearchableSelect
+              value={form.hsnCode}
+              onChange={(e) => {
+                const code = e.target.value;
+                const entry = taxSettings?.hsnCodes.find((row) => row.code === code);
+                gstTouchedRef.current = true;
+                setForm((prev) => ({ ...prev, hsnCode: code, ...(entry ? { gstRate: String(entry.gstRate) } : {}) }));
+              }}
+              options={hsnOptions}
+              placeholder="Not classified"
+              searchPlaceholder="Search code or description"
+              emptyText="No matching code. Add codes under GST & HSN/SAC."
+              ariaLabel="HSN/SAC code"
+            />
+            <p className="text-[11px] text-neutral-400">Picking a code fills in its GST rate. Codes are managed under GST &amp; HSN/SAC.</p>
+          </div>
+
+          {/* 8. GST Rate */}
+          <div className="space-y-1.5" data-testid="product-gst-field">
+            <label className="text-xs font-semibold text-neutral-800 flex items-center gap-1.5">
+              <Percent className="h-3.5 w-3.5 text-neutral-500" />
+              8. GST Rate
+            </label>
+            <Select
+              value={form.gstRate}
+              onChange={(e) => {
+                gstTouchedRef.current = true;
+                setForm((prev) => ({ ...prev, gstRate: e.target.value }));
+              }}
+              options={gstOptions}
+              ariaLabel="GST rate"
+            />
+            <p className={`text-[11px] ${gstRateChanged ? "font-medium text-amber-700" : "text-neutral-400"}`} data-testid="product-gst-help">
+              {gstRateChanged
+                ? `Saving re-splits every variant's price by ${formatGstRate(Number(form.gstRate))}. The prices themselves stay the same.`
+                : "Prices include GST; the rate only splits them into price without tax and tax."}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -1060,7 +1163,8 @@ export default function ProductForm({
                               value={r.taxPercent}
                               onChange={(e) => handleVariantTaxPercentChange(r.id, e.target.value)}
                               placeholder="18"
-                              disabled={isDeleting || savingVariants}
+                              disabled={isDeleting || savingVariants || savedGstRate !== null}
+                              title={savedGstRate !== null ? "Set by the product's GST rate" : undefined}
                               className="h-8 text-right font-medium text-xs text-neutral-700"
                             />
                           </div>
@@ -1433,8 +1537,11 @@ export default function ProductForm({
                               onChange={(e) =>
                                 updateEditableTaxPercent(row.comboKey, e.target.value)
                               }
+                              disabled={form.gstRate !== ""}
+                              title={form.gstRate !== "" ? "Set by the product's GST rate" : undefined}
+                              aria-label={`Tax % for ${row.displayName}`}
                               placeholder="18"
-                              className="w-14 rounded border border-neutral-200 bg-white px-1.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-400"
+                              className="w-14 rounded border border-neutral-200 bg-white px-1.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-400 disabled:bg-neutral-100 disabled:text-neutral-500"
                             />
                             <span className="text-[11px] text-neutral-400 ml-0.5">%</span>
                           </div>

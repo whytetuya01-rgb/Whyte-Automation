@@ -24,6 +24,7 @@ export const NAV_ICON_ANIMATION_BY_HREF: Record<string, NavIconAnimation> = {
   "/admin/dashboard": "dashboard",
   "/admin/products": "products",
   "/admin/categories": "categories",
+  "/admin/tax-settings": "generic",
   "/admin/house-types": "house-types",
   "/admin/room-types": "room-types",
   "/admin/quotations": "quotations",

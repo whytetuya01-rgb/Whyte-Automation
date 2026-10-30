@@ -1,6 +1,7 @@
 import { DOCUMENT_LABEL_KEYS, DOCUMENT_LABEL_LIMITS, DOCUMENT_LIMITS, INTRO_PAGE_MODES, SOCIAL_NETWORKS, type DocumentSettings } from "@/lib/documentSettings";
 import { DEFAULT_LOGO_SETTINGS, LOGO_BACKGROUNDS, LOGO_FITS, LOGO_PADDING_RANGE, LOGO_RADIUS_RANGE, type LogoBackground, type LogoFit } from "@/lib/logoSettings";
 import { DEFAULT_THEME, SITE_THEME_IDS, type SiteTheme } from "@/lib/themeTokens";
+import { TAX_CODE_KINDS, TAX_LIMITS, type HsnSacCode } from "@/lib/taxSettings";
 import mongoose, { Schema, Document, Model } from "mongoose";
 import { softDeletePlugin } from "@/lib/softDelete/plugin";
 import type { SoftDeleteFields } from "@/lib/softDelete/fields";
@@ -82,6 +83,8 @@ export interface ICompany extends SoftDeleteFields {
   logoSettings?: { fit: LogoFit; background: LogoBackground; padding: number; radius: number } | null;
   /** Quotation document content (contact card, footer, social links, intro pages); see `resolveProposalContent`. */
   documentSettings?: DocumentSettings | null;
+  /** Catalogue GST rates and HSN/SAC codes; see `normalizeTaxSettings`. */
+  taxSettings?: { gstRates?: number[]; defaultGstRate?: number; hsnCodes?: HsnSacCode[] } | null;
   /** Custom brand colour (`#rrggbb`); overrides the selected preset's accent. null = use the preset. */
   brandColor?: string | null;
   /** Absent / null on companies that predate self-registration (treated as approved). */
@@ -260,6 +263,32 @@ const CompanySchema = new Schema<ICompanyDocument>(
       ),
       default: undefined,
     },
+    /** Catalogue GST rates and HSN/SAC codes; absent on companies that never changed them (read through `normalizeTaxSettings`). */
+    taxSettings: {
+      type: new Schema(
+        {
+          gstRates: { type: [Number], default: undefined },
+          defaultGstRate: { type: Number, default: undefined },
+          hsnCodes: {
+            type: [
+              new Schema(
+                {
+                  code: { type: String, required: true, trim: true },
+                  kind: { type: String, enum: TAX_CODE_KINDS, required: true },
+                  description: { type: String, default: null, maxlength: TAX_LIMITS.description },
+                  gstRate: { type: Number, required: true, min: 0, max: 100 },
+                  isActive: { type: Boolean, default: true },
+                },
+                { _id: false }
+              ),
+            ],
+            default: undefined,
+          },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     theme: {
       type: String,
       enum: SITE_THEME_IDS,
@@ -335,6 +364,7 @@ if (
     !cachedCompany.schema.path("documentSettings.socialLinks.whatsapp") ||
     !cachedCompany.schema.path("documentSettings.overviewPage") ||
     !cachedCompany.schema.path("documentSettings.labels.serviceCharge") ||
+    !cachedCompany.schema.path("taxSettings.hsnCodes") ||
     SITE_THEME_IDS.some((id) => !cachedThemeEnum.includes(id)))
 ) {
   mongoose.deleteModel("Company");

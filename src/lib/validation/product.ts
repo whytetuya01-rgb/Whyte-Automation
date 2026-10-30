@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { VARIANT_CODE_RULE } from "@/lib/productVariantService";
 import { resolveVariantPricing } from "@/lib/pricing";
+import { productGstRateField, productHsnCodeField } from "@/lib/validation/taxSettings";
 
 /**
  * Shared Zod schemas for product / variant mutations.
@@ -218,6 +219,8 @@ export const createProductSchema = z
     notes: optionalText(MAX_LONG_STRING),
     isActive: booleanField,
     sortOrder: intField(),
+    hsnCode: productHsnCodeField,
+    gstRate: productGstRateField,
     variants: z.array(createVariantSchema).min(1, "At least one variant is required."),
   })
   .strict();
@@ -241,6 +244,8 @@ export const updateProductSchema = z
     notes: optionalText(MAX_LONG_STRING),
     isActive: booleanField,
     sortOrder: intField(),
+    hsnCode: productHsnCodeField,
+    gstRate: productGstRateField,
   })
   .strict();
 

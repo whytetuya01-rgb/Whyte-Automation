@@ -14,6 +14,8 @@ import {
 } from "@/lib/api-response";
 import { updateProductSchema } from "@/lib/validation/product";
 import { normalizeProduct } from "@/lib/quotationNormalization";
+import { applyGstRateToVariants, assertProductTaxAllowed, loadCompanyTaxSettings, type GstApplyResult } from "@/lib/productTax";
+import { normalizeProductGstRate } from "@/lib/taxSettings";
 import { redactProductForRole } from "@/lib/variantRedaction";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
@@ -149,9 +151,29 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
     }
 
+    // HSN/SAC code and GST rate come from the company's own lists (a value the product already has stays accepted).
+    if (data.hsnCode !== undefined || data.gstRate !== undefined) {
+      if (companyId === null) {
+        throw new ApiError("FORBIDDEN", "A company context is required to change a product's tax details.");
+      }
+      assertProductTaxAllowed(
+        await loadCompanyTaxSettings(companyId),
+        { hsnCode: data.hsnCode as string | null | undefined, gstRate: data.gstRate as number | null | undefined },
+        { hsnCode: existingProduct.hsnCode, gstRate: existingProduct.gstRate }
+      );
+    }
+    // Only a CHANGED rate re-splits the variants' GST-inclusive prices; the prices themselves never change.
+    const newGstRate = typeof data.gstRate === "number" && data.gstRate !== normalizeProductGstRate(existingProduct.gstRate) ? data.gstRate : null;
+    let taxChange: GstApplyResult | null = null;
+
     data.updatedAt = new Date();
 
     const updatedProduct = await withTransaction(async (dbSession) => {
+      // Variants first: it refuses before writing anything if a price could not be kept.
+      if (newGstRate !== null) {
+        taxChange = await applyGstRateToVariants([productId], newGstRate, dbSession);
+      }
+
       const updateQuery = Product.findByIdAndUpdate(productId, { $set: data }, { new: true });
       if (dbSession) updateQuery.session(dbSession);
       const updated = await updateQuery;
@@ -169,7 +191,8 @@ export async function PATCH(req: Request, context: RouteContext) {
     });
 
     return apiSuccess(
-      normalizeProduct(updatedProduct?.toObject ? updatedProduct.toObject() : updatedProduct)
+      normalizeProduct(updatedProduct?.toObject ? updatedProduct.toObject() : updatedProduct),
+      taxChange ? { meta: { taxChange } } : undefined
     );
     });
   } catch (error) {

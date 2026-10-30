@@ -98,6 +98,10 @@ export interface Product {
   isMatrix: boolean;
   matrixDimensions: MatrixDimension[] | null;
   variants?: ProductVariant[];
+  /** HSN/SAC code from the company's list; null = not classified. */
+  hsnCode?: string | null;
+  /** GST rate the variants' GST-inclusive prices are split by; null = not set. */
+  gstRate?: number | null;
 }
 
 /**

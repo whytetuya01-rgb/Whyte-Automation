@@ -32,6 +32,7 @@ import { confirmDeletionWithImpact } from "@/lib/deletionImpactClient";
 import ProductForm from "@/components/admin/ProductForm";
 import ProductVariantsEditModal from "@/components/admin/ProductVariantsEditModal";
 import { Button, Switch, Badge } from "@/components/ui";
+import { formatGstRate } from "@/lib/taxSettings";
 
 const TYPE_CONFIG: Record<string, { label: string; badgeVariant: "info" | "secondary" | "default" | "warning" | "success" | "outline" }> = {
   switch_board: { label: "Switch Board", badgeVariant: "info" },
@@ -552,6 +553,26 @@ export default function ProductDetailPage() {
                 <span className="text-neutral-400 font-medium block">Unit of Measure</span>
                 <span className="text-neutral-900 font-semibold block mt-0.5 uppercase">
                   {product.unit || "pcs"}
+                </span>
+              </div>
+
+              <div data-testid="product-hsn">
+                <span className="text-neutral-400 font-medium block">HSN/SAC Code</span>
+                <span className="text-neutral-900 font-semibold block mt-0.5 font-mono">
+                  {product.hsnCode || <span className="text-neutral-400 italic font-normal font-sans">Not classified</span>}
+                </span>
+              </div>
+
+              <div data-testid="product-gst">
+                <span className="text-neutral-400 font-medium block">GST Rate</span>
+                <span className="text-neutral-900 font-semibold block mt-0.5">
+                  {product.gstRate !== null && product.gstRate !== undefined ? (
+                    <>
+                      {formatGstRate(product.gstRate)} <span className="text-xs font-normal text-neutral-500">(included in prices)</span>
+                    </>
+                  ) : (
+                    <span className="text-neutral-400 italic font-normal">Not set</span>
+                  )}
                 </span>
               </div>
 
