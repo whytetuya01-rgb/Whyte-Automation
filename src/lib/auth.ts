@@ -7,7 +7,8 @@ import { reviewBlockFor } from "@/lib/companyReviewStatus";
 import { resolveAccountCompany } from "@/lib/tenant/accountCompany";
 
 const ADMIN_PORTAL_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
-const USER_PORTAL_ROLES = new Set(["dealer"]);
+// The workspace at /login is for the people who build quotations: dealers and the company's sales executives.
+const USER_PORTAL_ROLES = new Set(["dealer", "sales_executive"]);
 
 export const authOptions = {
   providers: [

@@ -40,6 +40,13 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
   const [expectedClosingDate, setExpectedClosingDate] = useState("");
   /** Next follow-up as the browser's date-time input holds it (local time), or "" for none. */
   const [nextFollowUp, setNextFollowUp] = useState("");
+  /** The follow-up as the form first showed it (to the minute): it is only sent when the person changes it. */
+  const [initialFollowUp, setInitialFollowUp] = useState("");
+  /** Who owns the follow-up: "" = the default (you, for a new follow-up). It is only sent when the person changes it. */
+  const [followUpOwnerId, setFollowUpOwnerId] = useState("");
+  const [ownerTouched, setOwnerTouched] = useState(false);
+  const [owners, setOwners] = useState<Array<{ id: number; name: string }>>([]);
+  const [currentOwner, setCurrentOwner] = useState<{ id: number; name: string | null } | null>(null);
   const [sourceId, setSourceId] = useState("");
   const [priority, setPriority] = useState<LeadPriority>("medium");
   const [status, setStatus] = useState<LeadStatus>("new");
@@ -90,6 +97,17 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       })
       .catch(() => {});
 
+    apiJson
+      .get<Array<{ id: number; name: string }>>("/api/crm/follow-up-owners")
+      .then((list) => {
+        if (Array.isArray(list)) setOwners(list);
+      })
+      .catch(() => {});
+
+    setFollowUpOwnerId("");
+    setOwnerTouched(false);
+    setCurrentOwner(null);
+
     // Populate editing lead data
     if (lead) {
       setCustomerName(lead.customerName || "");
@@ -102,7 +120,9 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setProjectType(lead.projectType || "");
       setEstimatedBudget(lead.estimatedBudget ? String(lead.estimatedBudget) : "");
       setExpectedClosingDate(lead.expectedClosingDate ? lead.expectedClosingDate.split("T")[0] : "");
-      setNextFollowUp(lead.nextFollowUpAt ? toLocalInputValue(lead.nextFollowUpAt) : "");
+      const shownFollowUp = lead.nextFollowUpAt ? toLocalInputValue(lead.nextFollowUpAt) : "";
+      setNextFollowUp(shownFollowUp);
+      setInitialFollowUp(shownFollowUp);
       setSourceId(lead.sourceId || "");
       setPriority(lead.priority || "medium");
       setStatus(lead.status || "new");
@@ -122,6 +142,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setEstimatedBudget("");
       setExpectedClosingDate("");
       setNextFollowUp("");
+      setInitialFollowUp("");
       setSourceId("");
       setPriority("medium");
       setStatus("new");
@@ -130,6 +151,30 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setNotes("");
     }
   }, [isOpen, lead, customer]);
+
+  // The owner of an existing follow-up, so the picker starts on the right person.
+  useEffect(() => {
+    if (!isOpen || !lead?.id || !lead.nextFollowUpAt) return;
+    let cancelled = false;
+    apiJson
+      .get<{ task: { ownerId: number; ownerName: string | null } | null }>(`/api/crm/leads/${lead.id}/follow-up`)
+      .then((info) => {
+        const task = info?.task;
+        if (cancelled || !task) return;
+        setCurrentOwner({ id: task.ownerId, name: task.ownerName });
+        setFollowUpOwnerId((value) => value || String(task.ownerId));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, lead?.id, lead?.nextFollowUpAt]);
+
+  const ownerOptions = [
+    ...(currentOwner ? [] : [{ value: "", label: "Me (default)" }]),
+    ...(currentOwner && !owners.some((owner) => owner.id === currentOwner.id) ? [{ value: String(currentOwner.id), label: `${currentOwner.name ?? "Current owner"} (no longer available)` }] : []),
+    ...owners.map((owner) => ({ value: String(owner.id), label: owner.name })),
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -152,8 +197,10 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
         projectType: projectType.trim() || undefined,
         estimatedBudget: estimatedBudget ? Number(estimatedBudget) : undefined,
         expectedClosingDate: expectedClosingDate || undefined,
-        // Editing: an empty field clears the follow-up. A new lead without one simply has none.
-        nextFollowUpAt: nextFollowUp ? new Date(nextFollowUp).toISOString() : isEditing ? null : undefined,
+        // Editing: sent only when the person changed it (the field shows the date to the minute, so resending an
+        // untouched one could shift it by a few seconds); an emptied field clears the follow-up.
+        nextFollowUpAt: nextFollowUp === initialFollowUp ? undefined : nextFollowUp ? new Date(nextFollowUp).toISOString() : isEditing ? null : undefined,
+        followUpOwnerId: nextFollowUp && ownerTouched && followUpOwnerId ? Number(followUpOwnerId) : undefined,
         sourceId: sourceId || undefined,
         sourceName: selectedSource?.name || undefined,
         priority,
@@ -348,6 +395,20 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
               />
               <p className="mt-1 text-[11px] text-neutral-400">Shows in Follow-ups and in your Google Calendar link. Leave empty for none.</p>
             </div>
+            {nextFollowUp && (
+              <div>
+                <Select
+                  label="Follow-up owner"
+                  value={followUpOwnerId}
+                  onChange={(e) => {
+                    setFollowUpOwnerId(e.target.value);
+                    setOwnerTouched(true);
+                  }}
+                  options={ownerOptions}
+                />
+                <p className="mt-1 text-[11px] text-neutral-400">The team member responsible for this follow-up.</p>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

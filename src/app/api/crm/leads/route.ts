@@ -7,7 +7,10 @@ import { createLeadSchema } from "@/lib/validation/crm";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { parseSearchQueryParam, parseStringQueryParam, parseIntQueryParam } from "@/lib/validation/common";
 import { getNextLeadSequence } from "@/lib/counter";
+import { withRequiredTransaction } from "@/lib/transaction";
+import { createLeadFollowUp, ensureFollowUpTaskIndexes } from "@/lib/followUpService";
 import { assertValidLeadAssignees, crmVisibilityFilter, findCustomerByContact, phoneMatchRegex, recordCrmActivity, resolveLeadReferences, scopedQuery } from "@/lib/crmService";
+import { determineLeadAssignee, notifyLeadAssigned } from "@/lib/leadAssignmentService";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +81,7 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
-    return await withSession(async ({ role, userId, permissions, companyId }) => {
+    return await withSession(async ({ role, userId, permissions, companyId, timeZone }) => {
       if (!hasPermission(role, permissions, "leads:manage")) {
         throw new ApiError("FORBIDDEN", "You do not have permission to create leads.");
       }
@@ -92,8 +95,24 @@ export async function POST(req: Request) {
 
       // Enforce assignment scoping: dealers can only assign to themselves
       const assignedDealerId = role === "dealer" ? userId : (input.dealerId ?? null);
-      const assignedSalesId = input.assignedSalesId ?? null;
-      await assertValidLeadAssignees({ companyId, dealerId: assignedDealerId, assignedSalesId });
+      let assignedSalesId = input.assignedSalesId ?? null;
+      let assignmentRuleUsed = "none";
+      let assignedSalesName: string | null = null;
+
+      if (assignedSalesId != null) {
+        await assertValidLeadAssignees({ companyId, dealerId: assignedDealerId, assignedSalesId });
+        assignmentRuleUsed = "explicit";
+      } else {
+        // Run automatic lead assignment if not explicitly chosen
+        const assignment = await determineLeadAssignee(companyId, {
+          sourceId: input.sourceId,
+          explicitSalesId: null,
+        });
+        assignedSalesId = assignment.assignedSalesId;
+        assignmentRuleUsed = assignment.ruleUsed;
+        assignedSalesName = assignment.salesExecutiveName ?? null;
+      }
+
       const references = await resolveLeadReferences({ companyId, role, userId, customerId: input.customerId, sourceId: input.sourceId });
 
       const createdOn = new Date();
@@ -105,43 +124,95 @@ export async function POST(req: Request) {
       // The source's own name is used when a source is chosen; free text only applies without one.
       const sourceName = input.sourceId ? references.sourceName : input.sourceName || null;
 
-      const newLead = await Lead.create({
-        _id: leadId,
-        referenceNumber,
-        companyId,
-        customerId: input.customerId ?? null,
-        customerName: input.customerName,
-        phone: input.phone ?? null,
-        whatsapp: input.whatsapp ?? input.phone ?? null,
-        email: input.email ?? null,
-        siteAddress: input.siteAddress ?? null,
-        location: input.location ?? null,
-        projectType: input.projectType ?? null,
-        estimatedBudget: input.estimatedBudget ?? null,
-        expectedClosingDate: input.expectedClosingDate ?? null,
-        sourceId: input.sourceId ?? null,
-        sourceName,
-        assignedSalesId,
-        dealerId: assignedDealerId,
-        description: input.description ?? null,
-        status: input.status,
-        priority: input.priority,
-        notes: input.notes ?? null,
-        nextFollowUpAt: input.nextFollowUpAt ?? null,
-        createdBy: userId,
-        createdAt: createdOn,
-        updatedAt: createdOn,
-      });
+      if (input.followUpOwnerId != null && !input.nextFollowUpAt) {
+        throw new ApiError("VALIDATION_ERROR", "Set a follow-up date before choosing its owner.", { field: "followUpOwnerId" });
+      }
 
-      // Record activity in CRM timeline
-      await recordCrmActivity({
-        companyId,
-        leadId,
-        customerId: input.customerId ?? null,
-        type: "status_change",
-        title: "Lead Created",
-        description: `Lead ${referenceNumber} created for ${input.customerName}.`,
-        performedBy: userId,
+      // The lead, its follow-up task and the timeline entry are created together, or not at all.
+      await ensureFollowUpTaskIndexes();
+      const newLead = await withRequiredTransaction(async (session) => {
+        const [created] = await Lead.create(
+          [
+            {
+              _id: leadId,
+              referenceNumber,
+              companyId,
+              customerId: input.customerId ?? null,
+              customerName: input.customerName,
+              phone: input.phone ?? null,
+              whatsapp: input.whatsapp ?? input.phone ?? null,
+              email: input.email ?? null,
+              siteAddress: input.siteAddress ?? null,
+              location: input.location ?? null,
+              projectType: input.projectType ?? null,
+              estimatedBudget: input.estimatedBudget ?? null,
+              expectedClosingDate: input.expectedClosingDate ?? null,
+              sourceId: input.sourceId ?? null,
+              sourceName,
+              assignedSalesId,
+              dealerId: assignedDealerId,
+              description: input.description ?? null,
+              status: input.status,
+              priority: input.priority,
+              notes: input.notes ?? null,
+              nextFollowUpAt: input.nextFollowUpAt ?? null,
+              createdBy: userId,
+              createdAt: createdOn,
+              updatedAt: createdOn,
+            },
+          ],
+          { session }
+        );
+
+        if (input.nextFollowUpAt) {
+          await createLeadFollowUp({ actor: { userId, role, permissions, companyId, timeZone }, session }, created, { dueAt: input.nextFollowUpAt, ownerId: input.followUpOwnerId });
+        }
+
+        // Record activity in CRM timeline
+        await recordCrmActivity({
+          companyId,
+          leadId,
+          customerId: input.customerId ?? null,
+          type: "status_change",
+          title: "Lead Created",
+          description: `Lead ${referenceNumber} created for ${input.customerName}.`,
+          performedBy: userId,
+          session,
+        });
+
+        if (assignedSalesId != null) {
+          let ruleDesc = `Lead assigned manually.`;
+          if (assignmentRuleUsed === "round_robin") {
+            ruleDesc = `Assigned${assignedSalesName ? ` to ${assignedSalesName}` : ""} via Round-Robin rule.`;
+          } else if (assignmentRuleUsed === "least_open_leads") {
+            ruleDesc = `Assigned${assignedSalesName ? ` to ${assignedSalesName}` : ""} via Least Open Leads rule.`;
+          } else if (assignmentRuleUsed === "source_mapping") {
+            ruleDesc = `Assigned${assignedSalesName ? ` to ${assignedSalesName}` : ""} via Source Mapping rule (${sourceName || "Source"}).`;
+          } else if (assignmentRuleUsed === "fallback") {
+            ruleDesc = `Assigned${assignedSalesName ? ` to ${assignedSalesName}` : ""} via Fallback owner rule.`;
+          }
+
+          await recordCrmActivity({
+            companyId,
+            leadId,
+            customerId: input.customerId ?? null,
+            type: "status_change",
+            title: "Lead Assigned",
+            description: ruleDesc,
+            performedBy: userId,
+            session,
+          });
+
+          await notifyLeadAssigned({
+            companyId,
+            leadId,
+            referenceNumber,
+            customerName: input.customerName,
+            assignedSalesId,
+            session,
+          });
+        }
+        return created;
       });
 
       // Warn (never block) when the same person is already in the CRM: other open leads and the saved customer.

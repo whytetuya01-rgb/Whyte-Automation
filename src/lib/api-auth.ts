@@ -6,6 +6,7 @@ import { getSessionActor } from "@/lib/sessionGuard";
 import { hasPermission, type Permission } from "@/lib/permissions";
 import { enterTenantContext, runWithTenantContext, type TenantContextValue } from "@/lib/tenant/context";
 import { resolveActAsCompanyId } from "@/lib/tenant/actAs";
+import { resolveFollowUpTimeZone } from "@/lib/followUps";
 
 /**
  * IMPORTANT, found empirically (see tests/phase1-tenant-auth.test.mjs's debug
@@ -187,6 +188,8 @@ export interface TenantSessionActor {
   companyId: number | null;
   actingAsCompany: boolean;
   permissions: string[];
+  /** The person's own time zone (an IANA name): the one they chose, or Asia/Kolkata. Decides "today" and "overdue" for them. */
+  timeZone: string;
   _timings?: {
     sessionResolutionMs: number;
     sessionGuardMs: number;
@@ -228,6 +231,7 @@ async function resolveTenantActor(): Promise<TenantSessionActor> {
     companyId,
     actingAsCompany: role === "super_admin" && companyId !== null,
     permissions: actor.permissions,
+    timeZone: resolveFollowUpTimeZone(actor.timeZone),
     _timings: {
       sessionResolutionMs,
       sessionGuardMs,

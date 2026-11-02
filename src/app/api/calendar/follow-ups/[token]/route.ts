@@ -6,7 +6,7 @@ import { hasPermission } from "@/lib/permissions";
 import { checkRateLimit, clientIpFromRequest } from "@/lib/rateLimit";
 import { runUnscoped, runWithTenantContext } from "@/lib/tenant/context";
 import { baseUrlFor, FEED_TOKEN_PATTERN, hashFeedToken, loadFollowUpEvents } from "@/lib/calendarFeedService";
-import { buildFollowUpCalendar } from "@/lib/followUps";
+import { buildFollowUpCalendar, resolveFollowUpTimeZone } from "@/lib/followUps";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,7 +61,7 @@ export async function GET(req: Request, context: RouteContext) {
       }
     );
 
-    const body = buildFollowUpCalendar(events, { calendarName: "Lead follow-ups" });
+    const body = buildFollowUpCalendar(events, { calendarName: "Lead follow-ups", timeZone: resolveFollowUpTimeZone(actor.timeZone) });
     return new NextResponse(req.method === "HEAD" ? null : body, {
       status: 200,
       headers: {

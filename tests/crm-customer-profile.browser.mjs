@@ -212,6 +212,8 @@ try {
     if (!linked) await new Promise((resolve) => setTimeout(resolve, 100));
   }
   assert.ok(linked, "the new lead is linked to the customer");
+  // The profile is refreshed after the save, a moment after the new lead is in the database: wait for it instead of racing it.
+  await page.waitForFunction(() => /4/.test(document.querySelector('[data-testid="tab-leads"]')?.textContent ?? ""), null, { timeout: 15_000 });
   assert.match(await page.getByTestId("tab-leads").innerText(), /4/, "the tab count updates in place");
   assert.equal(await page.getByTestId("profile-skeleton").count(), 0, "no skeleton flash after saving");
   pass("New enquiry opens with the customer filled in, creates a lead linked to them, and the profile updates without a reload");

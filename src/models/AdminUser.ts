@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 import type { AdminRole } from "@/types";
 import { tenantScopePlugin } from "@/lib/tenant/plugin";
 import { DEALER_TIER_KEYS, type DealerTierKey } from "@/lib/dealerTiers";
+import { isValidTimeZone } from "@/lib/followUps";
 
 export const CANONICAL_ADMIN_ROLES = ["super_admin", "admin", "sales_executive", "dealer"] as const satisfies readonly AdminRole[];
 export const ACTIVE_ADMIN_ROLES = ["super_admin", "admin", "sales_executive", "dealer", "configurable_admin"] as const satisfies readonly AdminRole[];
@@ -54,6 +55,11 @@ export interface IAdminUser {
   discountAllocationHistory: IDiscountAllocationHistory[];
   /** Granular capabilities assigned to configurable_admin accounts. */
   permissions?: string[];
+  /**
+   * The person's own time zone (an IANA name such as "Asia/Kolkata"). Decides what counts as "today" and "overdue" for
+   * them and how follow-up times are shown. Absent = Asia/Kolkata, which every existing person keeps until they choose one.
+   */
+  timeZone?: string | null;
   /**
    * Dealers only: the category the dealer has EARNED. Absent = Bronze, never evaluated. It only goes up automatically;
    * a Super Admin can correct it (always recorded in DealerCategoryEvent). The lifetime qualified count is NOT stored:
@@ -121,6 +127,12 @@ const AdminUserSchema = new Schema<IAdminUserDocument>(
     discountAllocationPercent: { type: Number, default: 0, min: 0, max: 100 },
     discountAllocationHistory: { type: [DiscountAllocationHistorySchema], default: () => [] },
     permissions: { type: [String], default: () => [] },
+    timeZone: {
+      type: String,
+      default: undefined,
+      trim: true,
+      validate: { validator: (value: string | null | undefined) => value == null || isValidTimeZone(value), message: "That is not a known time zone." },
+    },
     dealerTier: {
       type: new Schema(
         {
@@ -231,6 +243,12 @@ if (existingAdminUserModel) {
   if (!existingAdminUserModel.schema.path("permissions")) {
     existingAdminUserModel.schema.add({
       permissions: { type: [String], default: () => [] },
+    });
+  }
+
+  if (!existingAdminUserModel.schema.path("timeZone")) {
+    existingAdminUserModel.schema.add({
+      timeZone: { type: String, default: undefined, trim: true },
     });
   }
 

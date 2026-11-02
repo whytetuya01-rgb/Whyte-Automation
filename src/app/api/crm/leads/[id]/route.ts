@@ -5,6 +5,9 @@ import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { updateLeadSchema } from "@/lib/validation/crm";
 import { assertValidLeadAssignees, crmVisibilityFilter, recordCrmActivity, resolveLeadReferences } from "@/lib/crmService";
+import { withRequiredTransaction } from "@/lib/transaction";
+import { applyLeadFormFollowUp, ensureFollowUpTaskIndexes } from "@/lib/followUpService";
+import { notifyLeadAssigned } from "@/lib/leadAssignmentService";
 
 export const dynamic = "force-dynamic";
 
@@ -55,10 +58,13 @@ export async function GET(_req: Request, context: RouteContext) {
 
 /**
  * PATCH /api/crm/leads/[id] — Update lead fields.
+ *
+ * The follow-up (`nextFollowUpAt`, `followUpOwnerId`) is changed together with the lead, its task and its timeline entry
+ * in one transaction. A request that does not mention `nextFollowUpAt` leaves the follow-up alone; `null` removes it.
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions, companyId }) => {
+    return await withSession(async ({ role, userId, permissions, companyId, timeZone }) => {
       if (!hasPermission(role, permissions, "leads:manage")) {
         throw new ApiError("FORBIDDEN", "You do not have permission to update leads.");
       }
@@ -68,103 +74,129 @@ export async function PATCH(req: Request, context: RouteContext) {
       await connectMongoDB();
 
       const visibility = crmVisibilityFilter({ role, userId });
-      const lead = await Lead.findOne({ _id: id, companyId, ...visibility });
-      if (!lead) {
+      const current = await Lead.findOne({ _id: id, companyId, ...visibility });
+      if (!current) {
         throw new ApiError("NOT_FOUND", "Lead not found or access denied.");
       }
 
       const body = await readJsonBody(req);
       const input = updateLeadSchema.parse(body);
+      // The date schema turns a missing field into null, so whether the request mentioned it is read from the request itself.
+      const mentionsFollowUpDate = typeof body === "object" && body !== null && Object.prototype.hasOwnProperty.call(body, "nextFollowUpAt");
 
       await assertValidLeadAssignees({
         companyId,
-        dealerId: role !== "dealer" && input.dealerId !== lead.dealerId ? input.dealerId : null,
-        assignedSalesId: input.assignedSalesId !== lead.assignedSalesId ? input.assignedSalesId : null,
+        dealerId: role !== "dealer" && input.dealerId !== current.dealerId ? input.dealerId : null,
+        assignedSalesId: input.assignedSalesId !== current.assignedSalesId ? input.assignedSalesId : null,
       });
 
-      const newSource = input.sourceId && input.sourceId !== lead.sourceId
+      const newSource = input.sourceId && input.sourceId !== current.sourceId
         ? await resolveLeadReferences({ companyId, role, userId, sourceId: input.sourceId })
         : null;
 
-      const changes: string[] = [];
-      if (input.customerName && input.customerName !== lead.customerName) {
-        changes.push(`Name changed to "${input.customerName}"`);
-        lead.customerName = input.customerName;
-      }
-      if (input.phone !== undefined && input.phone !== lead.phone) {
-        lead.phone = input.phone;
-      }
-      if (input.whatsapp !== undefined && input.whatsapp !== lead.whatsapp) {
-        lead.whatsapp = input.whatsapp;
-      }
-      if (input.email !== undefined && input.email !== lead.email) {
-        lead.email = input.email;
-      }
-      if (input.siteAddress !== undefined && input.siteAddress !== lead.siteAddress) {
-        lead.siteAddress = input.siteAddress;
-      }
-      if (input.location !== undefined && input.location !== lead.location) {
-        lead.location = input.location;
-      }
-      if (input.projectType !== undefined && input.projectType !== lead.projectType) {
-        lead.projectType = input.projectType;
-      }
-      if (input.estimatedBudget !== undefined && input.estimatedBudget !== lead.estimatedBudget) {
-        lead.estimatedBudget = input.estimatedBudget;
-      }
-      if (input.expectedClosingDate !== undefined) {
-        lead.expectedClosingDate = input.expectedClosingDate;
-      }
-      if (input.sourceId !== undefined) {
-        lead.sourceId = input.sourceId;
-        if (input.sourceId === null) lead.sourceName = input.sourceName ?? null;
-      }
-      if (newSource) {
-        lead.sourceName = newSource.sourceName;
-      } else if (input.sourceName !== undefined && input.sourceId === undefined && !lead.sourceId) {
-        lead.sourceName = input.sourceName;
-      }
-      if (input.assignedSalesId !== undefined && input.assignedSalesId !== lead.assignedSalesId) {
-        changes.push(`Sales representative reassigned`);
-        lead.assignedSalesId = input.assignedSalesId;
-      }
-      if (input.dealerId !== undefined && input.dealerId !== lead.dealerId && role !== "dealer") {
-        changes.push(`Dealer reassigned`);
-        lead.dealerId = input.dealerId;
-      }
-      if (input.description !== undefined) {
-        lead.description = input.description;
-      }
-      if (input.priority !== undefined && input.priority !== lead.priority) {
-        changes.push(`Priority changed to ${input.priority}`);
-        lead.priority = input.priority;
-      }
-      if (input.notes !== undefined) {
-        lead.notes = input.notes;
-      }
-      if (input.nextFollowUpAt !== undefined) {
-        lead.nextFollowUpAt = input.nextFollowUpAt;
-      }
-      if (input.lostReason !== undefined) {
-        lead.lostReason = input.lostReason;
-      }
+      await ensureFollowUpTaskIndexes();
+      await withRequiredTransaction(async (session) => {
+        const lead = await Lead.findOne({ _id: id, companyId, ...visibility }).session(session ?? null);
+        if (!lead) {
+          throw new ApiError("NOT_FOUND", "Lead not found or access denied.");
+        }
 
-      lead.updatedAt = new Date();
-      await lead.save();
+        const changes: string[] = [];
+        if (input.customerName && input.customerName !== lead.customerName) {
+          changes.push(`Name changed to "${input.customerName}"`);
+          lead.customerName = input.customerName;
+        }
+        if (input.phone !== undefined && input.phone !== lead.phone) {
+          lead.phone = input.phone;
+        }
+        if (input.whatsapp !== undefined && input.whatsapp !== lead.whatsapp) {
+          lead.whatsapp = input.whatsapp;
+        }
+        if (input.email !== undefined && input.email !== lead.email) {
+          lead.email = input.email;
+        }
+        if (input.siteAddress !== undefined && input.siteAddress !== lead.siteAddress) {
+          lead.siteAddress = input.siteAddress;
+        }
+        if (input.location !== undefined && input.location !== lead.location) {
+          lead.location = input.location;
+        }
+        if (input.projectType !== undefined && input.projectType !== lead.projectType) {
+          lead.projectType = input.projectType;
+        }
+        if (input.estimatedBudget !== undefined && input.estimatedBudget !== lead.estimatedBudget) {
+          lead.estimatedBudget = input.estimatedBudget;
+        }
+        if (input.expectedClosingDate !== undefined) {
+          lead.expectedClosingDate = input.expectedClosingDate;
+        }
+        if (input.sourceId !== undefined) {
+          lead.sourceId = input.sourceId;
+          if (input.sourceId === null) lead.sourceName = input.sourceName ?? null;
+        }
+        if (newSource) {
+          lead.sourceName = newSource.sourceName;
+        } else if (input.sourceName !== undefined && input.sourceId === undefined && !lead.sourceId) {
+          lead.sourceName = input.sourceName;
+        }
+        const salesReassigned = input.assignedSalesId !== undefined && input.assignedSalesId !== lead.assignedSalesId;
+        if (salesReassigned) {
+          changes.push(`Sales representative reassigned`);
+          lead.assignedSalesId = input.assignedSalesId ?? null;
+        }
+        if (input.dealerId !== undefined && input.dealerId !== lead.dealerId && role !== "dealer") {
+          changes.push(`Dealer reassigned`);
+          lead.dealerId = input.dealerId;
+        }
+        if (input.description !== undefined) {
+          lead.description = input.description;
+        }
+        if (input.priority !== undefined && input.priority !== lead.priority) {
+          changes.push(`Priority changed to ${input.priority}`);
+          lead.priority = input.priority;
+        }
+        if (input.notes !== undefined) {
+          lead.notes = input.notes;
+        }
+        if (input.lostReason !== undefined) {
+          lead.lostReason = input.lostReason;
+        }
 
-      if (changes.length > 0) {
-        await recordCrmActivity({
-          companyId,
-          leadId: lead._id,
-          customerId: lead.customerId,
-          type: "note",
-          title: "Lead Updated",
-          description: changes.join("; "),
-          performedBy: userId,
+        await applyLeadFormFollowUp({ actor: { userId, role, permissions, companyId, timeZone }, session }, lead, {
+          nextFollowUpAt: mentionsFollowUpDate ? input.nextFollowUpAt : undefined,
+          ownerId: input.followUpOwnerId,
         });
-      }
 
-      return apiSuccess({ id: lead._id, updated: true });
+        lead.updatedAt = new Date();
+        await lead.save({ session });
+
+        if (salesReassigned && lead.assignedSalesId != null) {
+          await notifyLeadAssigned({
+            companyId,
+            leadId: lead._id,
+            referenceNumber: lead.referenceNumber,
+            customerName: lead.customerName,
+            assignedSalesId: lead.assignedSalesId,
+            isReassignment: true,
+            session,
+          });
+        }
+
+        if (changes.length > 0) {
+          await recordCrmActivity({
+            companyId,
+            leadId: lead._id,
+            customerId: lead.customerId,
+            type: "note",
+            title: "Lead Updated",
+            description: changes.join("; "),
+            performedBy: userId,
+            session,
+          });
+        }
+      });
+
+      return apiSuccess({ id: current._id, updated: true });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "PATCH /api/crm/leads/[id]" });

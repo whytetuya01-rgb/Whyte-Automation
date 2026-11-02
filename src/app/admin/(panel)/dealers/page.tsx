@@ -82,6 +82,7 @@ export default function DealersPage() {
   const { data: session } = useSession();
   const role = (session?.user as { role?: string })?.role;
   const isSuperAdmin = role === "super_admin";
+  const canSwitchDealerStatus = role === "super_admin" || role === "company_owner" || role === "admin";
 
   const confirm = useConfirm();
   const router = useRouter();
@@ -607,7 +608,7 @@ export default function DealersPage() {
                         </td>
 
                         <td className="px-4 py-3.5 text-center">
-                          {isSuperAdmin ? (
+                          {canSwitchDealerStatus ? (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -1231,7 +1232,7 @@ export default function DealersPage() {
 
             {/* Modal Bottom Actions */}
             <div className="flex items-center justify-between gap-3 pt-3 border-t border-gray-200">
-              {isSuperAdmin ? (
+              {canSwitchDealerStatus ? (
                 <button
                   type="button"
                   onClick={() => handleToggleStatus(selectedDealer)}

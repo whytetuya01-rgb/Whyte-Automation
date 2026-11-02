@@ -161,10 +161,12 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
     }
 
-    // Only Super Admin can activate or deactivate dealer accounts
+    // Super Admin, the Company Owner and company Admins can activate or deactivate a dealer account. The dealer is
+    // looked up inside the caller's own company (Super Admin: the company they are acting in), so nobody reaches another
+    // company's dealers. Custom roles with `dealers:manage` can edit dealers but not switch their account on or off.
     if (body.isActive !== undefined) {
-      if (role !== "super_admin") {
-        throw new ApiError("FORBIDDEN", "Only Super Admin can activate or deactivate dealer accounts.");
+      if (role !== "super_admin" && role !== "company_owner" && role !== "admin") {
+        throw new ApiError("FORBIDDEN", "Only the Company Owner, an Admin or the Super Admin can activate or deactivate dealer accounts.");
       }
       dealer.isActive = body.isActive;
     }

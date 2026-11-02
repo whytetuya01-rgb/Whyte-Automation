@@ -4,6 +4,7 @@ import { CalendarClock, Plus, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui";
 import { cn, formatCurrency } from "@/lib/utils";
 import { followUpLabel } from "@/lib/crmCustomerInsights";
+import { useUserTimeZone } from "@/lib/useUserTimeZone";
 import { LEAD_PRIORITY_CONFIG, LEAD_STATUS_CONFIG, type CustomerProfile } from "@/types/crm";
 import { EmptyState, formatDate } from "./shared";
 
@@ -31,11 +32,12 @@ function PriorityBadge({ priority }: { priority: ProfileLead["priority"] }) {
 }
 
 function FollowUp({ lead }: { lead: ProfileLead }) {
+  const timeZone = useUserTimeZone();
   if (lead.status === "won" || lead.status === "lost") {
     return lead.status === "lost" && lead.lostReason ? <span className="text-xs text-neutral-500">Lost: {lead.lostReason}</span> : <span className="text-xs text-neutral-300">—</span>;
   }
   if (!lead.nextFollowUpAt) return <span className="text-xs text-neutral-400">Not scheduled</span>;
-  const info = followUpLabel(lead.nextFollowUpAt);
+  const info = followUpLabel(lead.nextFollowUpAt, Date.now(), timeZone);
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold", info.overdue ? "bg-rose-50 text-rose-700" : info.today ? "bg-amber-50 text-amber-800" : "bg-neutral-100 text-neutral-600")}>
       <CalendarClock size={11} aria-hidden="true" />

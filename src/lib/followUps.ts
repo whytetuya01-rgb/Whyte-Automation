@@ -1,46 +1,144 @@
 /**
- * Lead follow-ups: which day a follow-up falls on, the "Add to Google Calendar" link, and the calendar file (iCalendar)
- * that Google Calendar, Apple Calendar and Outlook can subscribe to. Pure (no database, no server imports), so the
- * server and the screens use the same rules.
+ * Lead follow-ups: when a follow-up counts as overdue, today or upcoming, the "Add to Google Calendar" link, and the
+ * calendar file (iCalendar) that Google Calendar, Apple Calendar and Outlook can subscribe to. Pure (no database, no
+ * server imports), so the server and every screen use the same rules.
  *
- * "Today", "overdue" and "upcoming" are decided by the business day in India (Asia/Kolkata, which has no daylight
- * saving), not by the server's or the browser's clock.
+ * Overdue is decided by the clock: a follow-up is overdue the moment its due time has passed. From now until the end of
+ * today it is "today"; after that it is "upcoming". Where a day ends depends on a time zone, which is always passed in
+ * (default: India, Asia/Kolkata, which has no daylight saving). Zones that do change their clocks are handled too, so a
+ * business day can be 23 or 25 hours long.
  */
 
 export const FOLLOW_UP_TIME_ZONE = "Asia/Kolkata";
-const IST_OFFSET = "+05:30";
 
 /** A calendar entry lasts this long (a follow-up is a short call or message). */
 export const FOLLOW_UP_DURATION_MINUTES = 30;
 
 export type FollowUpBucket = "overdue" | "today" | "upcoming";
 
-const dayKeyFormat = new Intl.DateTimeFormat("en-CA", { timeZone: FOLLOW_UP_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit" });
-
-/** `YYYY-MM-DD` of an instant on the Indian business calendar. */
-export function businessDayKey(date: Date): string {
-  return dayKeyFormat.format(date);
+/** True for a name the runtime knows as an IANA time zone, e.g. "Asia/Kolkata" or "America/New_York". */
+export function isValidTimeZone(timeZone: unknown): timeZone is string {
+  if (typeof timeZone !== "string" || timeZone.trim() === "") return false;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-/** The start (inclusive) and end (exclusive) of the Indian business day that contains `now`, as exact instants. */
-export function businessDayBounds(now: Date): { start: Date; end: Date } {
-  const start = new Date(`${businessDayKey(now)}T00:00:00${IST_OFFSET}`);
-  return { start, end: new Date(start.getTime() + 24 * 3600 * 1000) };
+/**
+ * The zone to use for a person: the one they chose (any name the runtime knows, written the standard way: "Asia/Calcutta"
+ * becomes "Asia/Kolkata"), or India when they have not chosen one or it is not valid.
+ */
+export function resolveFollowUpTimeZone(chosen: unknown): string {
+  if (!isValidTimeZone(chosen)) return FOLLOW_UP_TIME_ZONE;
+  try {
+    return new Intl.DateTimeFormat("en", { timeZone: chosen }).resolvedOptions().timeZone;
+  } catch {
+    return FOLLOW_UP_TIME_ZONE;
+  }
 }
 
-/** Overdue = an earlier day; today = any time today (even if the time has passed); upcoming = a later day. */
-export function followUpBucket(due: Date, now: Date = new Date()): FollowUpBucket {
-  const dueDay = businessDayKey(due);
-  const today = businessDayKey(now);
-  if (dueDay < today) return "overdue";
-  return dueDay === today ? "today" : "upcoming";
+const dayFormats = new Map<string, Intl.DateTimeFormat>();
+const clockFormats = new Map<string, Intl.DateTimeFormat>();
+
+function dayFormat(timeZone: string): Intl.DateTimeFormat {
+  let format = dayFormats.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" });
+    dayFormats.set(timeZone, format);
+  }
+  return format;
 }
 
-/** Whole business days between today and the due day (negative = days overdue). */
-export function followUpDayOffset(due: Date, now: Date = new Date()): number {
-  const dueStart = new Date(`${businessDayKey(due)}T00:00:00${IST_OFFSET}`).getTime();
-  const todayStart = businessDayBounds(now).start.getTime();
-  return Math.round((dueStart - todayStart) / (24 * 3600 * 1000));
+function clockFormat(timeZone: string): Intl.DateTimeFormat {
+  let format = clockFormats.get(timeZone);
+  if (!format) {
+    format = new Intl.DateTimeFormat("en-US", { timeZone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric" });
+    clockFormats.set(timeZone, format);
+  }
+  return format;
+}
+
+/** How far the zone's clock is ahead of UTC at an instant, in milliseconds (positive = ahead). */
+function zoneOffsetMs(instant: number, timeZone: string): number {
+  const wholeSeconds = Math.floor(instant / 1000) * 1000;
+  const parts: Record<string, number> = {};
+  for (const part of clockFormat(timeZone).formatToParts(new Date(wholeSeconds))) {
+    if (part.type !== "literal") parts[part.type] = Number(part.value);
+  }
+  const hour = parts.hour === 24 ? 0 : parts.hour;
+  return Date.UTC(parts.year, parts.month - 1, parts.day, hour, parts.minute, parts.second) - wholeSeconds;
+}
+
+/** The instant a calendar day (`YYYY-MM-DD`) begins in the zone. */
+function dayStart(key: string, timeZone: string): Date {
+  const [year, month, day] = key.split("-").map(Number);
+  const midnightAsUtc = Date.UTC(year, month - 1, day);
+  let instant = midnightAsUtc - zoneOffsetMs(midnightAsUtc, timeZone);
+  // The zone's offset can differ at the instant we landed on (a clock change in between): settle on the right one.
+  const settled = midnightAsUtc - zoneOffsetMs(instant, timeZone);
+  if (settled !== instant) instant = settled;
+  return new Date(instant);
+}
+
+function nextDayKey(key: string): string {
+  const [year, month, day] = key.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+}
+
+const dayNumber = (key: string): number => {
+  const [year, month, day] = key.split("-").map(Number);
+  return Date.UTC(year, month - 1, day) / 86_400_000;
+};
+
+/** `YYYY-MM-DD` of an instant on the zone's business calendar. */
+export function businessDayKey(date: Date, timeZone: string = FOLLOW_UP_TIME_ZONE): string {
+  return dayFormat(timeZone).format(date);
+}
+
+/** The start (inclusive) and end (exclusive) of the business day that contains `now`, as exact instants. */
+export function businessDayBounds(now: Date, timeZone: string = FOLLOW_UP_TIME_ZONE): { start: Date; end: Date } {
+  const key = businessDayKey(now, timeZone);
+  return { start: dayStart(key, timeZone), end: dayStart(nextDayKey(key), timeZone) };
+}
+
+/**
+ * Overdue = the due time has passed; today = still ahead of us before the day ends; upcoming = a later day.
+ * A follow-up due exactly now is not yet overdue.
+ */
+export function followUpBucket(due: Date, now: Date = new Date(), timeZone: string = FOLLOW_UP_TIME_ZONE): FollowUpBucket {
+  if (due.getTime() < now.getTime()) return "overdue";
+  return businessDayKey(due, timeZone) === businessDayKey(now, timeZone) ? "today" : "upcoming";
+}
+
+/** True once the due time has passed. The zone does not matter for this question, only for "today" vs "upcoming". */
+export function isFollowUpOverdue(due: Date | string | number, now: Date | number = new Date()): boolean {
+  const dueAt = new Date(due).getTime();
+  return !Number.isNaN(dueAt) && dueAt < new Date(now).getTime();
+}
+
+/** Whole business days between today and the due day (negative = the due day is already behind us). */
+export function followUpDayOffset(due: Date, now: Date = new Date(), timeZone: string = FOLLOW_UP_TIME_ZONE): number {
+  return dayNumber(businessDayKey(due, timeZone)) - dayNumber(businessDayKey(now, timeZone));
+}
+
+export interface FollowUpStatus {
+  bucket: FollowUpBucket;
+  /** Business days from today to the due day: 0 = today, 1 = tomorrow, -2 = two days ago. */
+  dayOffset: number;
+}
+
+/**
+ * The one answer every screen uses for a follow-up date (customer profile, pipeline cards, lead tab, follow-ups list).
+ * `null` when the date or the clock is not a valid date.
+ */
+export function followUpStatus(due: Date | string | number, now: Date | number = new Date(), timeZone: string = FOLLOW_UP_TIME_ZONE): FollowUpStatus | null {
+  const dueAt = new Date(due);
+  const nowAt = new Date(now);
+  if (Number.isNaN(dueAt.getTime()) || Number.isNaN(nowAt.getTime())) return null;
+  return { bucket: followUpBucket(dueAt, nowAt, timeZone), dayOffset: followUpDayOffset(dueAt, nowAt, timeZone) };
 }
 
 export interface FollowUpLead {
@@ -52,17 +150,18 @@ export interface FollowUpLead {
   location?: string | null;
   priority?: string | null;
   status?: string | null;
-  notes?: string | null;
 }
 
-/** What a calendar entry says, with the details a salesperson needs on the day. No budget or internal figures. */
+/**
+ * What a calendar entry says, with the details a salesperson needs on the day. No budget or internal figures, and never
+ * the lead's notes: they are free text and can hold prices or private remarks, which must not end up in someone's calendar.
+ */
 export function followUpEventText(lead: FollowUpLead, openUrl?: string | null): { title: string; details: string; location: string } {
   const lines = [
     `Lead ${lead.referenceNumber}`,
     lead.phone ? `Phone: ${lead.phone}` : null,
     lead.projectType ? `Project: ${lead.projectType}` : null,
     lead.priority ? `Priority: ${lead.priority}` : null,
-    lead.notes ? `Notes: ${lead.notes.slice(0, 300)}` : null,
     openUrl ? `Open in the app: ${openUrl}` : null,
   ].filter((line): line is string => Boolean(line));
   return { title: `Follow up: ${lead.customerName}`, details: lines.join("\n"), location: lead.location?.trim() ?? "" };
@@ -73,7 +172,7 @@ function googleDate(date: Date): string {
 }
 
 /** A link that opens Google Calendar with the event filled in; the user only presses Save. Needs no Google setup. */
-export function googleCalendarUrl(lead: FollowUpLead, due: Date, openUrl?: string | null): string {
+export function googleCalendarUrl(lead: FollowUpLead, due: Date, openUrl?: string | null, timeZone: string = FOLLOW_UP_TIME_ZONE): string {
   const text = followUpEventText(lead, openUrl);
   const end = new Date(due.getTime() + FOLLOW_UP_DURATION_MINUTES * 60 * 1000);
   const params = new URLSearchParams({
@@ -81,7 +180,7 @@ export function googleCalendarUrl(lead: FollowUpLead, due: Date, openUrl?: strin
     text: text.title,
     dates: `${googleDate(due)}/${googleDate(end)}`,
     details: text.details.slice(0, 1200),
-    ctz: FOLLOW_UP_TIME_ZONE,
+    ctz: timeZone,
   });
   if (text.location) params.set("location", text.location.slice(0, 200));
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
@@ -136,7 +235,7 @@ export interface FollowUpCalendarEvent {
  * The follow-ups as a calendar file. Each lead has one stable entry (the same UID every time), so a changed date moves
  * the existing entry instead of adding another. Entries do not block the person's time (they are reminders).
  */
-export function buildFollowUpCalendar(events: FollowUpCalendarEvent[], options: { calendarName: string; now?: Date }): string {
+export function buildFollowUpCalendar(events: FollowUpCalendarEvent[], options: { calendarName: string; now?: Date; timeZone?: string }): string {
   const now = options.now ?? new Date();
   const lines: string[] = [
     "BEGIN:VCALENDAR",
@@ -145,7 +244,7 @@ export function buildFollowUpCalendar(events: FollowUpCalendarEvent[], options: 
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeIcsText(options.calendarName)}`,
-    `X-WR-TIMEZONE:${FOLLOW_UP_TIME_ZONE}`,
+    `X-WR-TIMEZONE:${options.timeZone ?? FOLLOW_UP_TIME_ZONE}`,
     "REFRESH-INTERVAL;VALUE=DURATION:PT1H",
     "X-PUBLISHED-TTL:PT1H",
   ];

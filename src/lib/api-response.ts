@@ -49,6 +49,8 @@ export type ApiErrorCode =
   /** @deprecated Legacy alias for INVALID_FILE_TYPE. Prefer INVALID_FILE_TYPE. */
   | "UNSUPPORTED_MEDIA_TYPE"
   | "DATABASE_ERROR"
+  /** A required part of the platform (for example a database feature) is not available; nothing was changed. */
+  | "SERVICE_UNAVAILABLE"
   | "INTERNAL_SERVER_ERROR";
 
 /**
@@ -105,6 +107,7 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   INVALID_FILE_TYPE: 415,
   UNSUPPORTED_MEDIA_TYPE: 415,
   DATABASE_ERROR: 500,
+  SERVICE_UNAVAILABLE: 503,
   INTERNAL_SERVER_ERROR: 500,
 };
 

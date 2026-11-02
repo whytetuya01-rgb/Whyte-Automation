@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import dns from "dns";
+import { autoIndexEnabled, describeIndexPolicy } from "@/lib/mongoIndexPolicy";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DNS: SRV resolution for mongodb+srv
@@ -101,6 +102,10 @@ async function connectWithRetry(uri: string): Promise<typeof mongoose> {
         serverSelectionTimeoutMS: 4_000,
         connectTimeoutMS: 4_000,
         socketTimeoutMS: 45_000,
+        // Whether Mongoose may create collections and indexes by itself (see src/lib/mongoIndexPolicy.ts). Mongoose reads
+        // these only after the connection opens, so setting them here covers every model, however it was loaded.
+        autoIndex: autoIndexEnabled(),
+        autoCreate: autoIndexEnabled(),
       });
     } catch (error) {
       lastError = error;
@@ -187,6 +192,7 @@ export async function connectMongoDB(): Promise<typeof mongoose> {
     if (isFirstCall) {
       const isAtlas = MONGODB_URI.includes("mongodb+srv") || MONGODB_URI.includes("mongodb.net");
       console.log(`[PERF:DB] MongoDB initial connection established in ${lastConnectDurationMs} ms (${isAtlas ? "Atlas Cloud" : "Local Database"})`);
+      console.log(`[mongodb] index policy: ${describeIndexPolicy()}`);
     }
   } catch (error) {
     // Record failure time for cooldown to prevent cascading loops

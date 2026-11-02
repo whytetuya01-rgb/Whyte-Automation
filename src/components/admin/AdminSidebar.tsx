@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
@@ -23,6 +24,7 @@ import {
   UserCheck,
   Contact,
   SlidersHorizontal,
+  Workflow,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/utils";
@@ -69,6 +71,7 @@ const navGroups: NavGroup[] = [
       { href: "/admin/crm/follow-ups", label: "Follow-ups", icon: CalendarClock },
       { href: "/admin/crm/customers", label: "Customers", icon: Contact },
       { href: "/admin/crm/sources", label: "Lead Sources", icon: SlidersHorizontal },
+      { href: "/admin/crm/assignment", label: "Assignment Rules", icon: Workflow },
     ],
   },
   {
@@ -240,7 +243,13 @@ export default function AdminSidebar({
         className="p-3.5 border-t border-[#1E1E22] shrink-0 bg-[#0A0A0C] space-y-2"
       >
         <CollapsedTooltip label={`${userName} · ${userRole}`} enabled={collapsed}>
-          <div className="profile-card-glow group flex items-center gap-2.5 px-2 py-1.5 rounded-xl bg-white/[0.03] border border-white/5">
+          <Link
+            href="/admin/account"
+            onClick={onClose}
+            aria-label={`My account (${userName})`}
+            data-testid="sidebar-account-link"
+            className="profile-card-glow group flex items-center gap-2.5 px-2 py-1.5 rounded-xl bg-white/[0.03] border border-white/5 transition-colors hover:bg-white/[0.06] outline-hidden focus-visible:outline-solid focus-visible:outline-1 focus-visible:outline-[var(--color-admin-primary-on-dark,#D85B83)]"
+          >
             <div className="w-8 h-8 rounded-lg bg-[var(--color-admin-primary-on-dark,#D85B83)]/20 border border-[var(--color-admin-primary-on-dark,#D85B83)]/40 text-[var(--color-admin-primary-on-dark,#D85B83)] flex items-center justify-center font-bold text-xs shrink-0 transition-[translate] duration-[var(--motion-fast)] ease-[var(--motion-ease)] group-hover:-translate-y-px">
               {userName.charAt(0).toUpperCase()}
             </div>
@@ -259,7 +268,7 @@ export default function AdminSidebar({
                 </motion.div>
               )}
             </AnimatePresence>
-          </div>
+          </Link>
         </CollapsedTooltip>
 
         <CollapsedTooltip label="Sign Out" enabled={collapsed}>

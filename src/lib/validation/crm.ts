@@ -107,6 +107,8 @@ export const createLeadSchema = strictObject({
   priority: leadPriorityEnum.default("medium"),
   notes: optionalText(2000),
   nextFollowUpAt: optionalDateField,
+  /** Who owns the follow-up. Default: the person creating the lead. */
+  followUpOwnerId: numericIdSchema.optional().nullable(),
 });
 
 export const updateLeadSchema = strictObject({
@@ -129,6 +131,8 @@ export const updateLeadSchema = strictObject({
   priority: leadPriorityEnum.optional(),
   notes: optionalText(2000),
   nextFollowUpAt: optionalDateField,
+  /** Hands the open follow-up to this person. */
+  followUpOwnerId: numericIdSchema.optional().nullable(),
   lostReason: optionalText(500),
 });
 
@@ -165,5 +169,20 @@ export const updateLeadSourceSchema = strictObject({
   name: nameField(100, "Source name is required.").optional(),
   sortOrder: z.number().int().min(0).optional(),
   isActive: z.boolean().optional(),
+});
+
+export const assignmentModeEnum = z.enum(["manual", "round_robin", "least_open_leads"]);
+
+export const sourceMappingSchema = strictObject({
+  sourceId: z.string().min(1, "Source ID is required."),
+  salesId: numericIdSchema,
+});
+
+export const updateLeadAssignmentRuleSchema = strictObject({
+  mode: assignmentModeEnum,
+  enabled: z.boolean(),
+  eligibleSalesIds: z.array(numericIdSchema).default([]),
+  fallbackSalesId: numericIdSchema.optional().nullable(),
+  sourceMappings: z.array(sourceMappingSchema).optional().default([]),
 });
 

@@ -7,6 +7,7 @@ import { createPaginatedResponse, parsePaginationParams } from "@/lib/pagination
 import { parseSearchQueryParam, parseStringQueryParam } from "@/lib/validation/common";
 import { crmVisibilityFilter, scopedQuery } from "@/lib/crmService";
 import { businessDayBounds, followUpBucket, followUpDayOffset } from "@/lib/followUps";
+import { openTasksByLead, ownerNames } from "@/lib/followUpService";
 
 export const dynamic = "force-dynamic";
 
@@ -17,12 +18,14 @@ const PRIORITIES = ["low", "medium", "high", "urgent"] as const;
  * GET /api/crm/follow-ups?view=all|overdue|today|upcoming&search=&priority=&page=&pageSize=
  *
  * The open leads (not won or lost) that have a next follow-up date, earliest first, limited to the leads the caller may
- * see in the CRM. Overdue / today / upcoming are decided by the Indian business day. `summary` always counts all three
- * (it ignores the search and priority filter) so the tabs can show their numbers. Default page size is 10.
+ * see in the CRM. Overdue = the due time has passed; today = still ahead of us before the Indian business day ends;
+ * upcoming = a later day. `summary` always counts all three (it ignores the search and priority filter) so the tabs can
+ * show their numbers. Each row says who owns the follow-up (empty for an old follow-up that has no owner yet).
+ * Default page size is 10.
  */
 export async function GET(req: Request) {
   try {
-    return await withSession(async ({ role, userId, permissions, companyId }) => {
+    return await withSession(async ({ role, userId, permissions, companyId, timeZone }) => {
       if (!hasPermission(role, permissions, "leads:read")) throw new ApiError("FORBIDDEN", "You do not have permission to view follow-ups.");
       if (!companyId) throw new ApiError("FORBIDDEN", "Company context required.");
 
@@ -33,13 +36,15 @@ export async function GET(req: Request) {
       const pagination = parsePaginationParams(searchParams, { defaultPageSize: 10, maxPageSize: 100 });
 
       await connectMongoDB();
+      // One instant for the whole request, so the three tabs split the follow-ups with no gap and no overlap.
       const now = new Date();
-      const { start, end } = businessDayBounds(now);
+      // "Today" ends where the signed-in person's own day ends (their My account time zone; India unless they chose another).
+      const { end } = businessDayBounds(now, timeZone);
       const visibility = crmVisibilityFilter({ role, userId });
       const open = [{ status: { $nin: ["won", "lost"] } }];
       const range = (bucket: (typeof VIEWS)[number]): Record<string, unknown> =>
-        bucket === "overdue" ? { nextFollowUpAt: { $ne: null, $lt: start } }
-        : bucket === "today" ? { nextFollowUpAt: { $gte: start, $lt: end } }
+        bucket === "overdue" ? { nextFollowUpAt: { $ne: null, $lt: now } }
+        : bucket === "today" ? { nextFollowUpAt: { $gte: now, $lt: end } }
         : bucket === "upcoming" ? { nextFollowUpAt: { $gte: end } }
         : { nextFollowUpAt: { $ne: null } };
 
@@ -65,10 +70,16 @@ export async function GET(req: Request) {
         count("upcoming"),
       ]);
 
+      const tasks = await openTasksByLead(companyId, leads.map((lead) => String(lead._id)));
+      const names = await ownerNames(companyId, Array.from(tasks.values(), (task) => task.ownerId));
+
       const data = leads.map((lead) => {
         const due = new Date(lead.nextFollowUpAt as Date);
         const owner = (lead as unknown as { assignedSales?: { name?: string; firstName?: string; lastName?: string; email?: string } | null }).assignedSales;
+        const task = tasks.get(String(lead._id));
         return {
+          followUpOwnerId: task?.ownerId ?? null,
+          followUpOwnerName: task ? names.get(task.ownerId) ?? null : null,
           id: String(lead._id),
           referenceNumber: lead.referenceNumber,
           customerName: lead.customerName,
@@ -81,13 +92,13 @@ export async function GET(req: Request) {
           notes: lead.notes ? lead.notes.slice(0, 300) : null,
           nextFollowUpAt: due.toISOString(),
           lastContactedAt: lead.lastContactedAt ? new Date(lead.lastContactedAt).toISOString() : null,
-          bucket: followUpBucket(due, now),
-          dayOffset: followUpDayOffset(due, now),
+          bucket: followUpBucket(due, now, timeZone),
+          dayOffset: followUpDayOffset(due, now, timeZone),
           assignedSalesName: owner ? owner.name || `${owner.firstName ?? ""} ${owner.lastName ?? ""}`.trim() || owner.email || null : null,
         };
       });
 
-      return apiSuccess({ ...createPaginatedResponse(data, total, pagination), summary: { overdue, today, upcoming } });
+      return apiSuccess({ ...createPaginatedResponse(data, total, pagination), summary: { overdue, today, upcoming }, timeZone });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/crm/follow-ups" });

@@ -7,6 +7,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { normalizeWhatsAppNumber, whatsappShareUrl } from "@/lib/quotationDeliveryShared";
 import { SEGMENT_LABELS, followUpLabel, relativeTime, type CustomerSegment, type CustomerStats } from "@/lib/crmCustomerInsights";
 import { CUSTOMER_TYPE_LABELS, type CustomerProfile } from "@/types/crm";
+import { useUserTimeZone } from "@/lib/useUserTimeZone";
 
 const SEGMENT_STYLE: Record<CustomerSegment, string> = {
   repeat: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -41,12 +42,13 @@ interface Props {
 
 /** The profile's top card: who the customer is, how to reach them, what to do next, and the headline numbers. */
 export default function ProfileHeader({ customer, stats, newQuotationUrl, onEdit, onArchive, onNewEnquiry }: Props) {
+  const timeZone = useUserTimeZone();
   const typeLabel = CUSTOMER_TYPE_LABELS[customer.customerType] ?? "Customer";
   const whatsappNumber = normalizeWhatsAppNumber(customer.whatsapp || customer.phone || "");
   const whatsappUrl = whatsappNumber ? whatsappShareUrl(whatsappNumber, `Hello ${customer.name}, `) : null;
   const initials = customer.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "?";
   const since = new Date(customer.createdAt).toLocaleDateString("en-IN", { month: "short", year: "numeric" });
-  const followUp = stats.nextFollowUp ? followUpLabel(stats.nextFollowUp.at) : null;
+  const followUp = stats.nextFollowUp ? followUpLabel(stats.nextFollowUp.at, Date.now(), timeZone) : null;
 
   const quickAction = "inline-flex h-9 items-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 

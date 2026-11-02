@@ -51,6 +51,8 @@ export interface SessionActorData {
   isActive?: boolean;
   /** `null` for the platform super_admin; every other role's company. */
   companyId?: number | null;
+  /** The time zone the person chose (null = none chosen: Asia/Kolkata is used). */
+  timeZone?: string | null;
   permissions: string[];
   expiresAt: number;
 }
@@ -98,7 +100,7 @@ export async function getSessionActor(userId: number, tokenRole: string): Promis
     // still synchronously running for the tenant-scope plugin's hooks to see
     // the context `runUnscoped` just established.
     const user = await runUnscoped("auth-lookup", async () =>
-      await AdminUser.findById(userId).select("isActive role permissions companyId").lean()
+      await AdminUser.findById(userId).select("isActive role permissions companyId timeZone").lean()
     );
     const userRole = user?.role ? user.role.trim().toLowerCase() : "";
     const normTokenRole = tokenRole ? tokenRole.trim().toLowerCase() : "";
@@ -130,6 +132,7 @@ export async function getSessionActor(userId: number, tokenRole: string): Promis
       role: user?.role,
       isActive: user?.isActive,
       companyId,
+      timeZone: (user as { timeZone?: string | null } | null)?.timeZone ?? null,
       permissions,
       expiresAt: now + resolveCacheTtlMs(),
     };

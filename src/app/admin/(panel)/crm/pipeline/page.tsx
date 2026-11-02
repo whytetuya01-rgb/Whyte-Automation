@@ -24,6 +24,8 @@ import { Button, Input, Textarea } from "@/components/ui";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import { cn, formatCurrency } from "@/lib/utils";
+import { followUpStatus } from "@/lib/followUps";
+import { useUserTimeZone } from "@/lib/useUserTimeZone";
 import type { Lead, OpportunityCard, PipelineStageData, PipelineStageId } from "@/types/crm";
 import { LEAD_PRIORITY_CONFIG } from "@/types/crm";
 import LeadDetailDrawer from "@/components/admin/crm/LeadDetailDrawer";
@@ -53,18 +55,13 @@ const initials = (name: string) =>
     .join("") || "?";
 
 /** "Due today" / "Overdue 3d" / "In 2d" for a follow-up date, with the tone the chip uses. */
-function followUpInfo(iso: string | null | undefined): { text: string; tone: "overdue" | "today" | "later" } | null {
+function followUpInfo(iso: string | null | undefined, timeZone?: string): { text: string; tone: "overdue" | "today" | "later" } | null {
   if (!iso) return null;
-  const due = new Date(iso);
-  if (Number.isNaN(due.getTime())) return null;
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfDue = new Date(due);
-  startOfDue.setHours(0, 0, 0, 0);
-  const days = Math.round((startOfDue.getTime() - startOfToday.getTime()) / 86_400_000);
-  if (days < 0) return { text: `Overdue ${-days}d`, tone: "overdue" };
-  if (days === 0) return { text: "Follow-up today", tone: "today" };
-  return { text: `Follow-up in ${days}d`, tone: "later" };
+  const status = followUpStatus(iso, Date.now(), timeZone);
+  if (!status) return null;
+  if (status.bucket === "overdue") return { text: status.dayOffset === 0 ? "Overdue today" : `Overdue ${-status.dayOffset}d`, tone: "overdue" };
+  if (status.bucket === "today") return { text: "Follow-up today", tone: "today" };
+  return { text: `Follow-up in ${status.dayOffset}d`, tone: "later" };
 }
 
 /** The stage list with one card moved to another stage and the counts and totals recomputed (shown before the server answers). */
@@ -111,6 +108,7 @@ function BoardSkeleton() {
 }
 
 export default function PipelinePage() {
+  const timeZone = useUserTimeZone();
   const [stages, setStages] = useState<PipelineStageData[]>([]);
   const [initialLoading, setInitialLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -232,11 +230,11 @@ export default function PipelinePage() {
       wonCount: won?.count ?? 0,
       hot: openCards.filter((card) => card.isHotLead).length,
       stale: openCards.filter((card) => card.daysInStage >= 7).length,
-      overdue: openCards.filter((card) => followUpInfo(card.nextFollowUpAt)?.tone === "overdue").length,
-      attention: openCards.filter((card) => card.daysInStage >= 7 || followUpInfo(card.nextFollowUpAt)?.tone === "overdue").length,
+      overdue: openCards.filter((card) => followUpInfo(card.nextFollowUpAt, timeZone)?.tone === "overdue").length,
+      attention: openCards.filter((card) => card.daysInStage >= 7 || followUpInfo(card.nextFollowUpAt, timeZone)?.tone === "overdue").length,
       total: stages.reduce((sum, stage) => sum + stage.count, 0),
     };
-  }, [stages]);
+  }, [stages, timeZone]);
 
   return (
     <div className="space-y-5">
@@ -361,7 +359,7 @@ export default function PipelinePage() {
                       stage.items.map((card) => {
                         const priority = LEAD_PRIORITY_CONFIG[card.priority] || LEAD_PRIORITY_CONFIG.medium;
                         const owner = card.assignedSalesName || card.dealerName || "Direct";
-                        const followUp = isOpenStage(card.stage) ? followUpInfo(card.nextFollowUpAt) : null;
+                        const followUp = isOpenStage(card.stage) ? followUpInfo(card.nextFollowUpAt, timeZone) : null;
                         const stuck = isOpenStage(card.stage) && card.daysInStage >= 7;
                         return (
                           <article

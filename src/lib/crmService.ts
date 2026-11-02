@@ -112,19 +112,21 @@ export async function recordCrmActivity(params: {
   metadata?: Record<string, unknown> | null;
   performedBy: number;
   performedByName?: string | null;
+  /** Inside a transaction: the entry is written with it, so it exists only if the rest of the change does. */
+  session?: ClientSession | null;
 }): Promise<void> {
   await connectMongoDB();
 
   let actorName = params.performedByName ?? null;
   if (!actorName && params.performedBy) {
-    const actor = await AdminUser.findById(params.performedBy).select("name firstName lastName email").lean();
+    const actor = await AdminUser.findById(params.performedBy).select("name firstName lastName email").session(params.session ?? null).lean();
     if (actor) {
       actorName = actor.name || `${actor.firstName || ""} ${actor.lastName || ""}`.trim() || actor.email;
     }
   }
 
   const activityId = `act_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-  await CrmActivity.create({
+  const entry = {
     _id: activityId,
     companyId: params.companyId,
     leadId: params.leadId ?? null,
@@ -137,7 +139,9 @@ export async function recordCrmActivity(params: {
     performedBy: params.performedBy,
     performedByName: actorName,
     performedAt: new Date(),
-  });
+  };
+  if (params.session) await CrmActivity.create([entry], { session: params.session });
+  else await CrmActivity.create(entry);
 }
 
 /**

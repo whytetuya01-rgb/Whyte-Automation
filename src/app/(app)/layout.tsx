@@ -6,10 +6,11 @@ import DealerHeaderLogo from "@/components/shared/DealerHeaderLogo";
 import SignOutButton from "@/components/shared/SignOutButton";
 import SiteFooter from "@/components/shared/SiteFooter";
 import { getFooterCompany } from "@/lib/footerCompany";
-import { Plus, FileText, LayoutDashboard, LayoutGrid, User, Wallet } from "lucide-react";
+import { Plus, FileText, LayoutDashboard, LayoutGrid, User, Users, Wallet } from "lucide-react";
 import { isSessionActorStillValid } from "@/lib/sessionGuard";
 import OfflineStatusPill from "@/components/offline/OfflineStatusPill";
 import { DealerLevelChip } from "@/components/dealer/DealerLevel";
+import NotificationBell from "@/components/admin/NotificationBell";
 
 const ALLOWED_APP_ROLES = new Set(["dealer", "super_admin", "admin", "company_owner", "configurable_admin", "sales_executive"]);
 
@@ -91,6 +92,16 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 </>
               )}
 
+              {role === "sales_executive" && (
+                <Link
+                  href="/my-leads"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-gray-950 hover:bg-gray-100 transition"
+                >
+                  <Users size={14} />
+                  <span>My Leads</span>
+                </Link>
+              )}
+
               {(role === "super_admin" || role === "admin") && (
                 <Link
                   href="/admin/dashboard"
@@ -106,6 +117,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           {/* Right: Actions + User */}
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
             <OfflineStatusPill />
+            {role === "sales_executive" && <NotificationBell tone="light" leadsHref="/my-leads" />}
             <Link
               href="/quotation/new"
               className="inline-flex items-center gap-1 sm:gap-1.5 bg-gray-950 hover:bg-gray-800 text-white text-xs font-semibold px-2.5 sm:px-3 py-1.5 rounded-xl shadow-2xs hover:shadow-xs transition-all duration-150 border border-gray-900 shrink-0"
@@ -191,6 +203,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                 <span>Profile</span>
               </Link>
             </>
+          )}
+          {role === "sales_executive" && (
+            <Link
+              href="/my-leads"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-gray-700 hover:text-gray-950 hover:bg-gray-200/60 transition shrink-0"
+            >
+              <Users size={13} />
+              <span>My Leads</span>
+            </Link>
           )}
           {(role === "super_admin" || role === "admin") && (
             <Link

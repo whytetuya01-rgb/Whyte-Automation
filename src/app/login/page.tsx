@@ -55,7 +55,7 @@ function UserLoginForm() {
       if (result?.error) {
         let message = "Invalid email address or password. Please try again.";
         if (result.error === "ADMIN_IN_USER_PORTAL") {
-          message = "This portal is exclusively for Dealer accounts. Administrators must log in via the Admin Portal at /admin/login.";
+          message = "This portal is for Dealer and Sales Executive accounts. Administrators must log in via the Admin Portal at /admin/login.";
         } else if (result.error in REVIEW_BLOCK_MESSAGES) {
           message = REVIEW_BLOCK_MESSAGES[result.error as LoginBlock];
         }
@@ -65,8 +65,8 @@ function UserLoginForm() {
       }
       const session = await getSession();
       const role = (session?.user as { role?: string } | undefined)?.role;
-      if (role !== "dealer") {
-        const message = "This portal is strictly for Dealers. Administrators must use /admin/login.";
+      if (role !== "dealer" && role !== "sales_executive") {
+        const message = "This portal is for Dealers and Sales Executives. Administrators must use /admin/login.";
         setAuthError(message);
         toast.error(message);
         return;

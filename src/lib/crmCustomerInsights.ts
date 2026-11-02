@@ -3,6 +3,7 @@
  * Pure (no server imports) so the profile and its tests share one definition of "approved value", "open pipeline" etc.
  */
 import type { CrmActivity, CrmActivityType, CustomerProfile } from "@/types/crm";
+import { followUpStatus, isFollowUpOverdue } from "@/lib/followUps";
 
 /** Quotation statuses that count as the customer having said yes. */
 export const APPROVED_QUOTATION_STATUSES = ["approved", "delivered"] as const;
@@ -56,8 +57,6 @@ export function computeCustomerStats(profile: Pick<CustomerProfile, "quotations"
     .map((l) => ({ at: l.nextFollowUpAt as string, leadId: l.id, referenceNumber: l.referenceNumber }))
     .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
   const next = followUps[0];
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
 
   const decided = approved.length + rejected.length;
   const lastActivityAt = activities.reduce<string | null>((latest, a) => (!latest || new Date(a.performedAt) > new Date(latest) ? a.performedAt : latest), null);
@@ -78,7 +77,7 @@ export function computeCustomerStats(profile: Pick<CustomerProfile, "quotations"
     wonLeadCount: leads.filter((l) => l.status === "won").length,
     lostLeadCount: leads.filter((l) => l.status === "lost").length,
     lastActivityAt,
-    nextFollowUp: next ? { ...next, overdue: new Date(next.at).getTime() < startOfToday.getTime() } : null,
+    nextFollowUp: next ? { ...next, overdue: isFollowUpOverdue(next.at, now) } : null,
     segment,
   };
 }
@@ -138,14 +137,14 @@ export function relativeTime(iso: string | null | undefined, now: number = Date.
 }
 
 /** "Today" / "Tomorrow" / "In 3 days" / "2 days overdue" for a follow-up date. */
-export function followUpLabel(iso: string, now: number = Date.now()): { text: string; overdue: boolean; today: boolean } {
-  const startOfToday = new Date(now);
-  startOfToday.setHours(0, 0, 0, 0);
-  const due = new Date(iso);
-  due.setHours(0, 0, 0, 0);
-  const days = Math.round((due.getTime() - startOfToday.getTime()) / 86_400_000);
-  if (days < 0) return { text: `${-days} day${days === -1 ? "" : "s"} overdue`, overdue: true, today: false };
-  if (days === 0) return { text: "Today", overdue: false, today: true };
+export function followUpLabel(iso: string, now: number = Date.now(), timeZone?: string): { text: string; overdue: boolean; today: boolean } {
+  const status = followUpStatus(iso, now, timeZone);
+  if (!status) return { text: "—", overdue: false, today: false };
+  const days = status.dayOffset;
+  if (status.bucket === "overdue") {
+    return { text: days === 0 ? "Overdue today" : `${-days} day${days === -1 ? "" : "s"} overdue`, overdue: true, today: false };
+  }
+  if (status.bucket === "today") return { text: "Today", overdue: false, today: true };
   if (days === 1) return { text: "Tomorrow", overdue: false, today: false };
   return { text: `In ${days} days`, overdue: false, today: false };
 }

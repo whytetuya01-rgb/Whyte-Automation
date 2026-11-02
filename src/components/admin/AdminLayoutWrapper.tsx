@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { AnimatePresence, MotionConfig, motion, type PanInfo } from "motion/react";
 import AdminSidebar from "./AdminSidebar";
 import ActAsCompanyControl from "./ActAsCompanyControl";
+import NotificationBell from "./NotificationBell";
 import OfflineStatusPill from "@/components/offline/OfflineStatusPill";
 import { ArrowUpRight, LayoutGrid, Shield } from "lucide-react";
 import Link from "next/link";
@@ -124,6 +125,7 @@ export default function AdminLayoutWrapper({
               <LayoutGrid size={14} className="text-[var(--color-admin-primary-on-dark,#D85B83)]" />
               <span className="hidden sm:inline">Apps</span>
             </Link>
+            <NotificationBell />
             <OfflineStatusPill />
             <ActAsCompanyControl />
           </div>

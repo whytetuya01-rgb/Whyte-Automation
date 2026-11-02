@@ -1,17 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { AlertTriangle, CalendarClock, CalendarPlus, Check, CheckCircle2, Copy, MessageCircle, Phone, RefreshCw, Search, X } from "lucide-react";
 import PageHeader from "@/components/admin/PageHeader";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Modal from "@/components/shared/Modal";
 import Pagination from "@/components/shared/Pagination";
-import { Button, Textarea } from "@/components/ui";
+import { Button, Select, Textarea } from "@/components/ui";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import notify from "@/lib/notify";
-import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { ApiClientError, apiJson, notifyApiError } from "@/lib/apiClient";
 import { cn } from "@/lib/utils";
-import { FOLLOW_UP_TIME_ZONE, googleCalendarUrl } from "@/lib/followUps";
+import { googleCalendarUrl } from "@/lib/followUps";
+import { useUserTimeZone } from "@/lib/useUserTimeZone";
 import { LEAD_PRIORITY_CONFIG } from "@/types/crm";
 import type { LeadPriority } from "@/types/crm";
 
@@ -33,6 +35,15 @@ interface FollowUpRow {
   bucket: "overdue" | "today" | "upcoming";
   dayOffset: number;
   assignedSalesName: string | null;
+  /** Who is responsible for this follow-up (empty for an old follow-up that has no owner yet). */
+  followUpOwnerId: number | null;
+  followUpOwnerName: string | null;
+}
+
+interface OwnerOption {
+  id: number;
+  name: string;
+  role: string;
 }
 
 interface FollowUpsResponse {
@@ -49,8 +60,9 @@ interface FeedState {
   publiclyReachable: boolean;
 }
 
-const dueFormat = new Intl.DateTimeFormat("en-IN", { timeZone: FOLLOW_UP_TIME_ZONE, weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
-const dateTimeFormat = new Intl.DateTimeFormat("en-IN", { timeZone: FOLLOW_UP_TIME_ZONE, day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+// Times are shown in the signed-in person's own time zone (My account; India unless they chose another).
+const dueFormatFor = (timeZone: string) => new Intl.DateTimeFormat("en-IN", { timeZone, weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+const dateTimeFormatFor = (timeZone: string) => new Intl.DateTimeFormat("en-IN", { timeZone, day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 
 const BUCKET_STYLE: Record<FollowUpRow["bucket"], string> = {
   overdue: "bg-red-50 text-red-700 border-red-200",
@@ -59,7 +71,7 @@ const BUCKET_STYLE: Record<FollowUpRow["bucket"], string> = {
 };
 
 function dueLabel(row: FollowUpRow): string {
-  if (row.bucket === "overdue") return `Overdue ${-row.dayOffset} ${-row.dayOffset === 1 ? "day" : "days"}`;
+  if (row.bucket === "overdue") return row.dayOffset === 0 ? "Overdue today" : `Overdue ${-row.dayOffset} ${-row.dayOffset === 1 ? "day" : "days"}`;
   if (row.bucket === "today") return "Due today";
   return row.dayOffset === 1 ? "Tomorrow" : `In ${row.dayOffset} days`;
 }
@@ -80,6 +92,9 @@ const waLink = (row: FollowUpRow) => {
 };
 
 export default function FollowUpsPage() {
+  const timeZone = useUserTimeZone();
+  const dueFormat = dueFormatFor(timeZone);
+  const dateTimeFormat = dateTimeFormatFor(timeZone);
   const [view, setView] = useState<View>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -142,6 +157,8 @@ export default function FollowUpsPage() {
           </button>
         }
       />
+
+      <ReassignmentNotice />
 
       <CalendarSyncCard />
 
@@ -224,7 +241,10 @@ export default function FollowUpsPage() {
                       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
                         {row.projectType && <span>{row.projectType}</span>}
                         {row.location && <span>{row.location}</span>}
-                        {row.assignedSalesName && <span>Owner: {row.assignedSalesName}</span>}
+                        <span data-testid="followup-owner" title={row.followUpOwnerName ? undefined : "This follow-up was created before owners existed. It gets an owner the first time it is changed."}>
+                          Owner: {row.followUpOwnerName ?? "not set"}
+                        </span>
+                        {row.assignedSalesName && <span>Sales rep: {row.assignedSalesName}</span>}
                         {row.lastContactedAt && <span>Last contacted {dateTimeFormat.format(new Date(row.lastContactedAt))}</span>}
                       </p>
                       {row.notes && <p className="line-clamp-2 text-xs text-gray-500">{row.notes}</p>}
@@ -249,7 +269,7 @@ export default function FollowUpsPage() {
                           </a>
                         )}
                         <a
-                          href={googleCalendarUrl(row, due, `${origin}/admin/crm/follow-ups`)}
+                          href={googleCalendarUrl(row, due, `${origin}/admin/crm/follow-ups`, timeZone)}
                           target="_blank"
                           rel="noopener noreferrer"
                           data-testid="add-to-google-calendar"
@@ -303,11 +323,34 @@ export default function FollowUpsPage() {
 
 /** Mark a follow-up done (and plan the next one) or just move its date. */
 function FollowUpActionModal({ row, mode, onClose, onSaved }: { row: FollowUpRow; mode: "done" | "reschedule"; onClose: () => void; onSaved: () => void }) {
+  const dateTimeFormat = dateTimeFormatFor(useUserTimeZone());
   const [note, setNote] = useState("");
   const [noNext, setNoNext] = useState(false);
   const [next, setNext] = useState(localInput(1));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [owners, setOwners] = useState<OwnerOption[] | null>(null);
+  const [ownerId, setOwnerId] = useState(row.followUpOwnerId ? String(row.followUpOwnerId) : "");
+
+  useEffect(() => {
+    let cancelled = false;
+    apiJson
+      .get<OwnerOption[]>("/api/crm/follow-up-owners")
+      .then((list) => {
+        if (!cancelled && Array.isArray(list)) setOwners(list);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const currentOwnerListed = owners?.some((owner) => owner.id === row.followUpOwnerId) ?? true;
+  const ownerOptions = [
+    ...(row.followUpOwnerId == null ? [{ value: "", label: "Me (default)" }] : []),
+    ...(row.followUpOwnerId != null && !currentOwnerListed ? [{ value: String(row.followUpOwnerId), label: `${row.followUpOwnerName ?? "Current owner"} (no longer available)` }] : []),
+    ...(owners ?? []).map((owner) => ({ value: String(owner.id), label: owner.name })),
+  ];
 
   const submit = async () => {
     setError(null);
@@ -321,10 +364,18 @@ function FollowUpActionModal({ row, mode, onClose, onSaved }: { row: FollowUpRow
         action: mode,
         note: note.trim() || undefined,
         nextFollowUpAt: noNext ? null : new Date(next).toISOString(),
+        // If someone else changed this follow-up since the list was loaded, the server refuses instead of overwriting.
+        expectedNextFollowUpAt: row.nextFollowUpAt,
+        ownerId: !noNext && ownerId && Number(ownerId) !== row.followUpOwnerId ? Number(ownerId) : undefined,
       });
       notify.success(mode === "done" ? "Follow-up done" : "Follow-up rescheduled", noNext ? `${row.customerName} has no next follow-up.` : `Next: ${dateTimeFormat.format(new Date(next))}.`);
       onSaved();
     } catch (err) {
+      if (err instanceof ApiClientError && err.status === 409) {
+        notify.error("This follow-up changed", `${err.message} The list has been refreshed.`);
+        onSaved();
+        return;
+      }
       setError(err instanceof Error ? err.message : "Could not save the follow-up.");
       notifyApiError(err, "Could not save the follow-up");
     } finally {
@@ -344,6 +395,10 @@ function FollowUpActionModal({ row, mode, onClose, onSaved }: { row: FollowUpRow
       <div className="space-y-4" data-testid="followup-modal">
         {mode === "done" && (
           <Textarea label="What happened? (optional)" rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Spoke to the client, will decide after the site visit." maxLength={1000} />
+        )}
+        {/* Above the date, so the list opens over the date controls inside the dialog instead of past its bottom edge. */}
+        {owners && !noNext && (
+          <Select label={mode === "done" ? "Owner of the next follow-up" : "Owner"} value={ownerId} onChange={(e) => setOwnerId(e.target.value)} options={ownerOptions} />
         )}
         <div className="space-y-2">
           <p className="text-xs font-semibold text-gray-700">{mode === "done" ? "Next follow-up" : "New follow-up date"}</p>
@@ -399,8 +454,41 @@ function FollowUpActionModal({ row, mode, onClose, onSaved }: { row: FollowUpRow
   );
 }
 
+/**
+ * Tells whoever may reassign follow-ups (Company Owners and Admins) that some follow-ups belong to people who can no longer
+ * own them. Everyone else sees nothing. The follow-ups are never reassigned automatically: this only points to the review.
+ */
+function ReassignmentNotice() {
+  const [totals, setTotals] = useState<{ tasks: number; owners: number } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    apiJson
+      .get<{ canReassign: boolean; totals: { tasks: number; owners: number } }>("/api/crm/follow-ups/reassignment?summary=1")
+      .then((data) => {
+        if (!cancelled && data.canReassign && data.totals.tasks > 0) setTotals(data.totals);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!totals) return null;
+  return (
+    <div role="status" data-testid="reassign-notice" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
+      <p className="flex items-center gap-2 text-sm font-medium text-amber-900">
+        <AlertTriangle size={16} className="shrink-0" aria-hidden />
+        {totals.tasks} follow-up{totals.tasks === 1 ? "" : "s"} belong{totals.tasks === 1 ? "s" : ""} to {totals.owners} {totals.owners === 1 ? "person" : "people"} who can no longer own {totals.tasks === 1 ? "it" : "them"}.
+      </p>
+      <Link href="/admin/crm/follow-ups/reassignment" className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100">
+        Review and reassign
+      </Link>
+    </div>
+  );
+}
+
 /** The person's private Google Calendar link: create it, copy it, replace it, or turn it off. */
 function CalendarSyncCard() {
+  const dateTimeFormat = dateTimeFormatFor(useUserTimeZone());
   const confirm = useConfirm();
   const [feed, setFeed] = useState<FeedState | null>(null);
   const [busy, setBusy] = useState(false);

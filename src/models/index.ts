@@ -17,6 +17,19 @@ export {
 export { Quotation, type IQuotation, type IQuotationDocument } from "./Quotation";
 export { CalendarFeed, type ICalendarFeed, type ICalendarFeedDocument } from "./CalendarFeed";
 export {
+  FollowUpTask,
+  FOLLOW_UP_TASK_STATUSES,
+  FOLLOW_UP_TASK_ORIGINS,
+  FOLLOW_UP_OWNER_CHANGE_REASONS,
+  FOLLOW_UP_OWNER_HISTORY_LIMIT,
+  type FollowUpTaskStatus,
+  type FollowUpTaskOrigin,
+  type FollowUpOwnerChangeReason,
+  type IFollowUpOwnerChange,
+  type IFollowUpTask,
+  type IFollowUpTaskDocument,
+} from "./FollowUpTask";
+export {
   DealerCategoryEvent,
   DEALER_CATEGORY_EVENT_SOURCES,
   type DealerCategoryEventSource,
@@ -53,3 +66,18 @@ export { Customer, type ICustomer, type ICustomerDocument } from "./Customer";
 export { LeadSource, INITIAL_LEAD_SOURCES, type ILeadSource, type ILeadSourceDocument } from "./LeadSource";
 export { Lead, type ILead, type ILeadDocument } from "./Lead";
 export { CrmActivity, CRM_ACTIVITY_TYPES, type ICrmActivity, type ICrmActivityDocument } from "./CrmActivity";
+export {
+  LeadAssignmentRule,
+  ASSIGNMENT_MODES,
+  type AssignmentMode,
+  type ISourceMapping,
+  type ILeadAssignmentRule,
+  type ILeadAssignmentRuleDocument,
+} from "./LeadAssignmentRule";
+export {
+  Notification,
+  NOTIFICATION_TYPES,
+  type NotificationType,
+  type INotification,
+  type INotificationDocument,
+} from "./Notification";

@@ -132,7 +132,7 @@ export async function loadFollowUpEvents(params: { companyId: number; userId: nu
     { nextFollowUpAt: { $gte: from, $lte: to } },
   ]);
   const leads = await Lead.find(query)
-    .select("referenceNumber customerName phone projectType location priority status notes nextFollowUpAt updatedAt")
+    .select("referenceNumber customerName phone projectType location priority status nextFollowUpAt updatedAt")
     .sort({ nextFollowUpAt: 1, _id: 1 })
     .limit(FEED_MAX_EVENTS)
     .lean();
@@ -147,7 +147,6 @@ export async function loadFollowUpEvents(params: { companyId: number; userId: nu
       location: lead.location,
       priority: lead.priority,
       status: lead.status,
-      notes: lead.notes,
     },
     due: new Date(lead.nextFollowUpAt as Date),
     updatedAt: new Date(lead.updatedAt ?? lead.nextFollowUpAt ?? now),

@@ -88,6 +88,17 @@ function main() {
   assert.deepEqual(followUpLabel(day(-1), NOW), { text: "1 day overdue", overdue: true, today: false });
   assert.deepEqual(followUpLabel(day(-3), NOW), { text: "3 days overdue", overdue: true, today: false });
   pass("relative times and follow-up wording (today, tomorrow, in N days, N days overdue)");
+
+  // Overdue is decided by the clock (the same rule as the Follow-ups list, see src/lib/followUps.ts), on the Indian day.
+  const IST_NOW = new Date("2026-10-30T10:00:00+05:30").getTime();
+  const at = (offsetMs: number) => new Date(IST_NOW + offsetMs).toISOString();
+  assert.deepEqual(followUpLabel(at(-3_600_000), IST_NOW), { text: "Overdue today", overdue: true, today: false }, "earlier today: the time has passed");
+  assert.deepEqual(followUpLabel(at(3_600_000), IST_NOW), { text: "Today", overdue: false, today: true }, "later today");
+  assert.deepEqual(followUpLabel(at(0), IST_NOW), { text: "Today", overdue: false, today: true }, "due exactly now is not overdue yet");
+  assert.deepEqual(followUpLabel("not a date", IST_NOW), { text: "—", overdue: false, today: false }, "a bad date never says NaN");
+  const justPassed = computeCustomerStats({ quotations: [], leads: [{ ...lead("h", "new", 1), nextFollowUpAt: at(-60_000) }], activities: [] }, IST_NOW);
+  assert.equal(justPassed.nextFollowUp?.overdue, true, "a follow-up whose time passed a minute ago is overdue");
+  pass("overdue means the due time has passed (a minute ago counts), 'Overdue today' for earlier today, and a bad date is handled");
 }
 
 try {

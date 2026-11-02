@@ -38,6 +38,7 @@ const NAV_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
   "/admin/crm/follow-ups": ["leads:read"],
   "/admin/crm/customers": ["customers:read"],
   "/admin/crm/sources": ["crm:manage"],
+  "/admin/crm/assignment": ["crm:manage"],
 };
 
 export function canSeeAdminNavItem(href: string, rawRole: string | null | undefined, permissions?: readonly string[] | null): boolean {
