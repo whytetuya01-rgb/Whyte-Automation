@@ -15,6 +15,14 @@ export {
   type IHouseTypeRoomTemplateDocument,
 } from "./HouseTypeRoomTemplate";
 export { Quotation, type IQuotation, type IQuotationDocument } from "./Quotation";
+export { CalendarFeed, type ICalendarFeed, type ICalendarFeedDocument } from "./CalendarFeed";
+export {
+  DealerCategoryEvent,
+  DEALER_CATEGORY_EVENT_SOURCES,
+  type DealerCategoryEventSource,
+  type IDealerCategoryEvent,
+  type IDealerCategoryEventDocument,
+} from "./DealerCategoryEvent";
 export {
   QuotationAuditEvent,
   QUOTATION_AUDIT_ACTIONS,

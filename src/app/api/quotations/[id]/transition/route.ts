@@ -9,6 +9,7 @@ import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { parseQuotationId, transitionQuotationSchema } from "@/lib/validation/quotation";
 import { quotationHasProducts } from "@/lib/quotationProducts";
 import { syncLeadWithQuotation } from "@/lib/crmService";
+import { evaluateDealerCategory } from "@/lib/dealerTierService";
 
 export const dynamic = "force-dynamic";
 
@@ -91,6 +92,16 @@ export async function POST(req: Request, context: RouteContext) {
       previousValue: { status: currentStatus },
       newValue: { status: quotation.status },
     });
+
+    // "delivered" is the one status that counts towards a dealer's category, and this is the only place it is set.
+    // The evaluation is idempotent; if it fails the delivery still stands and the next reconcile pass catches up.
+    if (action === "deliver" && quotation.dealerId) {
+      try {
+        await evaluateDealerCategory({ companyId: quotation.companyId, dealerId: quotation.dealerId, quotationId });
+      } catch (error) {
+        console.warn("[dealer-tier] Could not evaluate the dealer's category:", error instanceof Error ? error.message : "unknown error");
+      }
+    }
 
     if (action === "approve" || action === "reject") {
       await syncLeadWithQuotation({

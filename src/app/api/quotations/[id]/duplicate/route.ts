@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, QuotationItem, ProductVariant } from "@/models";
 import { resolveStoredVariantPricing, resolveVariantPricing } from "@/lib/pricing";
-import { getNextQuotationSequence, reserveSequenceBlock } from "@/lib/counter";
+import { reserveSequenceBlock } from "@/lib/counter";
+import { issueQuotationNumber, withQuotationNumberRetry } from "@/lib/quotationNumber";
 import { withTransaction } from "@/lib/transaction";
 import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
@@ -111,11 +112,11 @@ export async function POST(req: Request, context: RouteContext) {
     const createdOn = new Date();
     const year = createdOn.getFullYear();
 
-    const duplicatedQuotation = await withTransaction(async (dbSession) => {
+    const duplicatedQuotation = await withQuotationNumberRetry(() => withTransaction(async (dbSession) => {
       // The sequence and every cloned row share one transaction, so a duplicate
       // can never consume a quotation number and then fail halfway through.
-      const seq = await getNextQuotationSequence(year, dbSession);
-      const quotationNumber = `QT-${year}-${String(seq).padStart(3, "0")}`;
+      // A clone always gets a NEW number; the original's number is never copied.
+      const { quotationNumber } = await issueQuotationNumber(year, dbSession);
       const newQuotationId = "q_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
 
       const origDoc = (
@@ -331,7 +332,7 @@ export async function POST(req: Request, context: RouteContext) {
       }
 
       return { newQuotation, skippedItems };
-    });
+    }));
 
     const { newQuotation, skippedItems } = duplicatedQuotation;
     const quotationJson = typeof newQuotation.toJSON === "function" ? newQuotation.toJSON() : newQuotation;

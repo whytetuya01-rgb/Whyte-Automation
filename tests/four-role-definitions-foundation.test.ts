@@ -128,8 +128,8 @@ testCase("getRoleLabel produces accurate display labels", () => {
 });
 
 // ── 3. Permission Sets & Registry Integrity ─────────────────────────────────
-testCase("ALL_PERMISSIONS includes users:manage, quotations:assign_sales, and retains all prior keys (25 total)", () => {
-  assert.equal(ALL_PERMISSIONS.length, 25);
+testCase("ALL_PERMISSIONS includes users:manage, quotations:assign_sales, and retains all prior keys (25 original + 6 CRM = 31 total)", () => {
+  assert.equal(ALL_PERMISSIONS.length, 31);
   assert.ok(ALL_PERMISSIONS.includes("users:manage"));
   assert.ok(ALL_PERMISSIONS.includes("quotations:assign_sales"));
   assert.ok(ALL_PERMISSIONS.includes("quotations:assign_dealer"));
@@ -280,7 +280,7 @@ testCase("company_owner backward compatibility is preserved", () => {
 // ── 5. getEffectivePermissions() Verification ─────────────────────────────
 testCase("getEffectivePermissions returns complete filtered arrays", () => {
   const superPerms = getEffectivePermissions("super_admin", null);
-  assert.equal(superPerms.length, 25);
+  assert.equal(superPerms.length, 31);
 
   const adminPerms = getEffectivePermissions("admin", null);
   assert.equal(adminPerms.length, 22);

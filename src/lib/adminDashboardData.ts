@@ -5,6 +5,9 @@ import { calculateDealerEarning, resolveCustomerDiscountPercent, roundMoney, toP
 import { aggregateQuotationRoomTotals, deriveQuotationFinancials, totalsForQuotation } from "@/lib/quotationTotals";
 import { getDemoCrmAnalytics, isDemoModeAllowed, type CrmAnalyticsData } from "@/lib/dashboard/demoData";
 import type { QuotationStatus } from "@/types";
+import { getTenantContext } from "@/lib/tenant/context";
+import { dealerTierAnalytics, reconcileCompanyDealerCategories } from "@/lib/dealerTierService";
+import type { DealerTierKey } from "@/lib/dealerTiers";
 
 export const QUOTATION_STATUSES: QuotationStatus[] = ["draft", "sent", "approved", "rejected", "delivered"];
 
@@ -106,6 +109,8 @@ export interface DashboardData {
     typeBreakdown: Array<{ type: string; count: number; percent: number }>;
   };
   crm: CrmAnalyticsData | null;
+  /** Real dealer-category numbers for the company in view (null on the platform, which has no single company). */
+  dealerTiers: { dealersByCategory: Record<DealerTierKey, number>; upgradesInPeriod: number } | null;
   isDemoMode: boolean;
 }
 
@@ -532,6 +537,14 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
   const isDemo = Boolean(options.includeDemo && isDemoModeAllowed());
   const crm = isDemo ? getDemoCrmAnalytics() : null;
 
+  // Dealer categories are real data from this company's dealers and history, never demo values.
+  const tierCompanyId = getTenantContext()?.companyId ?? null;
+  let dealerTiers: DashboardData["dealerTiers"] = null;
+  if (tierCompanyId !== null) {
+    await reconcileCompanyDealerCategories(tierCompanyId);
+    dealerTiers = await dealerTierAnalytics(tierCompanyId, range.start ?? new Date(0));
+  }
+
   return {
     dateRange: {
       key: range.key,
@@ -572,6 +585,7 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
       typeBreakdown,
     },
     crm,
+    dealerTiers,
     isDemoMode: isDemo,
   };
 }

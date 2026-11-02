@@ -6,6 +6,8 @@ import { withPermission } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { invalidateSessionActor } from "@/lib/sessionGuard";
 import { runUnscoped } from "@/lib/tenant/context";
+import { canViewQuotation } from "@/lib/quotationAccess";
+import { countQualifiedQuotations, dealerPerformance, listDealerCategoryEvents, listQualifyingQuotations, reconcileCompanyDealerCategories } from "@/lib/dealerTierService";
 import { z } from "zod";
 import { emailSchema, mobileSchema, optionalEmailSchema, optionalGstinSchema } from "@/lib/validation/fields";
 
@@ -36,11 +38,12 @@ const patchDealerSchema = z.object({
 
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    return await withPermission("dealers:read", async () => {
+    return await withPermission("dealers:read", async ({ role, userId, permissions, companyId }) => {
     const { id: rawId } = await context.params;
     const dealerId = parseNumericId(rawId);
 
     await connectMongoDB();
+    if (companyId) await reconcileCompanyDealerCategories(companyId);
     const dealer = await AdminUser.findOne({ _id: dealerId, role: "dealer" }).lean();
 
     if (!dealer) {
@@ -84,11 +87,41 @@ export async function GET(_req: Request, context: RouteContext) {
 
     const { passwordHash, ...rest } = dealer as any;
 
+    // Category, progress, the history of changes, and the exact delivered quotations that count. A quotation is listed
+    // only if the caller may see it under the normal quotation access rules.
+    const tierCompanyId = (dealer as { companyId?: number | null }).companyId ?? null;
+    let performance: Record<string, unknown> | null = null;
+    if (tierCompanyId !== null && tierCompanyId === companyId) {
+      const [qualifiedCount, events, qualifying] = await Promise.all([
+        countQualifiedQuotations(tierCompanyId, dealerId),
+        listDealerCategoryEvents(tierCompanyId, dealerId, 50),
+        listQualifyingQuotations(tierCompanyId, dealerId, 100),
+      ]);
+      const visible = qualifying.filter((q) => canViewQuotation(role, userId, q, permissions));
+      performance = {
+        ...dealerPerformance(dealer as { dealerTier?: never; createdAt?: Date | null }, qualifiedCount),
+        history: events.map((e) => ({
+          id: e._id,
+          fromCategory: e.fromCategory,
+          toCategory: e.toCategory,
+          source: e.source,
+          qualifiedCount: e.qualifiedCount,
+          quotationId: e.quotationId,
+          reason: e.reason,
+          performedByName: e.performedByName,
+          createdAt: e.createdAt,
+        })),
+        qualifyingQuotations: visible.map((q) => ({ id: q._id, quotationNumber: q.quotationNumber, clientName: q.clientName, deliveredAt: q.deliveredAt ?? null })),
+        qualifyingQuotationsHidden: qualifying.length - visible.length,
+      };
+    }
+
     return NextResponse.json({
       ...rest,
       id: dealer._id,
       quotationStats: stats,
       accumulatedEarnings: Math.round(Number(stats.accumulatedEarnings || 0) * 100) / 100,
+      performance,
     });
     });
   } catch (error) {

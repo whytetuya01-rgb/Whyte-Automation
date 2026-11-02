@@ -34,7 +34,7 @@ export default function CustomersPage() {
   const [total, setTotal] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(15);
+  const [pageSize, setPageSize] = useState(10);
 
   // Filters
   const [search, setSearch] = useState("");
@@ -303,7 +303,10 @@ export default function CustomersPage() {
               total={total}
               totalPages={totalPages}
               onPageChange={setPage}
-              onPageSizeChange={setPageSize}
+              onPageSizeChange={(size) => {
+                setPageSize(size);
+                setPage(1);
+              }}
               entityName="customers"
             />
           </div>

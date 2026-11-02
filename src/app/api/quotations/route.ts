@@ -3,7 +3,8 @@ import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, HouseTypeRoomTemplate, HouseType } from "@/models";
 import { claimLeadForQuotation, finalizeLeadLink, recordCrmActivity, resolveOrCreateCustomer, validateQuotationLinks } from "@/lib/crmService";
-import { getNextQuotationSequence, reserveSequenceBlock } from "@/lib/counter";
+import { reserveSequenceBlock } from "@/lib/counter";
+import { issueQuotationNumber, withQuotationNumberRetry } from "@/lib/quotationNumber";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
@@ -400,9 +401,10 @@ async function createQuotation(
     const createdOn = new Date();
     const year = createdOn.getFullYear();
 
-    const createdQuotation = await withTransaction(async (dbSession) => {
-      const seq = await getNextQuotationSequence(year, dbSession);
-      const quotationNumber = `QT-${year}-${String(seq).padStart(3, "0")}`;
+    // One numbering service for every way of creating a quotation. If a simultaneous request took the number, the
+    // whole transaction is tried again (a bounded number of times) with a fresh one.
+    const createdQuotation = await withQuotationNumberRetry(() => withTransaction(async (dbSession) => {
+      const { quotationNumber } = await issueQuotationNumber(year, dbSession);
       const quotationId = "q_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
 
       const finalDiscountType = requestedCustomerDiscount > 0 ? "percentage" : (rest.discountType ?? "none");
@@ -548,7 +550,7 @@ async function createQuotation(
       }
 
       return newQuotation;
-    });
+    }));
 
     // The lead was claimed inside the transaction, so the rest of its update waits until that has committed (writing
     // to it from inside would wait on the transaction's own lock). An early lead moves to Quoted; Quoted / Negotiation /

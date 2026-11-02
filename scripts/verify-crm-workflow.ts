@@ -16,6 +16,8 @@
  * 12. Soft deletion archiving integrity
  */
 
+// Never reads .env / .env.local: uses a throwaway local database only (refuses anything else).
+import "../tests/helpers/localMongoOnly";
 import assert from "node:assert/strict";
 import { connectMongoDB } from "../src/lib/mongodb";
 import {

@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
-import { Quotation, QuotationRoom, QuotationItem, HouseType } from "@/models";
+import { Customer, Quotation, QuotationRoom, QuotationItem, HouseType } from "@/models";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationSchema } from "@/lib/validation/quotation";
-import { claimLeadForQuotation, finalizeLeadLink, recordQuotationCustomerLink, releaseLeadClaim, resolveOrCreateCustomer, validateQuotationLinks } from "@/lib/crmService";
+import { claimLeadForQuotation, contactMatchesCustomer, finalizeLeadLink, recordCrmActivity, recordQuotationCustomerLink, releaseLeadClaim, resolveOrCreateCustomer, validateQuotationLinks } from "@/lib/crmService";
 
 import { normalizeQuotation } from "@/lib/quotationNormalization";
 import { redactQuotationForRole } from "@/lib/variantRedaction";
@@ -295,9 +295,24 @@ export async function PATCH(req: Request, context: RouteContext) {
 
       data.updatedAt = new Date();
 
+      // The quotation's phone / email identify its customer. If an edit moves them to a different person than the linked
+      // customer, the link follows: the quotation is unlinked here and relinked below to whoever the new details identify
+      // (an existing customer, or a new one). Nothing the client claims is trusted for this; only the saved contact data.
+      let relink = false;
+      if (links.customerId === undefined && existing.customerId && (data.clientPhone !== undefined || data.clientEmail !== undefined)) {
+        const linkedCustomer = await Customer.findById(existing.customerId).select("phone email").lean();
+        const contact = {
+          phone: data.clientPhone !== undefined ? (data.clientPhone as string | null) : existing.clientPhone,
+          email: data.clientEmail !== undefined ? (data.clientEmail as string | null) : existing.clientEmail,
+        };
+        if (linkedCustomer && !contactMatchesCustomer(linkedCustomer, contact)) {
+          relink = true;
+          data.customerId = null;
+        }
+      }
+
       if (
-        existing.customerId == null &&
-        data.customerId === undefined &&
+        (relink || (existing.customerId == null && data.customerId === undefined)) &&
         ((data.clientName as string) || existing.clientName) &&
         ((data.clientPhone as string) || existing.clientPhone || (data.clientEmail as string) || existing.clientEmail)
       ) {
@@ -343,6 +358,17 @@ export async function PATCH(req: Request, context: RouteContext) {
           leadId: (data.leadId as string) || existing.leadId || null,
           userId,
         });
+      }
+      if (relink && !data.customerId && existing.customerId) {
+        await recordCrmActivity({
+          companyId: existing.companyId,
+          customerId: existing.customerId,
+          quotationId,
+          type: "note",
+          title: "Quotation Unlinked",
+          description: `Quotation ${existing.quotationNumber} no longer matches this customer's contact details.`,
+          performedBy: userId,
+        }).catch(() => undefined);
       }
       if (links.leadId && quotation) {
         await finalizeLeadLink({

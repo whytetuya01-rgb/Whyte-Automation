@@ -24,7 +24,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
  */
 
 /** Why a query was deliberately run with no company filter. Every use is logged. */
-export type UnscopedReason = "platform-admin" | "migration" | "auth-lookup" | "public-registration" | "provider-webhook" | "public-quotation-link";
+export type UnscopedReason = "platform-admin" | "migration" | "auth-lookup" | "public-registration" | "provider-webhook" | "public-quotation-link" | "public-calendar-feed";
 
 const KNOWN_UNSCOPED_REASONS: ReadonlySet<string> = new Set<UnscopedReason>([
   "platform-admin",
@@ -35,6 +35,8 @@ const KNOWN_UNSCOPED_REASONS: ReadonlySet<string> = new Set<UnscopedReason>([
   "provider-webhook",
   // A client opening a secure quotation link: finds the one delivery its token belongs to (then scopes to it).
   "public-quotation-link",
+  // A calendar app fetching someone's private follow-up link: finds the one feed its secret belongs to (then scopes to it).
+  "public-calendar-feed",
 ]);
 
 export interface TenantContextValue {

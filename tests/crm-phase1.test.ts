@@ -23,6 +23,7 @@ import {
   convertLeadSchema,
 } from "../src/lib/validation/crm";
 import {
+  contactMatchesCustomer,
   crmVisibilityFilter,
   ensureCompanyLeadSources,
   phoneMatchRegex,
@@ -34,7 +35,21 @@ import {
   LEAD_PRIORITY_CONFIG,
 } from "../src/types/crm";
 import { INITIAL_LEAD_SOURCES } from "../src/models";
-import { hasPermission, CRM_PERMISSIONS, DEALER_DEFAULT_PERMISSIONS, SALES_EXECUTIVE_DEFAULT_PERMISSIONS } from "../src/lib/permissions";
+import {
+  ADMIN_PERMISSIONS,
+  ALL_PERMISSIONS,
+  COMPANY_OWNER_PERMISSIONS,
+  CRM_PERMISSIONS,
+  DEALER_DEFAULT_PERMISSIONS,
+  PERMISSION_METADATA,
+  PERMISSION_MODULE_GROUPS,
+  SALES_EXECUTIVE_DEFAULT_PERMISSIONS,
+  hasPermission,
+  isValidPermission,
+  sanitizePermissions,
+} from "../src/lib/permissions";
+import { configurablePermissionSchema } from "../src/lib/validation/admin-user";
+import { canSeeAdminNavItem } from "../src/lib/adminNav";
 
 let count = 0;
 const pass = (name: string) => {
@@ -74,6 +89,67 @@ function main() {
     pass("RBAC permissions: roles correctly inherit CRM capabilities");
   }
 
+  // ── 1b. CRM permissions are part of the shared registry and can be granted to custom roles ──
+  {
+    for (const permission of CRM_PERMISSIONS) {
+      assert.ok(ALL_PERMISSIONS.includes(permission), `${permission} is in the registry`);
+      assert.ok(isValidPermission(permission), `${permission} is a valid permission`);
+      assert.ok(PERMISSION_METADATA[permission], `${permission} has a label and description`);
+      assert.deepEqual(sanitizePermissions([permission]), [permission], `${permission} survives sanitizing`);
+      assert.equal(configurablePermissionSchema.safeParse([permission]).success, true, `${permission} can be saved on a Configurable Admin`);
+    }
+    const grouped = PERMISSION_MODULE_GROUPS.flatMap((group) => group.permissions.map((meta) => meta.key));
+    assert.deepEqual(grouped.filter((key) => (CRM_PERMISSIONS as readonly string[]).includes(key)).sort(), [...CRM_PERMISSIONS].sort(), "all six appear on the Roles / Users screens");
+    assert.equal(new Set(grouped).size, grouped.length, "no permission is listed twice");
+    assert.equal(new Set(grouped).size, ALL_PERMISSIONS.length, "every registered permission is listed on a screen");
+
+    // Nothing is granted by default: existing roles keep exactly what they had.
+    assert.equal(ADMIN_PERMISSIONS.size, 22);
+    assert.equal(COMPANY_OWNER_PERMISSIONS.size, 22);
+    for (const permission of CRM_PERMISSIONS) {
+      assert.equal(ADMIN_PERMISSIONS.has(permission), false);
+      assert.equal(hasPermission("configurable_admin", null, permission), false, "a Configurable Admin has no CRM permission unless granted");
+      assert.equal(hasPermission("configurable_admin", ["quotations:create", "catalog:read"], permission), false, "other permissions never imply CRM");
+    }
+
+    // Grants: exact, with "manage includes read" and "crm:manage covers everything".
+    const grant = (...granted: string[]) => (permission: string) => hasPermission("configurable_admin", granted, permission);
+    const leadsOnly = grant("leads:manage");
+    assert.deepEqual(CRM_PERMISSIONS.filter(leadsOnly), ["leads:read", "leads:manage"], "leads:manage includes leads:read and nothing else");
+    const customersRead = grant("customers:read");
+    assert.deepEqual(CRM_PERMISSIONS.filter(customersRead), ["customers:read"], "customers:read is read only");
+    const pipelineRead = grant("crm:read");
+    assert.deepEqual(CRM_PERMISSIONS.filter(pipelineRead), ["crm:read"], "crm:read does not open leads or customers");
+    assert.deepEqual([...CRM_PERMISSIONS].filter(grant("crm:manage")), [...CRM_PERMISSIONS], "crm:manage covers all of CRM");
+    assert.equal(grant("leads:read")("leads:manage"), false, "read never includes manage");
+
+    // A custom role key (not a built-in) works from its granted list, and Dealers / Sales Executives never can.
+    assert.equal(hasPermission("regional_manager", ["leads:read"], "leads:read"), true);
+    assert.equal(hasPermission("regional_manager", ["quotations:create"], "leads:read"), false);
+    for (const role of ["dealer", "sales_executive"]) {
+      for (const permission of CRM_PERMISSIONS) {
+        assert.equal(hasPermission(role, [...CRM_PERMISSIONS], permission), false, `${role} can never be granted ${permission}`);
+      }
+    }
+    // Admin-type roles keep CRM unconditionally (company cannot remove it).
+    for (const role of ["super_admin", "company_owner", "admin"]) {
+      for (const permission of CRM_PERMISSIONS) {
+        assert.equal(hasPermission(role, ["catalog:read"], permission), true, `${role} always has ${permission}`);
+      }
+    }
+    // Sidebar: a Configurable Admin sees only the CRM links their grants allow; admin roles see them all.
+    const crmLinks = ["/admin/crm/pipeline", "/admin/crm/leads", "/admin/crm/follow-ups", "/admin/crm/customers", "/admin/crm/sources"];
+    for (const href of crmLinks) {
+      assert.equal(canSeeAdminNavItem(href, "configurable_admin", []), false, `${href} hidden without a grant`);
+      for (const role of ["super_admin", "company_owner", "admin"]) assert.equal(canSeeAdminNavItem(href, role, []), true, `${href} for ${role}`);
+    }
+    assert.deepEqual(crmLinks.filter((href) => canSeeAdminNavItem(href, "configurable_admin", ["leads:read"])), ["/admin/crm/pipeline", "/admin/crm/leads", "/admin/crm/follow-ups"], "leads:read shows Pipeline, Leads and Follow-ups only");
+    assert.deepEqual(crmLinks.filter((href) => canSeeAdminNavItem(href, "configurable_admin", ["customers:manage"])), ["/admin/crm/customers"], "customers:manage shows Customers only");
+    assert.deepEqual(crmLinks.filter((href) => canSeeAdminNavItem(href, "configurable_admin", ["crm:manage"])), crmLinks, "crm:manage shows everything");
+    assert.equal(canSeeAdminNavItem("/admin/dashboard", "configurable_admin", []), true, "non-CRM links are unaffected");
+    pass("CRM permissions are registered for custom roles: valid, labelled, on the role screens, granted by exact key (manage includes read), never by default, never to Dealers or Sales Executives; Admin keeps CRM");
+  }
+
   // ── 2. CRM Scoping & Visibility Filter ──
   {
     // Super Admin / Company Owner / Admin have no salesperson or dealer restriction
@@ -110,6 +186,21 @@ function main() {
     assert.deepEqual(scopedQuery(7, {}, []), { companyId: 7 }, "an admin with no filters sees the whole company");
     assert.deepEqual(scopedQuery(7, {}, [{ status: "won" }]), { companyId: 7, $and: [{ status: "won" }] });
     pass("Filters and search are ANDed with the visibility rule (scopedQuery), never assigned over it");
+  }
+
+  // ── 2b2. Does a quotation's contact still describe its linked customer? ──
+  {
+    const customer = { phone: "+91 98765 00001", email: "Ravi@Example.com" };
+    for (const same of [{ phone: "9876500001" }, { phone: "098765-00001" }, { email: "ravi@example.com" }, { phone: "9876500001", email: "RAVI@example.com" }, {}, { phone: "", email: "" }, { phone: null, email: null }]) {
+      assert.equal(contactMatchesCustomer(customer, same), true, JSON.stringify(same));
+    }
+    for (const other of [{ phone: "9876500002" }, { email: "other@example.com" }, { phone: "9876500001", email: "other@example.com" }, { phone: "+44 20 7946 0958" }]) {
+      assert.equal(contactMatchesCustomer(customer, other), false, JSON.stringify(other));
+    }
+    assert.equal(contactMatchesCustomer({ phone: null, email: null }, { phone: "9876500009", email: "a@b.co" }), true, "a customer with no contact details gains them, it is not contradicted");
+    assert.equal(contactMatchesCustomer({ phone: "+44 20 7946 0958" }, { phone: "+44 20 7946 0958" }), true, "other numbers compare as typed");
+    assert.equal(contactMatchesCustomer({ phone: "+44 20 7946 0958" }, { phone: "+442079460958" }), false, "(and are never guessed to be equal)");
+    pass("Contact comparison: the same person in another phone format, or with a field cleared, still matches; a different phone or email does not");
   }
 
   // ── 2c. Phone numbers match however they were typed ──

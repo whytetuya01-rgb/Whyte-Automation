@@ -23,6 +23,7 @@ import {
 import notify from "@/lib/notify";
 import { Input, Button, Textarea, Badge } from "@/components/ui";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
+import { DealerLevelCard } from "@/components/dealer/DealerLevel";
 import { formatDate } from "@/lib/utils";
 import { emailError, gstinError, mobileError, normalizeGstin } from "@/lib/validation/fields";
 
@@ -269,6 +270,8 @@ export default function DealerProfilePage() {
           <span>My Quotations</span>
         </Link>
       </div>
+
+      <DealerLevelCard />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left Column (2 Cols): Profile & Security Forms */}

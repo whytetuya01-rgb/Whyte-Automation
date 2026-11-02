@@ -16,6 +16,24 @@ export {
  * quotations, company settings, and system oversight.
  */
 
+/**
+ * CRM permissions. They are part of the shared registry (so role and user permission screens can grant them to custom
+ * roles and Configurable Admins) but are NOT in any default set: Super Admin, Company Owner and Admin have CRM through
+ * the explicit rule in `hasPermission`, and nobody else has it unless it is granted. Dealers and Sales Executives
+ * can never hold them.
+ */
+export const CRM_PERMISSIONS = [
+  "crm:read",
+  "crm:manage",
+  "leads:read",
+  "leads:manage",
+  "customers:read",
+  "customers:manage",
+] as const;
+
+export type CrmPermission = (typeof CRM_PERMISSIONS)[number];
+const CRM_PERMISSION_SET = new Set<string>(CRM_PERMISSIONS);
+
 export const ALL_PERMISSIONS = [
   // Catalog Management
   "catalog:read",
@@ -53,23 +71,14 @@ export const ALL_PERMISSIONS = [
   "admins:read",        // View administrative and team accounts within authorized scope
   "users:manage",       // Company-scoped: Create, edit, and deactivate accounts within assigned company
   "admins:manage",      // Super Admin exclusive: Manage platform administrator accounts & system security
+
+  // CRM (leads, customers, pipeline, activities)
+  ...CRM_PERMISSIONS,
 ] as const;
 
 export type Permission = (typeof ALL_PERMISSIONS)[number];
 
 export const PERMISSION_SET = new Set<string>(ALL_PERMISSIONS);
-
-export const CRM_PERMISSIONS = [
-  "crm:read",
-  "crm:manage",
-  "leads:read",
-  "leads:manage",
-  "customers:read",
-  "customers:manage",
-] as const;
-
-export type CrmPermission = (typeof CRM_PERMISSIONS)[number];
-const CRM_PERMISSION_SET = new Set<string>(CRM_PERMISSIONS);
 
 /**
  * Super Admin-exclusive permissions that must never be assigned or granted
@@ -216,7 +225,9 @@ export function hasPermission(
     // admin roles (and custom roles explicitly granted CRM permissions).
     if (normRole === "dealer" || normRole === "sales_executive") return false;
     if (Array.isArray(assignedPermissions) && assignedPermissions.length > 0) {
-      return assignedPermissions.includes(requiredPermission) || assignedPermissions.includes("crm:manage");
+      // "crm:manage" covers every CRM permission; a "...:manage" permission includes its own "...:read".
+      const covering = requiredPermission.endsWith(":read") ? [requiredPermission, requiredPermission.replace(":read", ":manage"), "crm:manage"] : [requiredPermission, "crm:manage"];
+      return covering.some((permission) => assignedPermissions.includes(permission));
     }
     return false;
   }
@@ -574,6 +585,62 @@ export const PERMISSION_METADATA: Record<Permission, PermissionMeta> = {
     isSuperAdminExclusive: true,
     isIncludedInAdmin: false,
   },
+
+  // CRM. "Included in Admin" = the Admin role has CRM through the explicit rule in hasPermission (always on).
+  "crm:read": {
+    key: "crm:read",
+    label: "View CRM Pipeline",
+    description: "View the opportunity pipeline board and its totals.",
+    module: "CRM",
+    action: "view",
+    isSuperAdminExclusive: false,
+    isIncludedInAdmin: true,
+  },
+  "crm:manage": {
+    key: "crm:manage",
+    label: "Manage CRM",
+    description: "Everything in the CRM, including lead sources. Includes all lead and customer permissions.",
+    module: "CRM",
+    action: "manage",
+    isSuperAdminExclusive: false,
+    isIncludedInAdmin: true,
+  },
+  "leads:read": {
+    key: "leads:read",
+    label: "View Leads",
+    description: "View the company's leads, their timelines and the activity log of each lead.",
+    module: "CRM",
+    action: "view",
+    isSuperAdminExclusive: false,
+    isIncludedInAdmin: true,
+  },
+  "leads:manage": {
+    key: "leads:manage",
+    label: "Manage Leads",
+    description: "Create, edit, assign, move, archive and convert leads into quotations; log activities on leads.",
+    module: "CRM",
+    action: "manage",
+    isSuperAdminExclusive: false,
+    isIncludedInAdmin: true,
+  },
+  "customers:read": {
+    key: "customers:read",
+    label: "View Customers",
+    description: "View customer records and their quotation history; link a customer to a quotation.",
+    module: "CRM",
+    action: "view",
+    isSuperAdminExclusive: false,
+    isIncludedInAdmin: true,
+  },
+  "customers:manage": {
+    key: "customers:manage",
+    label: "Manage Customers",
+    description: "Create, edit and archive customer records; log activities on customers.",
+    module: "CRM",
+    action: "manage",
+    isSuperAdminExclusive: false,
+    isIncludedInAdmin: true,
+  },
 };
 
 export const PERMISSION_MODULE_GROUPS: PermissionModuleGroup[] = [
@@ -627,6 +694,19 @@ export const PERMISSION_MODULE_GROUPS: PermissionModuleGroup[] = [
       PERMISSION_METADATA["quotations:assign_dealer"],
       PERMISSION_METADATA["quotations:assign_sales"],
       PERMISSION_METADATA["quotations:transition"],
+    ],
+  },
+  {
+    id: "crm",
+    name: "CRM",
+    description: "Leads, customers, the opportunity pipeline and their activity timelines.",
+    permissions: [
+      PERMISSION_METADATA["crm:read"],
+      PERMISSION_METADATA["crm:manage"],
+      PERMISSION_METADATA["leads:read"],
+      PERMISSION_METADATA["leads:manage"],
+      PERMISSION_METADATA["customers:read"],
+      PERMISSION_METADATA["customers:manage"],
     ],
   },
   {

@@ -49,6 +49,7 @@ try {
     nocrm: await login("nocrm@example.com", "admin"),
     crm: await login("crmadmin@example.com", "admin"),
     dealerD: await login("dealerd@example.com", "user"),
+    dealerE: await login("dealere@example.com", "user"),
   };
 
   const mkLead = async (body, who = c.owner) => {
@@ -73,6 +74,9 @@ try {
   const leadOther = await mkLead({ customerName: "Other Company Lead", phone: "9000000002" }, c.owner2);
   const customerA = await mkCustomer({ name: "Customer A", phone: "9100000001" });
   const customerOther = await mkCustomer({ name: "Other Company Customer", phone: "9100000002" }, c.owner2);
+  // Customers that belong to a dealer: Dealer D (id 4) and Dealer E (id 5).
+  const customerD = await mkCustomer({ name: "Dealer D Customer", phone: "9100000010", dealerId: 4 });
+  const customerE = await mkCustomer({ name: "Dealer E Customer", phone: "9100000011", dealerId: 5 });
 
   const refuse = async (label, who, body, statuses) => {
     const res = await newQuote(who, { clientName: label, ...body });
@@ -84,10 +88,14 @@ try {
   await refuse("Foreign lead", c.owner, { leadId: leadOther }, [404]);
   await refuse("Foreign customer", c.owner, { customerId: customerOther }, [404]);
   await refuse("Dealer links lead", c.dealerD, { leadId: leadFree }, [403]);
-  await refuse("Dealer links customer", c.dealerD, { customerId: customerA }, [403]);
+  await refuse("Dealer links a customer that is not theirs", c.dealerD, { customerId: customerA }, [404]);
+  await refuse("Dealer links another dealer's customer", c.dealerD, { customerId: customerE }, [404]);
   await refuse("No-CRM admin links lead", c.nocrm, { leadId: leadFree }, [403]);
   await refuse("No-CRM admin links customer", c.nocrm, { customerId: customerA }, [403]);
   assert.equal((await lead(leadFree)).convertedQuotationId, null, "no refused request touched the lead");
+  const dealerOwn = await newQuote(c.dealerD, { clientName: "Dealer links own customer", customerId: customerD, houseTypeId: 101 });
+  assert.equal(dealerOwn.status, 201, dealerOwn.text?.slice(0, 200));
+  assert.equal((await quoteOf(idOf(dealerOwn))).customerId, customerD, "a Dealer may link one of their own customers");
   pass("quotation create refuses nonexistent ids, another company's lead / customer, and callers without the CRM permission; nothing is created and the lead is untouched");
 
   const linked = await newQuote(c.crm, { clientName: "Linked quote", leadId: leadFree, customerId: customerA, houseTypeId: 101 });
@@ -159,13 +167,16 @@ try {
 
   // a dealer's own quotation: the form re-sends what it has, but cannot re-link
   const dealerQuote = idOf(await newQuote(c.dealerD, { clientName: "Dealer edit quote" }));
-  assert.equal((await patch(c.dealerD, dealerQuote, { customerId: customerA })).status, 403, "a dealer cannot link a customer");
+  assert.equal((await patch(c.dealerD, dealerQuote, { customerId: customerA })).status, 404, "a dealer cannot link a customer that is not theirs");
+  assert.equal((await patch(c.dealerD, dealerQuote, { customerId: customerE })).status, 404, "nor another dealer's customer");
+  assert.equal((await patch(c.dealerD, dealerQuote, { customerId: customerD })).status, 200, "but can link their own");
+  assert.equal((await quoteOf(dealerQuote)).customerId, customerD);
   assert.equal((await patch(c.dealerD, dealerQuote, { leadId: otherLead })).status, 403, "or a lead");
   assert.equal((await patch(c.dealerD, dealerQuote, { customerId: null, leadId: null, clientName: "Dealer edit renamed" })).status, 200, "an unchanged form (null links) still saves");
   assert.equal((await quoteOf(dealerQuote)).clientName, "Dealer edit renamed");
   const dealerLinked = idOf(await newQuote(c.owner, { clientName: "Owner linked for dealer", dealerId: 4, customerId: customerA }));
   assert.equal((await patch(c.dealerD, dealerLinked, { customerId: customerA, clientName: "Dealer saves linked" })).status, 200, "a dealer saving a linked quotation with its own customer id is fine");
-  assert.equal((await patch(c.dealerD, dealerLinked, { customerId: customerB })).status, 403, "but cannot move it to another customer");
+  assert.equal((await patch(c.dealerD, dealerLinked, { customerId: customerB })).status, 404, "but cannot move it to a customer that is not theirs");
   assert.equal((await quoteOf(dealerLinked)).customerId, customerA);
 
   // lead
@@ -184,6 +195,34 @@ try {
   assert.equal((await patch(c.crm, editTarget, { leadId: null })).status, 200);
   assert.equal((await quoteOf(editTarget)).leadId, otherLead, "null never unlinks");
   pass("quotation edits cannot reassign a lead or customer: bad ids, other companies, missing permission, taken leads and lead moves are refused; legitimate re-links leave Linked / Unlinked entries; unchanged forms still save");
+
+  // ── the customer link follows the quotation's contact details ──
+  const customersTotal = () => db.collection("customers").countDocuments({ companyId: 10, isDeleted: { $ne: true } });
+  const relinkQuote = idOf(await newQuote(c.owner, { clientName: "Relink Person", clientPhone: "9777000001" }));
+  const firstCustomer = (await quoteOf(relinkQuote)).customerId;
+  assert.ok(firstCustomer, "a quotation created with a phone is linked to a customer");
+  for (const body of [{ clientName: "Relink Person Renamed" }, { clientPhone: "+91 97770 00001" }, { clientPhone: "" }, { clientEmail: "" }, { clientPhone: "9777000001" }]) {
+    assert.equal((await patch(c.crm, relinkQuote, body)).status, 200, JSON.stringify(body));
+    assert.equal((await quoteOf(relinkQuote)).customerId, firstCustomer, `the same person stays linked after ${JSON.stringify(body)}`);
+  }
+  const customersBefore = await customersTotal();
+  assert.equal((await patch(c.crm, relinkQuote, { clientName: "Someone Else", clientPhone: "9777000002" })).status, 200);
+  const secondCustomer = (await quoteOf(relinkQuote)).customerId;
+  assert.ok(secondCustomer && secondCustomer !== firstCustomer, "a different phone is a different person: relinked");
+  assert.equal(await customersTotal(), customersBefore + 1, "and a new customer was created for them");
+  assert.equal((await db.collection("customers").findOne({ _id: secondCustomer })).phone, "9777000002");
+  assert.equal((await activities({ customerId: firstCustomer, quotationId: relinkQuote, title: "Quotation Unlinked" })).length, 1, "the previous customer's timeline records it");
+  assert.ok((await activities({ customerId: secondCustomer, quotationId: relinkQuote, title: "Quotation Linked" })).length >= 1);
+  assert.equal((await patch(c.crm, relinkQuote, { clientName: "Customer A again", clientPhone: "9100000001" })).status, 200);
+  assert.equal((await quoteOf(relinkQuote)).customerId, customerA, "a phone that belongs to an existing customer links to that customer");
+  assert.equal(await customersTotal(), customersBefore + 1, "without creating a duplicate");
+  // A Dealer has no CRM access, but the link still follows what they save.
+  const dealerRelink = idOf(await newQuote(c.dealerD, { clientName: "Dealer Person", clientPhone: "9777000003" }));
+  const dealerFirst = (await quoteOf(dealerRelink)).customerId;
+  assert.equal((await patch(c.dealerD, dealerRelink, { clientName: "Dealer Person Two", clientPhone: "9777000004" })).status, 200);
+  const dealerSecond = (await quoteOf(dealerRelink)).customerId;
+  assert.ok(dealerFirst && dealerSecond && dealerFirst !== dealerSecond, "a Dealer changing the client's phone relinks too");
+  pass("the customer link follows the quotation's phone / email: renaming, reformatting or clearing keeps the customer; a different person is relinked (found or created) with Unlinked / Linked entries, for a Dealer as well");
 
   // ═══ B. customer unique index and E11000 ═══
   let indexes = [];
@@ -324,6 +363,42 @@ try {
   await api(c.owner, "POST", `/api/crm/leads/${oldWon}/convert`, {});
   assert.equal((await lead(oldWon)).status, "won");
   pass("Convert recovers: a crash after the quotation was saved is finished by a retry; a never-saved quotation is created with the id already on the lead (fresh or hours old, no timeout); parallel retries make one quotation; converted leads are never revived");
+
+  // ═══ customer lookup: the picker on the quotation form ═══
+  const look = (who, query = "") => api(who, "GET", `/api/customers/lookup${query}`);
+  const idsOf = (res) => (res.data?.items ?? []).map((item) => item.id);
+  const sameIds = (actual, expected) => assert.deepEqual([...actual].sort((a, b) => a - b), [...expected].sort((a, b) => a - b));
+  const formKeys = ["billingAddress", "customerType", "email", "gstNumber", "id", "name", "phone", "siteAddress", "whatsapp"];
+
+  const dealerDRows = await db.collection("customers").find({ companyId: 10, dealerId: 4, isDeleted: { $ne: true } }).toArray();
+  const lookD = await look(c.dealerD);
+  assert.equal(lookD.status, 200, lookD.text?.slice(0, 200));
+  sameIds(idsOf(lookD), dealerDRows.map((row) => row._id));
+  assert.ok(idsOf(lookD).includes(customerD) && !idsOf(lookD).includes(customerA) && !idsOf(lookD).includes(customerE), "a Dealer sees their own customers, not the company's others or another dealer's");
+  assert.deepEqual(Object.keys(lookD.data.items[0]).sort(), formKeys, "only what the form fills in, and no salesperson / dealer ids for a Dealer");
+  assert.equal(lookD.data.truncated, false);
+  assert.ok(!("pagination" in lookD.data) && !("totalPages" in lookD.data), "no paging");
+  sameIds(idsOf(await look(c.dealerE)), (await db.collection("customers").find({ companyId: 10, dealerId: 5, isDeleted: { $ne: true } }).toArray()).map((row) => row._id));
+  assert.deepEqual(idsOf(await look(c.dealerD, "?search=Customer%20A")), [], "searching never reaches beyond their own customers");
+  assert.deepEqual(idsOf(await look(c.dealerD, "?search=9100000010")), [customerD], "search by mobile number");
+  assert.deepEqual(idsOf(await look(c.dealerD, `?id=${customerD}`)), [customerD]);
+  assert.deepEqual(idsOf(await look(c.dealerD, `?id=${customerA}`)), [], "a customer that is not theirs is not found by id");
+
+  const lookOwner = await look(c.owner);
+  // Archived customers are hidden by the model on purpose, so the expectation leaves them out too.
+  const companyRows = await db.collection("customers").find({ companyId: 10, isDeleted: { $ne: true } }).toArray();
+  sameIds(idsOf(lookOwner), companyRows.map((row) => row._id));
+  assert.ok(!idsOf(lookOwner).includes(customerOther), "an admin sees their own company's customers only");
+  const names = lookOwner.data.items.map((item) => item.name);
+  assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b, "en", { sensitivity: "accent" })), "A to Z");
+  assert.ok("assignedSalesId" in lookOwner.data.items[0] && "dealerId" in lookOwner.data.items[0], "admins also get the ids the form uses to pre-select the salesperson and dealer");
+  assert.deepEqual(idsOf(await look(c.owner, "?search=Customer%20B")), [customerB]);
+  assert.deepEqual(idsOf(await look(c.owner, `?id=${customerOther}`)), [], "another company's customer is never found");
+  sameIds(idsOf(await look(c.owner2)), (await db.collection("customers").find({ companyId: 20, isDeleted: { $ne: true } }).toArray()).map((row) => row._id));
+  assert.equal((await look(c.crm)).status, 200, "a configurable admin with customers:read");
+  assert.equal((await look(c.nocrm)).status, 403, "a configurable admin without customers:read is refused");
+  assert.equal((await look("")).status, 401, "signed out");
+  pass("customer lookup (the quotation form's picker): a Dealer sees only their own customers (form fields only, no paging); admins see their company's, A to Z, never another company's; search and id stay inside that scope; no customer access, no lookup");
 
   console.log(`\n${count} passed`);
 } catch (error) {

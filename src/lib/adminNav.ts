@@ -1,3 +1,5 @@
+import { hasPermission } from "@/lib/permissions";
+
 /**
  * Which admin-panel sidebar roles may SEE the restricted links. Visibility
  * only: each target's API independently enforces its own authorization, so a
@@ -25,7 +27,23 @@ export function toAdminNavRole(rawRole: string | null | undefined): AdminNavRole
   return "admin";
 }
 
-export function canSeeAdminNavItem(href: string, rawRole: string | null | undefined): boolean {
+/**
+ * Sidebar links that need a permission, not just a role: shown when the user holds ANY of the listed permissions.
+ * Super Admin, Company Owner and Admin always have CRM (see hasPermission), so this only hides CRM links from a
+ * Configurable Admin whose role was not granted them. Visibility only: each CRM API checks its own permission.
+ */
+const NAV_PERMISSIONS: Readonly<Record<string, readonly string[]>> = {
+  "/admin/crm/pipeline": ["crm:read", "leads:read"],
+  "/admin/crm/leads": ["leads:read"],
+  "/admin/crm/follow-ups": ["leads:read"],
+  "/admin/crm/customers": ["customers:read"],
+  "/admin/crm/sources": ["crm:manage"],
+};
+
+export function canSeeAdminNavItem(href: string, rawRole: string | null | undefined, permissions?: readonly string[] | null): boolean {
   const allowed = RESTRICTED_NAV_ROLES[href];
-  return !allowed || allowed.includes(toAdminNavRole(rawRole));
+  if (allowed && !allowed.includes(toAdminNavRole(rawRole))) return false;
+  const needed = NAV_PERMISSIONS[href];
+  if (!needed) return true;
+  return needed.some((permission) => hasPermission(rawRole, permissions ? [...permissions] : [], permission));
 }

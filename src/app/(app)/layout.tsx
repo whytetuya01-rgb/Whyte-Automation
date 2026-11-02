@@ -6,11 +6,12 @@ import DealerHeaderLogo from "@/components/shared/DealerHeaderLogo";
 import SignOutButton from "@/components/shared/SignOutButton";
 import SiteFooter from "@/components/shared/SiteFooter";
 import { getFooterCompany } from "@/lib/footerCompany";
-import { Plus, FileText, LayoutDashboard, User, Wallet } from "lucide-react";
+import { Plus, FileText, LayoutDashboard, LayoutGrid, User, Wallet } from "lucide-react";
 import { isSessionActorStillValid } from "@/lib/sessionGuard";
 import OfflineStatusPill from "@/components/offline/OfflineStatusPill";
+import { DealerLevelChip } from "@/components/dealer/DealerLevel";
 
-const ALLOWED_APP_ROLES = new Set(["dealer", "super_admin", "admin"]);
+const ALLOWED_APP_ROLES = new Set(["dealer", "super_admin", "admin", "company_owner", "configurable_admin", "sales_executive"]);
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions);
@@ -56,6 +57,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
             {/* Desktop nav */}
             <nav className="hidden sm:flex items-center gap-1">
+              <Link
+                href="/apps"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-gray-950 hover:bg-gray-100 transition"
+              >
+                <LayoutGrid size={14} />
+                <span>Apps</span>
+              </Link>
               <Link
                 href="/"
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-gray-950 hover:bg-gray-100 transition"
@@ -109,6 +117,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
             {/* Avatar / user (Dealer or Admin) */}
             {role === "dealer" ? (
+              <>
               <Link
                 href="/profile"
                 className="hidden md:flex items-center gap-2 pl-1.5 group hover:opacity-90 transition cursor-pointer"
@@ -124,6 +133,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
                   </span>
                 </div>
               </Link>
+              <span className="hidden md:inline-flex">
+                <DealerLevelChip />
+              </span>
+              </>
             ) : (
               <div className="hidden md:flex items-center gap-2 pl-1.5">
                 <div className="w-7.5 h-7.5 rounded-full bg-purple-100 border border-purple-200 flex items-center justify-center text-purple-700 text-[11px] font-bold shrink-0">
@@ -147,6 +160,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
         {/* Mobile secondary nav */}
         <div className="sm:hidden flex items-center gap-1.5 px-3 py-1.5 border-t border-gray-100 bg-gray-50/70 overflow-x-auto touch-pan-x [scrollbar-width:none] [-webkit-overflow-scrolling:touch]">
+          <Link
+            href="/apps"
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-gray-700 hover:text-gray-950 hover:bg-gray-200/60 transition shrink-0"
+          >
+            <LayoutGrid size={13} />
+            <span>Apps</span>
+          </Link>
           <Link
             href="/"
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-gray-700 hover:text-gray-950 hover:bg-gray-200/60 transition shrink-0"

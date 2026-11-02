@@ -151,6 +151,24 @@ export function phoneMatchRegex(phone: string | null | undefined): RegExp | null
   return new RegExp(`^\\s*(?:\\+?\\s*91[\\s-]*|0)?${key.split("").join("[\\s-]*")}\\s*$`);
 }
 
+/**
+ * Whether contact details still describe this customer. A phone or email that is present must be the customer's own
+ * (a phone matches in any common format); empty details never contradict it, so clearing a field is not "another person".
+ */
+export function contactMatchesCustomer(
+  customer: { phone?: string | null; email?: string | null },
+  contact: { phone?: string | null; email?: string | null }
+): boolean {
+  const phone = contact.phone?.trim();
+  if (phone && customer.phone?.trim()) {
+    const pattern = phoneMatchRegex(customer.phone);
+    if (!(pattern ? pattern.test(phone) : customer.phone.trim() === phone)) return false;
+  }
+  const email = contact.email?.trim().toLowerCase();
+  if (email && customer.email?.trim() && customer.email.trim().toLowerCase() !== email) return false;
+  return true;
+}
+
 function contactClauses(phone: string | null | undefined, email: string | null | undefined): Array<Record<string, unknown>> {
   const clauses: Array<Record<string, unknown>> = [];
   const trimmedPhone = phone?.trim();
@@ -290,7 +308,8 @@ export interface LinkActor {
  * The customer / lead a quotation request asks to link, checked. Only a NEW link is checked and returned (a value equal
  * to the current one, null or undefined means "no change"; unlinking is not done through quotation requests).
  *
- *  - customer: needs customers:read, and must exist in the caller's company and be visible to the caller;
+ *  - customer: needs customers:read (a Dealer, who has no CRM screens, may link their OWN customers), and must exist in
+ *              the caller's company and be visible to the caller (a Dealer sees only customers where they are the dealer);
  *  - lead:     needs leads:manage, must exist in the company and be visible, must not already have a quotation, and a
  *              quotation that is already linked to a lead can never be moved to another one.
  */
@@ -310,7 +329,7 @@ export async function validateQuotationLinks(
   const visibility = crmVisibilityFilter({ role, userId });
 
   if (wantsCustomer) {
-    if (!hasPermission(role, permissions, "customers:read")) {
+    if (!hasPermission(role, permissions, "customers:read") && role !== "dealer") {
       throw new ApiError("FORBIDDEN", "You do not have permission to link a customer to a quotation.", { field: "customerId" });
     }
     const customer = await Customer.findOne({ _id: requested.customerId, companyId, ...visibility }).select("_id").lean();

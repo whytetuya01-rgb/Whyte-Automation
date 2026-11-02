@@ -1,6 +1,7 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
 import type { AdminRole } from "@/types";
 import { tenantScopePlugin } from "@/lib/tenant/plugin";
+import { DEALER_TIER_KEYS, type DealerTierKey } from "@/lib/dealerTiers";
 
 export const CANONICAL_ADMIN_ROLES = ["super_admin", "admin", "sales_executive", "dealer"] as const satisfies readonly AdminRole[];
 export const ACTIVE_ADMIN_ROLES = ["super_admin", "admin", "sales_executive", "dealer", "configurable_admin"] as const satisfies readonly AdminRole[];
@@ -53,6 +54,18 @@ export interface IAdminUser {
   discountAllocationHistory: IDiscountAllocationHistory[];
   /** Granular capabilities assigned to configurable_admin accounts. */
   permissions?: string[];
+  /**
+   * Dealers only: the category the dealer has EARNED. Absent = Bronze, never evaluated. It only goes up automatically;
+   * a Super Admin can correct it (always recorded in DealerCategoryEvent). The lifetime qualified count is NOT stored:
+   * it is always counted from the dealer's delivered quotations, so it cannot drift or be counted twice.
+   */
+  dealerTier?: {
+    category: DealerTierKey;
+    achievedAt: Date | null;
+    lastEvaluatedAt: Date | null;
+    /** Qualified count when the dealer was last evaluated: automatic upgrades need the count to have grown since. */
+    countAtLastEvaluation: number;
+  } | null;
   createdAt: Date;
 }
 
@@ -108,6 +121,18 @@ const AdminUserSchema = new Schema<IAdminUserDocument>(
     discountAllocationPercent: { type: Number, default: 0, min: 0, max: 100 },
     discountAllocationHistory: { type: [DiscountAllocationHistorySchema], default: () => [] },
     permissions: { type: [String], default: () => [] },
+    dealerTier: {
+      type: new Schema(
+        {
+          category: { type: String, enum: DEALER_TIER_KEYS, required: true },
+          achievedAt: { type: Date, default: null },
+          lastEvaluatedAt: { type: Date, default: null },
+          countAtLastEvaluation: { type: Number, default: 0, min: 0 },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     createdAt: { type: Date, default: Date.now },
   },
   {

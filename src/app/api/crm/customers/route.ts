@@ -27,6 +27,8 @@ export async function GET(req: Request) {
       const pagination = parsePaginationParams(searchParams);
       const search = parseSearchQueryParam(searchParams, "search");
       const customerType = parseStringQueryParam(searchParams, "customerType", { max: 30 });
+      // "name" = A to Z (for pick lists); default = newest first.
+      const sort = parseStringQueryParam(searchParams, "sort", { max: 10, allowed: ["name", "recent"] });
       const salesId = parseIntQueryParam(searchParams, "assignedSalesId");
       const dealerId = parseIntQueryParam(searchParams, "dealerId");
 
@@ -45,7 +47,8 @@ export async function GET(req: Request) {
       const customers = await Customer.find(query)
         .populate({ path: "assignedSales", select: "name firstName lastName email" })
         .populate({ path: "dealer", select: "name firstName lastName companyName" })
-        .sort({ createdAt: -1 })
+        .collation({ locale: "en", strength: 2 })
+        .sort(sort === "name" ? { name: 1, _id: 1 } : { createdAt: -1 })
         .skip(pagination.skip)
         .limit(pagination.take)
         .lean();

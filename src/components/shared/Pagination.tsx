@@ -47,6 +47,11 @@ export default function Pagination({
     ? Math.max(1, Math.floor(Number(rawTotalPages)))
     : calculatedTotalPages;
 
+  // The select must always offer the size in use, even when a page asks for one that is not in the usual list.
+  const sizeOptions = pageSizeOptions.includes(safePageSize)
+    ? pageSizeOptions
+    : [...pageSizeOptions, safePageSize].sort((a, b) => a - b);
+
   // Compute display range (e.g., "1–10 of 287")
   const startItem = safeTotal === 0 ? 0 : (safePage - 1) * safePageSize + 1;
   const endItem = safeTotal === 0 ? 0 : Math.min(safePage * safePageSize, safeTotal);
@@ -110,7 +115,7 @@ export default function Pagination({
             <CustomDropdown
               value={String(safePageSize)}
               onChange={(val) => onPageSizeChange(Number(val))}
-              options={pageSizeOptions.map((opt) => ({ value: String(opt), label: String(opt) }))}
+              options={sizeOptions.map((opt) => ({ value: String(opt), label: String(opt) }))}
               ariaLabel="Rows per page"
             />
           </div>

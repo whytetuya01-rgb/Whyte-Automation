@@ -39,6 +39,8 @@ const PUBLIC_VERIFICATION_APIS: ReadonlySet<string> = new Set(["/api/company/reg
 /** Quotation view links held by clients (no session): the PDF (GET) and the view report (POST). The routes check the token. */
 const PUBLIC_QUOTATION_LINK_PDF = /^\/api\/public\/quotation-links\/[A-Za-z0-9_-]+\/pdf$/;
 const PUBLIC_QUOTATION_LINK_VIEW_API = "/api/public/quotation-links/view";
+/** A person's private calendar link for their follow-ups (opened by a calendar app, no session). The route checks the secret. */
+const PUBLIC_CALENDAR_FEED = /^\/api\/calendar\/follow-ups\/[A-Za-z0-9_-]+\.ics$/;
 const DEALER_LANDING_PAGE = "/dealer/access";
 const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
 
@@ -78,7 +80,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  if ((PUBLIC_QUOTATION_LINK_PDF.test(pathname) && (request.method === "GET" || request.method === "HEAD")) || (pathname === PUBLIC_QUOTATION_LINK_VIEW_API && request.method === "POST")) {
+  if ((PUBLIC_QUOTATION_LINK_PDF.test(pathname) && (request.method === "GET" || request.method === "HEAD")) || (PUBLIC_CALENDAR_FEED.test(pathname) && (request.method === "GET" || request.method === "HEAD")) || (pathname === PUBLIC_QUOTATION_LINK_VIEW_API && request.method === "POST")) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
@@ -134,7 +136,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (role && ADMIN_ROLES.has(role)) {
-    if (!isApiRequest(pathname) && !isAdminPage(pathname) && !isPublicPage(pathname) && !pathname.startsWith("/quotation/")) {
+    if (!isApiRequest(pathname) && !isAdminPage(pathname) && !isPublicPage(pathname) && !pathname.startsWith("/quotation/") && !pathname.startsWith("/apps")) {
       return redirectTo(request, "/admin/dashboard");
     }
     return NextResponse.next({ request: { headers: requestHeaders } });

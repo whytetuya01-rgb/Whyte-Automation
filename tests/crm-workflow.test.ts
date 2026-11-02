@@ -17,9 +17,8 @@
  */
 
 import assert from "node:assert/strict";
-import * as dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
-dotenv.config({ path: ".env" });
+// Never reads .env / .env.local: uses a throwaway local database only (refuses anything else).
+import "./helpers/localMongoOnly";
 import { connectMongoDB } from "../src/lib/mongodb";
 import { runWithTenantContext, runUnscoped } from "../src/lib/tenant/context";
 import {

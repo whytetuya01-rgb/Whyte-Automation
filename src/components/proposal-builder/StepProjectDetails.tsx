@@ -11,7 +11,7 @@ import { RadioGroup } from "@/components/ui/Radio";
 import CityAutocomplete from "@/components/ui/CityAutocomplete";
 import IndiaPhoneInput, { extractNationalDigits } from "@/components/ui/IndiaPhoneInput";
 import { emailError, gstinError, phoneError } from "@/lib/validation/fields";
-import CustomerAutocomplete from "./CustomerAutocomplete";
+import CustomerCombobox, { LinkedCustomerCard } from "./CustomerCombobox";
 
 interface Props {
   initialData?: Partial<Quotation>;
@@ -85,23 +85,25 @@ export default function StepProjectDetails({
     leadId: (initialData as any)?.leadId ?? null,
   });
 
-  useEffect(() => {
-    if ((initialData as any)?.customerId && !linkedCustomer) {
-      fetch(`/api/crm/customers?search=${(initialData as any).customerId}&pageSize=1`)
-        .then((r) => (r.ok ? r.json() : null))
-        .then((res) => {
-          const items = res?.data?.data || res?.data || [];
-          const found = items.find((c: any) => c.id === (initialData as any).customerId);
-          if (found) setLinkedCustomer(found);
-        })
-        .catch(() => {});
-    }
-  }, [(initialData as any)?.customerId, linkedCustomer]);
-
   const { data: session } = useSession();
   const sessionUser = session?.user as { role?: string; permissions?: string[] } | undefined;
   const role = sessionUser?.role;
   const userPermissions = sessionUser?.permissions;
+
+  useEffect(() => {
+    // Load the customer by id when it arrived without its details (a name is always present once loaded). The lookup
+    // returns just the details this form shows, and only for customers the caller may see (a Dealer: their own).
+    const canLookUp = role !== undefined && role !== "sales_executive";
+    if (canLookUp && (initialData as any)?.customerId && !linkedCustomer?.name) {
+      fetch(`/api/customers/lookup?id=${(initialData as any).customerId}`, { headers: { "x-skip-api-loader": "true" } })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((res) => {
+          const customer = res?.data?.items?.[0];
+          if (customer) setLinkedCustomer(customer);
+        })
+        .catch(() => {});
+    }
+  }, [(initialData as any)?.customerId, linkedCustomer, role]);
 
   const canAssignDealer =
     role === "super_admin" ||
@@ -241,12 +243,25 @@ export default function StepProjectDetails({
     }));
   };
 
-  const handleUnlinkCustomer = () => {
+  /**
+   * Detaches the linked customer. When the user is writing a different name over it ("edit"), the contact details that
+   * were copied from that customer (and not changed since) are cleared too, so a new person does not inherit the old
+   * customer's phone / email and get matched back to them. The Unlink and Change buttons keep what is on the form.
+   */
+  const handleUnlinkCustomer = (reason?: "edit") => {
+    const previous = linkedCustomer;
     setLinkedCustomer(null);
-    setForm((prev) => ({
-      ...prev,
-      customerId: null,
-    }));
+    setForm((prev) => {
+      const next = { ...prev, customerId: null };
+      if (reason === "edit" && previous) {
+        const place = previous.siteAddress || previous.billingAddress;
+        if (previous.phone && prev.clientPhone === previous.phone) next.clientPhone = "";
+        if (previous.email && prev.clientEmail === previous.email) next.clientEmail = "";
+        if (previous.gstNumber && prev.clientGstNumber === previous.gstNumber) next.clientGstNumber = "";
+        if (place && prev.location === place) next.location = "";
+      }
+      return next;
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -302,14 +317,21 @@ export default function StepProjectDetails({
                   Project Identity
                 </h3>
 
-                {/* Central CRM Customer Search & Link */}
-                <CustomerAutocomplete
-                  linkedCustomerId={form.customerId}
-                  linkedCustomer={linkedCustomer}
-                  onSelectCustomer={handleSelectCustomer}
-                  onUnlinkCustomer={handleUnlinkCustomer}
-                  disabled={isSaving}
-                />
+                {/* The customer this quotation is linked to (the name field below is where one is chosen). */}
+                {form.customerId && (
+                  <LinkedCustomerCard
+                    customer={linkedCustomer}
+                    disabled={isSaving}
+                    onUnlink={() => handleUnlinkCustomer()}
+                    onChange={() => {
+                      handleUnlinkCustomer();
+                      // While the page streams in there can briefly be a hidden copy of the field: focus the visible one.
+                      Array.from(document.querySelectorAll<HTMLInputElement>('[data-testid="client-name-combobox"]'))
+                        .find((input) => input.offsetParent !== null)
+                        ?.focus();
+                    }}
+                  />
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Client Name */}
@@ -317,23 +339,19 @@ export default function StepProjectDetails({
                     <label className="block text-xs font-semibold text-gray-800 mb-1.5">
                       Client / Customer Name <span className="text-red-500">*</span>
                     </label>
-                    <div className="relative">
-                      <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        value={form.clientName}
-                        onChange={(e) => {
-                          setForm({ ...form, clientName: e.target.value });
-                          if (errors.clientName) setErrors({ ...errors, clientName: "" });
-                        }}
-                        placeholder="e.g. Mr. Rajesh Sharma"
-                        className={`w-full h-11 pl-10 pr-3.5 border rounded-xl text-sm focus:outline-none focus:ring-2 transition bg-white text-gray-900 ${
-                          errors.clientName
-                            ? "border-red-400 focus:ring-red-500/20"
-                            : "border-gray-200 focus:border-accent focus:ring-accent/20"
-                        }`}
-                      />
-                    </div>
+                    <CustomerCombobox
+                      value={form.clientName}
+                      linked={Boolean(form.customerId)}
+                      invalid={Boolean(errors.clientName)}
+                      disabled={isSaving}
+                      placeholder="Search a customer or type a new name"
+                      onChangeText={(name) => {
+                        setForm((prev) => ({ ...prev, clientName: name }));
+                        if (errors.clientName) setErrors((prev) => ({ ...prev, clientName: "" }));
+                      }}
+                      onSelect={handleSelectCustomer}
+                      onUnlink={handleUnlinkCustomer}
+                    />
                     {errors.clientName && (
                       <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientName}</p>
                     )}

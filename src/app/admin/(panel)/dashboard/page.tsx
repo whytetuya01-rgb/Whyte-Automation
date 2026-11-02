@@ -26,6 +26,7 @@ import RevenueTrendChart from "@/components/admin/dashboard/RevenueTrendChart";
 import DealerPerformanceTable from "@/components/admin/dashboard/DealerPerformanceTable";
 import DeliveryAnalyticsCard from "@/components/admin/dashboard/DeliveryAnalyticsCard";
 import CrmAnalyticsPreview from "@/components/admin/dashboard/CrmAnalyticsPreview";
+import DealerTierSummary from "@/components/admin/dashboard/DealerTierSummary";
 import { getOnboardingState } from "@/lib/companyOnboarding";
 
 export const dynamic = "force-dynamic";
@@ -138,7 +139,7 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
   const addedAtById: Record<number, string> = {};
   for (const doc of rawProducts) addedAtById[doc._id] = new Date(doc.createdAt).toISOString();
 
-  const { quotations, pipeline, dealers, deliveries, catalog, crm, isDemoMode } = data;
+  const { quotations, pipeline, dealers, deliveries, catalog, crm, dealerTiers, isDemoMode } = data;
   const approvedCount = quotations.statusCounts.approved + quotations.statusCounts.delivered;
 
   // The complete Business Dashboard view
@@ -244,6 +245,18 @@ export default async function DashboardPage({ searchParams }: DashboardPageProps
         <div className="col-span-12 order-4 lg:order-none">
           <CrmAnalyticsPreview crm={crm} canEnableDemo={canEnableDemo} />
         </div>
+
+        {/* Dealer categories (real data; only for people who may view dealers) */}
+        {canViewDealers && dealerTiers && (
+          <DashboardCard
+            title="Dealer Categories"
+            description="Active dealers by earned category, and upgrades in the selected period"
+            action={{ href: "/admin/dealers", label: "Manage dealers" }}
+            className="col-span-12 order-5 lg:order-none"
+          >
+            <DealerTierSummary dealersByCategory={dealerTiers.dealersByCategory} upgradesInPeriod={dealerTiers.upgradesInPeriod} periodLabel={data.dateRange.label} />
+          </DashboardCard>
+        )}
 
         {/* Row 3: Dealer Performance Leaderboard + Delivery Analytics */}
         {canViewDealers && (

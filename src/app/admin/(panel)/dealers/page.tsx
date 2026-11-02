@@ -35,6 +35,7 @@ import { useConfirm } from "@/components/providers/ConfirmProvider";
 import { useCompanyBranding } from "@/components/providers/BrandingProvider";
 import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
+import { DealerPerformancePanel, TierBadge, TierLine, TierProgress, type DealerTierInfo } from "@/components/admin/dealers/DealerTier";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Pagination from "@/components/shared/Pagination";
 import { Input, Button, Select, Textarea } from "@/components/ui";
@@ -72,6 +73,8 @@ interface DealerItem {
     delivered: number;
   };
   accumulatedEarnings: number;
+  /** Category, lifetime qualified (delivered) quotations and progress, calculated by the server. */
+  tier?: DealerTierInfo | null;
   createdAt: string;
 }
 
@@ -529,7 +532,16 @@ export default function DealersPage() {
                         title="Click to view dealer's quotations"
                       >
                         <td className="px-4 py-3.5">
-                          <p className="font-bold text-gray-950 text-sm group-hover:text-black">{dealer.name}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-bold text-gray-950 text-sm group-hover:text-black">{dealer.name}</p>
+                            {dealer.tier && <TierBadge category={dealer.tier.category} label={dealer.tier.categoryLabel} />}
+                          </div>
+                          {dealer.tier && (
+                            <div className="mt-1 mb-1 max-w-[220px] space-y-1">
+                              <TierProgress tier={dealer.tier} />
+                              <TierLine tier={dealer.tier} />
+                            </div>
+                          )}
                           {dealer.companyName && (
                             <p className="text-gray-600 text-xs font-medium">{dealer.companyName}</p>
                           )}
@@ -675,7 +687,16 @@ export default function DealersPage() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <h3 className="font-bold text-gray-950 text-sm">{dealer.name}</h3>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-gray-950 text-sm">{dealer.name}</h3>
+                          {dealer.tier && <TierBadge category={dealer.tier.category} label={dealer.tier.categoryLabel} />}
+                        </div>
+                        {dealer.tier && (
+                          <div className="mt-1 mb-1 max-w-[240px] space-y-1">
+                            <TierProgress tier={dealer.tier} />
+                            <TierLine tier={dealer.tier} />
+                          </div>
+                        )}
                         {dealer.companyName && (
                           <p className="text-gray-600 text-xs font-medium">{dealer.companyName}</p>
                         )}
@@ -1146,6 +1167,9 @@ export default function DealersPage() {
                 </div>
               </div>
             </div>
+
+            {/* Category, progress, history and the quotations that count */}
+            <DealerPerformancePanel dealerId={selectedDealer.id} canCorrect={isSuperAdmin} onChanged={fetchDealers} />
 
             {/* Detailed Contact and Business Information */}
             <div className="p-4 rounded-xl border border-gray-200/80 bg-white space-y-3">

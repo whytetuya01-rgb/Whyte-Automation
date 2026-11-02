@@ -40,6 +40,7 @@ export const NAV_ICON_ANIMATION_BY_HREF: Record<string, NavIconAnimation> = {
   "/admin/crm/pipeline": "generic",
   "/admin/crm/customers": "generic",
   "/admin/crm/sources": "generic",
+  "/admin/crm/follow-ups": "generic",
 };
 
 interface AnimatedIconProps {

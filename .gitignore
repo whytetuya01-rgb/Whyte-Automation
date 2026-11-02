@@ -51,3 +51,6 @@ next-env.d.ts
 
 # API request timing log (src/instrumentation.ts)
 /logs/
+
+# Raw data dumps written by migration scripts (contain customer data): never commit
+scripts/backups/

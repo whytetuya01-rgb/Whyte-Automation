@@ -17,6 +17,7 @@ import {
   Palette,
   Building,
   Receipt,
+  CalendarClock,
   Send,
   Kanban,
   UserCheck,
@@ -65,6 +66,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/admin/crm/pipeline", label: "Pipeline", icon: Kanban },
       { href: "/admin/crm/leads", label: "Leads", icon: UserCheck },
+      { href: "/admin/crm/follow-ups", label: "Follow-ups", icon: CalendarClock },
       { href: "/admin/crm/customers", label: "Customers", icon: Contact },
       { href: "/admin/crm/sources", label: "Lead Sources", icon: SlidersHorizontal },
     ],
@@ -137,6 +139,7 @@ export default function AdminSidebar({
   const userName = session?.user?.name || "Administrator";
   const userEmail = session?.user?.email || "";
   const rawRole = (session?.user as { role?: string })?.role;
+  const userPermissions = (session?.user as { permissions?: string[] })?.permissions ?? [];
   const currentRole = toAdminNavRole(rawRole);
   const userRole =
     currentRole === "super_admin"
@@ -159,7 +162,7 @@ export default function AdminSidebar({
       {/* Scrollable Navigation Groups — layoutScroll keeps the gliding indicator correct while scrolled. */}
       <motion.nav layoutScroll className="flex-1 p-3 sm:p-4 space-y-6 overflow-y-auto overflow-x-hidden custom-scrollbar">
         {navGroups.map((group) => {
-          const visibleItems = group.items.filter((item) => canSeeAdminNavItem(item.href, currentRole));
+          const visibleItems = group.items.filter((item) => canSeeAdminNavItem(item.href, currentRole, userPermissions));
           if (visibleItems.length === 0) return null;
           const groupDelay = entranceDelay + rowIndex * STAGGER_S;
           return (

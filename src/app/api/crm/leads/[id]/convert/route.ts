@@ -4,7 +4,8 @@ import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { convertLeadSchema } from "@/lib/validation/crm";
-import { getNextQuotationSequence, reserveSequenceBlock } from "@/lib/counter";
+import { reserveSequenceBlock } from "@/lib/counter";
+import { issueQuotationNumber, withQuotationNumberRetry } from "@/lib/quotationNumber";
 import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { calculateDealerEarning } from "@/lib/dealerEarnings";
@@ -173,9 +174,8 @@ export async function POST(req: Request, context: RouteContext) {
 
       let quotationNumber: string;
       try {
-        quotationNumber = await withTransaction(async (dbSession) => {
-          const seq = await getNextQuotationSequence(year, dbSession);
-          const number = `QT-${year}-${String(seq).padStart(3, "0")}`;
+        quotationNumber = await withQuotationNumberRetry(() => withTransaction(async (dbSession) => {
+          const { quotationNumber: number } = await issueQuotationNumber(year, dbSession);
 
           const projectNotes = [
             lead.projectType ? `Project: ${lead.projectType}` : null,
@@ -273,7 +273,7 @@ export async function POST(req: Request, context: RouteContext) {
           );
 
           return number;
-        });
+        }));
       } catch (error) {
         // Another request saved this very quotation first (same id): that one is the conversion; just finish it.
         if (isDuplicateKey(error)) {

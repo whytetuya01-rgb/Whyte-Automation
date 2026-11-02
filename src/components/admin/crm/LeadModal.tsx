@@ -17,6 +17,14 @@ interface LeadModalProps {
   customer?: Customer | null;
 }
 
+/** An ISO time as the value of a date-time input (the browser's local time), e.g. 2026-11-05T10:00. */
+function toLocalInputValue(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: LeadModalProps) {
   const isEditing = Boolean(lead);
 
@@ -30,6 +38,8 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
   const [projectType, setProjectType] = useState("");
   const [estimatedBudget, setEstimatedBudget] = useState("");
   const [expectedClosingDate, setExpectedClosingDate] = useState("");
+  /** Next follow-up as the browser's date-time input holds it (local time), or "" for none. */
+  const [nextFollowUp, setNextFollowUp] = useState("");
   const [sourceId, setSourceId] = useState("");
   const [priority, setPriority] = useState<LeadPriority>("medium");
   const [status, setStatus] = useState<LeadStatus>("new");
@@ -92,6 +102,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setProjectType(lead.projectType || "");
       setEstimatedBudget(lead.estimatedBudget ? String(lead.estimatedBudget) : "");
       setExpectedClosingDate(lead.expectedClosingDate ? lead.expectedClosingDate.split("T")[0] : "");
+      setNextFollowUp(lead.nextFollowUpAt ? toLocalInputValue(lead.nextFollowUpAt) : "");
       setSourceId(lead.sourceId || "");
       setPriority(lead.priority || "medium");
       setStatus(lead.status || "new");
@@ -110,6 +121,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setProjectType("");
       setEstimatedBudget("");
       setExpectedClosingDate("");
+      setNextFollowUp("");
       setSourceId("");
       setPriority("medium");
       setStatus("new");
@@ -140,6 +152,8 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
         projectType: projectType.trim() || undefined,
         estimatedBudget: estimatedBudget ? Number(estimatedBudget) : undefined,
         expectedClosingDate: expectedClosingDate || undefined,
+        // Editing: an empty field clears the follow-up. A new lead without one simply has none.
+        nextFollowUpAt: nextFollowUp ? new Date(nextFollowUp).toISOString() : isEditing ? null : undefined,
         sourceId: sourceId || undefined,
         sourceName: selectedSource?.name || undefined,
         priority,
@@ -321,6 +335,19 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
                 { value: "urgent", label: "Urgent Priority" },
               ]}
             />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Input
+                label="Next Follow-up"
+                type="datetime-local"
+                value={nextFollowUp}
+                onChange={(e) => setNextFollowUp(e.target.value)}
+                className="text-sm"
+              />
+              <p className="mt-1 text-[11px] text-neutral-400">Shows in Follow-ups and in your Google Calendar link. Leave empty for none.</p>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

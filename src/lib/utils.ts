@@ -57,15 +57,7 @@ export function formatDate(date: Date | string | null | undefined): string {
   }
 }
 
-/**
- * Generates a quotation number like QT-2026-001.
- * NOTE: This must be called inside a transaction (see /api/quotations/route.ts)
- * to ensure uniqueness under concurrent requests.
- */
-export function generateQuotationNumber(existingCount: number): string {
-  const year = new Date().getFullYear();
-  return `QT-${year}-${String(existingCount + 1).padStart(3, "0")}`;
-}
+// Quotation numbers are issued only by lib/quotationNumber.ts (atomic counter); never derive one from a count.
 
 export function isBathroomLikeRoomName(name: string | null | undefined): boolean {
   if (!name) return false;

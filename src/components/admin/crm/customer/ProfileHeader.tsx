@@ -24,7 +24,7 @@ function StatTile({ icon: Icon, label, value, hint, tone }: { icon: typeof Walle
       <div className="min-w-0">
         <p className="truncate text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{label}</p>
         <p className="truncate text-xl font-semibold leading-tight tracking-tight text-neutral-950">{value}</p>
-        <p className="truncate text-xs text-neutral-400">{hint}</p>
+        <p className="text-xs leading-snug text-neutral-400">{hint}</p>
       </div>
     </div>
   );
@@ -78,13 +78,10 @@ export default function ProfileHeader({ customer, stats, newQuotationUrl, onEdit
                     {SEGMENT_LABELS[stats.segment]}
                   </span>
                 </div>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-neutral-500">
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
                   <span className="font-mono font-semibold text-neutral-600">#CUST-{customer.id}</span>
-                  <span aria-hidden="true">·</span>
                   <span>{typeLabel}</span>
-                  <span aria-hidden="true">·</span>
                   <span>Customer since {since}</span>
-                  <span aria-hidden="true">·</span>
                   <span className="inline-flex items-center gap-1">
                     <Clock size={12} aria-hidden="true" />
                     Last activity {relativeTime(stats.lastActivityAt)}
@@ -151,7 +148,7 @@ export default function ProfileHeader({ customer, stats, newQuotationUrl, onEdit
             </div>
           )}
 
-          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="customer-stats">
+          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4" data-testid="customer-stats">
             <StatTile icon={Wallet} label="Approved value" value={formatCurrency(stats.approvedValue)} hint={`${stats.approvedCount} approved · avg ${formatCurrency(stats.averageOrderValue)}`} tone="bg-emerald-50 text-emerald-600" />
             <StatTile icon={TrendingUp} label="Open pipeline" value={formatCurrency(stats.openPipelineValue)} hint={`${stats.openLeadCount} open ${stats.openLeadCount === 1 ? "enquiry" : "enquiries"}`} tone="bg-sky-50 text-sky-600" />
             <StatTile

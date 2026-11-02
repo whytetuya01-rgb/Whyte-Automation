@@ -5,7 +5,7 @@ import { AnimatePresence, MotionConfig, motion, type PanInfo } from "motion/reac
 import AdminSidebar from "./AdminSidebar";
 import ActAsCompanyControl from "./ActAsCompanyControl";
 import OfflineStatusPill from "@/components/offline/OfflineStatusPill";
-import { ArrowUpRight, Shield } from "lucide-react";
+import { ArrowUpRight, LayoutGrid, Shield } from "lucide-react";
 import Link from "next/link";
 import { WhyteContentLoader, WhyteFullScreenLoader } from "@/components/shared/WhyteLoader";
 import { usePageLoading } from "@/components/providers/NavigationLoaderProvider";
@@ -116,6 +116,14 @@ export default function AdminLayoutWrapper({
           </div>
 
           <div className="flex items-center gap-2">
+            <Link
+              href="/apps"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition border border-white/5"
+              title="Apps Launcher"
+            >
+              <LayoutGrid size={14} className="text-[var(--color-admin-primary-on-dark,#D85B83)]" />
+              <span className="hidden sm:inline">Apps</span>
+            </Link>
             <OfflineStatusPill />
             <ActAsCompanyControl />
           </div>

@@ -188,9 +188,11 @@ try {
   assert.match(await page.getByTestId("lead-row").first().innerText(), /3 days overdue/);
   assert.match(await page.getByTestId("leads-tab").innerText(), /Lost: Price/);
   await page.getByRole("button", { name: "LD-2026-0001" }).click();
-  await page.getByText("4 BHK Villa").first().waitFor();
+  const drawer = page.getByRole("dialog", { name: "Lead LD-2026-0001" });
+  await drawer.waitFor();
+  assert.match(await drawer.innerText(), /Meera Kapoor/);
   await page.keyboard.press("Escape");
-  await page.getByRole("dialog").waitFor({ state: "hidden" });
+  await drawer.waitFor({ state: "hidden" });
   pass("enquiries: stage, priority, follow-up (overdue flagged), expected close, lost reason, and a full lead drawer opens and closes with Escape");
 
   // ── New enquiry: linked lead, no page reload ──
@@ -217,7 +219,8 @@ try {
   // ── activity timeline ──
   await page.getByTestId("tab-timeline").click();
   await page.getByTestId("timeline-tab").waitFor();
-  assert.match(await page.getByTestId("activity-filter-all").innerText(), /5/);
+  const allCount = Number((await page.getByTestId("activity-filter-all").innerText()).replace(/\D/g, ""));
+  assert.ok(allCount >= 6, `the 5 seeded activities plus the one logged by creating the enquiry (saw ${allCount})`);
   await page.getByTestId("activity-filter-contact").click();
   const contactText = await page.getByTestId("timeline-tab").innerText();
   assert.match(contactText, /Discussed scope/);

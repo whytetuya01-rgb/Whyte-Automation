@@ -10,6 +10,7 @@ import { parseSearchQueryParam, parseStringQueryParam } from "@/lib/validation/c
 import { emailSchema, mobileSchema, optionalEmailSchema, optionalGstinSchema } from "@/lib/validation/fields";
 import { getNextSequence } from "@/lib/counter";
 import { runUnscoped } from "@/lib/tenant/context";
+import { countQualifiedByDealer, dealerPerformance, reconcileCompanyDealerCategories } from "@/lib/dealerTierService";
 
 export const dynamic = "force-dynamic";
 
@@ -43,8 +44,11 @@ const createDealerSchema = z.object({
  */
 export async function GET(req: Request) {
   try {
-    return await withPermission("dealers:read", async () => {
+    return await withPermission("dealers:read", async ({ companyId }) => {
       await connectMongoDB();
+
+      // Dealers whose delivered quotations already earn a higher category (delivered before tiers existed) are caught up.
+      if (companyId) await reconcileCompanyDealerCategories(companyId);
 
       const { searchParams } = new URL(req.url);
       const pagination = parsePaginationParams(searchParams, { defaultPageSize: 10, maxPageSize: 100 });
@@ -116,6 +120,9 @@ export async function GET(req: Request) {
         : [];
       const companyMap = new Map(companies.map((c: any) => [c._id, c.name]));
 
+      // Lifetime qualified (delivered) quotations per dealer, from the one shared definition.
+      const qualified = companyId ? await countQualifiedByDealer(companyId) : new Map<number, number>();
+
       const enrichedDealers = dealers.map((d: any) => {
         const stats = statsMap.get(d._id) ?? {
           total: 0,
@@ -141,6 +148,7 @@ export async function GET(req: Request) {
             delivered: stats.delivered,
           },
           accumulatedEarnings: Math.round(Number(stats.accumulatedEarnings || 0) * 100) / 100,
+          tier: d.companyId === companyId ? dealerPerformance(d, qualified.get(d._id) ?? 0) : null,
         };
       });
 

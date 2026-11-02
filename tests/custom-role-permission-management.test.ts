@@ -46,8 +46,8 @@ async function runTests() {
   }
 
   // ── 1. Default Role Behaviors & Immutability ─────────────────────────────
-  test("super_admin has all 25 permissions and is immutable", () => {
-    assert.equal(SUPER_ADMIN_PERMISSIONS.size, 25);
+  test("super_admin has all 31 permissions (25 original + 6 CRM) and is immutable", () => {
+    assert.equal(SUPER_ADMIN_PERMISSIONS.size, 31);
     for (const p of ALL_PERMISSIONS) {
       assert.equal(hasPermission("super_admin", null, p), true);
       assert.equal(hasPermission("super_admin", [], p), true);
