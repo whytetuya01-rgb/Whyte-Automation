@@ -13,6 +13,19 @@ import { usePageLoading } from "@/components/providers/NavigationLoaderProvider"
 import AnimatedLogo from "./sidebar/AnimatedLogo";
 import HamburgerMorph from "./sidebar/HamburgerMorph";
 import { DURATION, DURATION_MS, SPRING } from "./sidebar/motionTokens";
+import { AppNavigationProvider, useAppNavigation } from "./AppNavigationContext";
+
+function HeaderAppBadge() {
+  const { activeApp } = useAppNavigation();
+  if (activeApp.id === "dashboard") return null;
+  const ActiveIcon = activeApp.icon;
+  return (
+    <span className="hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[var(--color-admin-primary-on-dark,#D85B83)]/15 border border-[var(--color-admin-primary-on-dark,#D85B83)]/30 text-[var(--color-admin-primary-on-dark,#D85B83)] text-[11px] font-bold">
+      <ActiveIcon size={12} strokeWidth={2.2} />
+      <span>{activeApp.label}</span>
+    </span>
+  );
+}
 
 const COLLAPSED_STORAGE_KEY = "whyte-admin-sidebar-collapsed";
 /** Wait for the drawer spring to settle before the menu rows stagger in. */
@@ -91,7 +104,8 @@ export default function AdminLayoutWrapper({
   }
 
   return (
-    <MotionConfig reducedMotion="user">
+    <AppNavigationProvider>
+      <MotionConfig reducedMotion="user">
       <div className="admin-theme flex flex-col h-dvh overflow-hidden bg-[#F6F6F7] w-full select-none">
         {/* Top Header - Black with Whyte Pink Accent */}
         <header className="h-[48px] sm:h-[50px] lg:h-[52px] shrink-0 bg-[#0E0E10] border-b border-[#222226] flex items-center justify-between px-3 sm:px-4 md:px-6 z-50 sticky top-0 shadow-xs">
@@ -105,7 +119,7 @@ export default function AdminLayoutWrapper({
               <HamburgerMorph state={isMobile ? (isOpen ? "close" : "menu") : collapsed ? "arrow" : "menu"} />
             </button>
             <Link
-              href="/admin/dashboard"
+              href="/admin/dashboard?app=dashboard"
               className="inline-flex items-center rounded-xl px-1.5 sm:px-2 py-0.5 hover:opacity-90 transition"
               aria-label="Whyte Admin Dashboard"
             >
@@ -117,6 +131,7 @@ export default function AdminLayoutWrapper({
           </div>
 
           <div className="flex items-center gap-2">
+            <HeaderAppBadge />
             <Link
               href="/apps"
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-neutral-300 hover:text-white hover:bg-white/10 transition border border-white/5"
@@ -208,6 +223,7 @@ export default function AdminLayoutWrapper({
         </div>
       </div>
     </MotionConfig>
+    </AppNavigationProvider>
   );
 }
 

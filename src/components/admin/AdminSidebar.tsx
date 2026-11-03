@@ -33,6 +33,9 @@ import { canSeeAdminNavItem, toAdminNavRole } from "@/lib/adminNav";
 import { useConfirmSignOut } from "@/components/shared/SignOutButton";
 import { usePageLoading } from "@/components/providers/NavigationLoaderProvider";
 import AnimatedNavItem from "./sidebar/AnimatedNavItem";
+import { useAppNavigation } from "./AppNavigationContext";
+import { filterNavGroupsForApp } from "@/lib/appNavigationRegistry";
+import AppSwitcher from "./sidebar/AppSwitcher";
 import AnimatedIcon, { NAV_ICON_ANIMATION_BY_HREF } from "./sidebar/AnimatedIcon";
 import CollapsedTooltip from "./sidebar/CollapsedTooltip";
 import { DURATION, EASE, STAGGER_S } from "./sidebar/motionTokens";
@@ -130,6 +133,7 @@ export default function AdminSidebar({
 }) {
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { activeApp, formatHref } = useAppNavigation();
   const { startFullscreenLoading } = usePageLoading();
   const reduceMotion = useReducedMotion();
 
@@ -162,9 +166,10 @@ export default function AdminSidebar({
 
   return (
     <aside data-admin-sidebar="" className="w-full bg-[#111111] flex flex-col h-full border-r border-[#1E1E22] select-none">
+      <AppSwitcher collapsed={collapsed} onNavigate={onClose} />
       {/* Scrollable Navigation Groups — layoutScroll keeps the gliding indicator correct while scrolled. */}
       <motion.nav layoutScroll className="flex-1 p-3 sm:p-4 space-y-6 overflow-y-auto overflow-x-hidden custom-scrollbar">
-        {navGroups.map((group) => {
+        {filterNavGroupsForApp(navGroups, activeApp).map((group) => {
           const visibleItems = group.items.filter((item) => canSeeAdminNavItem(item.href, currentRole, userPermissions));
           if (visibleItems.length === 0) return null;
           const groupDelay = entranceDelay + rowIndex * STAGGER_S;
@@ -217,7 +222,7 @@ export default function AdminSidebar({
                       animate="show"
                     >
                       <AnimatedNavItem
-                        href={item.href}
+                        href={formatHref(item.href)}
                         label={item.label}
                         icon={item.icon}
                         animation={NAV_ICON_ANIMATION_BY_HREF[item.href] ?? "generic"}
