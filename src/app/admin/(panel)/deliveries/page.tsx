@@ -103,6 +103,7 @@ export default function DeliveriesPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
   const hasLoadedRef = useRef(false);
 
   useEffect(() => {
@@ -159,6 +160,24 @@ export default function DeliveriesPage() {
     setStatusFilter("all");
     setChannelFilter("all");
     setViewedOnly(false);
+  };
+
+  /** Sends a failed email again (the same stored PDF), straight from the log. */
+  const retry = async (row: DeliveryRow) => {
+    if (!row.quotation) return;
+    setRetryingId(row.id);
+    try {
+      const response = await fetch(`/api/quotations/${row.quotation.id}/deliveries/${row.id}/retry`, { method: "POST" });
+      const body = (await response.json().catch(() => null)) as { data?: { status?: string }; error?: { message?: string } } | null;
+      if (!response.ok) throw new Error(body?.error?.message ?? "The retry failed. Please try again.");
+      if (body?.data?.status === "failed") notify.error("Still failing", "The email service refused it again. See the reason in the list.");
+      else notify.success("Sent again", "The quotation PDF was sent again.");
+    } catch (err) {
+      notify.error("Could not retry", err instanceof Error ? err.message : "The retry failed. Please try again.");
+    } finally {
+      setRetryingId(null);
+      await fetchData(page, true);
+    }
   };
 
   const copy = async (text: string, what: string) => {
@@ -253,6 +272,9 @@ export default function DeliveriesPage() {
                   )}
                 </SetupCheck>
               </ul>
+              <p className="mt-3 border-t border-gray-100 pt-3 text-xs text-gray-600" data-testid="delivery-channel-support">
+                <strong className="font-semibold text-gray-800">What each channel can report.</strong> Email: sent, delivered, read, and failed (with a Retry). WhatsApp: shared, and viewed once the client opens the link. WhatsApp is sent from the sender&apos;s own phone, so it cannot report delivered or failed.
+              </p>
             </section>
           )}
 
@@ -325,6 +347,7 @@ export default function DeliveriesPage() {
                             {row.quotation ? (
                               <>
                                 <span className="font-mono text-xs font-semibold text-gray-900">{row.quotation.quotationNumber}</span>
+                                {row.revision > 1 && <span className="ml-1.5 rounded bg-gray-100 px-1 py-0.5 text-[10px] font-bold text-gray-600" data-testid="deliveries-revision">Rev {row.revision}</span>}
                                 <p className="mt-0.5 text-[11px] text-gray-400">{row.quotation.clientName}</p>
                               </>
                             ) : (
@@ -349,6 +372,11 @@ export default function DeliveriesPage() {
                             {row.link.state === "revoked" && <p className="text-[11px] text-gray-400">Link switched off</p>}
                           </td>
                           <td className="px-4 py-3 text-right">
+                            {row.canRetry && row.quotation && (
+                              <button type="button" onClick={() => void retry(row)} disabled={retryingId === row.id} className="mr-2 inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-50" data-testid="deliveries-retry">
+                                <RefreshCw size={12} className={retryingId === row.id ? "animate-spin" : undefined} aria-hidden /> Retry
+                              </button>
+                            )}
                             {row.quotation && (
                               <Link href={`/quotation/${row.quotation.id}`} className="text-gray-400 transition hover:text-gray-900" title="Open quotation" aria-label={`Open quotation ${row.quotation.quotationNumber}`}>
                                 <ExternalLink size={15} />
@@ -380,13 +408,18 @@ export default function DeliveriesPage() {
                       {row.quotation ? (
                         <Link href={`/quotation/${row.quotation.id}`} className="flex items-center justify-between gap-2 border-t border-gray-100 pt-2">
                           <span className="min-w-0 truncate text-xs">
-                            <span className="font-mono font-semibold text-gray-900">{row.quotation.quotationNumber}</span>
+                            <span className="font-mono font-semibold text-gray-900">{row.quotation.quotationNumber}</span>{row.revision > 1 ? <span className="ml-1 rounded bg-gray-100 px-1 py-0.5 text-[10px] font-bold text-gray-600">Rev {row.revision}</span> : null}
                             <span className="text-gray-400"> · {row.quotation.clientName}</span>
                           </span>
                           <ExternalLink size={13} className="shrink-0 text-gray-400" />
                         </Link>
                       ) : (
                         <p className="border-t border-gray-100 pt-2 text-[11px] italic text-gray-400">Quotation deleted</p>
+                      )}
+                      {row.canRetry && row.quotation && (
+                        <button type="button" onClick={() => void retry(row)} disabled={retryingId === row.id} className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-50" data-testid="deliveries-retry-card">
+                          <RefreshCw size={12} className={retryingId === row.id ? "animate-spin" : undefined} aria-hidden /> Retry sending
+                        </button>
                       )}
                     </div>
                   );

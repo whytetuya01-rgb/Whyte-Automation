@@ -364,6 +364,7 @@ export default function QuotationDeliveryModal({
                       {delivery.channel === "email" && <p className="truncate text-xs text-gray-500">{delivery.subject}</p>}
                       <p className="mt-0.5 text-[11px] text-gray-400">
                         {when(delivery.createdAt)}
+                        {deliveries.some((other) => other.revision > 1) ? <span className="font-semibold text-gray-600" data-testid="delivery-revision"> · Rev {delivery.revision}</span> : null}
                         {delivery.createdByName ? ` · by ${delivery.createdByName}` : ""}
                         {delivery.channel === "email" ? ` · attempt ${delivery.attempts} of ${delivery.maxAttempts}` : ""}
                       </p>

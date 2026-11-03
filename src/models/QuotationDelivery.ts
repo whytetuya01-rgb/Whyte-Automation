@@ -35,6 +35,8 @@ export interface IQuotationDelivery {
   id?: string;
   companyId: number;
   quotationId: string;
+  /** Which revision of the quotation this delivery carried (1 for the first issue; older deliveries read as 1). */
+  revision: number;
   channel: DeliveryChannel;
   recipient: string;
   subject: string;
@@ -75,6 +77,7 @@ const QuotationDeliverySchema = new Schema<IQuotationDeliveryDocument>(
   {
     _id: { type: String, required: true },
     quotationId: { type: String, required: true },
+    revision: { type: Number, default: 1, min: 1 },
     channel: { type: String, enum: DELIVERY_CHANNELS, required: true, default: "email" },
     recipient: { type: String, required: true, lowercase: true, trim: true, maxlength: 254 },
     subject: { type: String, required: true, maxlength: 200 },

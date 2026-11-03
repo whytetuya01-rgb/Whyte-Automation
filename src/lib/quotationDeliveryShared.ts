@@ -9,6 +9,8 @@ export type DeliveryLinkState = "active" | "expired" | "revoked" | "none";
 
 export interface QuotationDeliveryDto {
   id: string;
+  /** The quotation revision this delivery carried. */
+  revision: number;
   channel: DeliveryChannelValue;
   recipient: string;
   subject: string;
@@ -98,6 +100,7 @@ interface DeliveryLike {
   message?: string | null;
   attachmentName: string;
   attachmentSize: number;
+  revision?: number | null;
   status: DeliveryStatusValue;
   attempts: number;
   lastError?: { code: string; message: string; at: Date | string } | null;
@@ -123,6 +126,7 @@ export function toDeliveryDto(doc: DeliveryLike, maxAttempts: number, link?: { s
   const channel: DeliveryChannelValue = doc.channel === "whatsapp" ? "whatsapp" : "email";
   return {
     id: doc._id,
+    revision: doc.revision && doc.revision > 0 ? doc.revision : 1,
     channel,
     recipient: doc.recipient,
     subject: doc.subject,

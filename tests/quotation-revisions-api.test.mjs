@@ -235,6 +235,28 @@ try {
   assert.deepEqual([rebuilt.data.revisions.length, rebuilt.data.revisions[0].reconstructed, rebuilt.data.revisions[0].hasPdf], [1, true, true], "an older sent quotation gets a rebuilt record, marked as such, with its delivery's PDF");
   pass("sending by WhatsApp or email stores the PDF that was sent as the version's PDF; an older sent quotation (no record) is rebuilt on first look, marked reconstructed, and keeps its delivery PDF");
 
+  // ═══ the delivery history says which version each send carried ═══
+  const deliveriesOf = (cookie) => api(cookie, "GET", `/api/quotations/${q3.id}/deliveries`);
+  assert.deepEqual((await deliveriesOf(c.dealer)).data.map((d) => d.revision), [1], "the first send carried revision 1");
+  await db.collection("quotationdeliveries").updateMany({ quotationId: q3.id }, { $unset: { revision: "" } });
+  assert.deepEqual((await deliveriesOf(c.dealer)).data.map((d) => d.revision), [1], "a delivery from before versions were recorded reads as revision 1");
+  assert.equal((await api(c.dealer, "POST", `/api/quotations/${q3.id}/revisions`, { reason: "Client asked for a second switch" })).status, 201);
+  const q3room = (await api(c.dealer, "GET", `/api/quotations/${q3.id}`)).data.rooms[0].id;
+  assert.equal((await addItem(c.dealer, { id: q3.id, roomId: q3room }, 2002, 2, 1)).status, 201);
+  const second = new FormData();
+  second.append("channel", "whatsapp");
+  second.append("to", "9876543210");
+  second.append("pdf", new Blob([fakePdf("revision two by whatsapp")], { type: "application/pdf" }), "q.pdf");
+  const sharedAgain = await fetch(`${baseUrl}/api/quotations/${q3.id}/deliveries`, { method: "POST", headers: { Cookie: c.dealer }, body: second });
+  assert.equal(sharedAgain.status, 201, await sharedAgain.clone().text());
+  const history = (await deliveriesOf(c.dealer)).data;
+  assert.deepEqual(history.map((d) => d.revision).sort(), [1, 2], "the send after the revision carried revision 2; the earlier one still says 1");
+  const adminList = await api(c.owner, "GET", "/api/deliveries?channel=whatsapp");
+  assert.equal(adminList.status, 200, adminList.text?.slice(0, 200));
+  const mine = adminList.data.data.filter((row) => row.quotation?.id === q3.id);
+  assert.deepEqual(mine.map((row) => [row.revision, row.canRetry]).sort(), [[1, false], [2, false]], "the admin log shows the version too; a WhatsApp share has nothing to retry");
+  pass("each delivery records which revision it carried (older ones read as revision 1), in the quotation's history and in the admin log");
+
   // ═══ access ═══
   assert.equal((await revisions(c.dealer2, q1)).status, 403, "another dealer cannot see them");
   assert.equal((await api(c.dealer2, "POST", `/api/quotations/${q2.id}/revisions`, { reason: "mine now" })).status, 403, "or revise them");

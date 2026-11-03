@@ -52,6 +52,7 @@ try {
   });
   server = await startIsolatedServer("delivery-ui", [
     { _id: 1, email: "dealer@example.com", role: "dealer", name: "Dealer A", discountAllocationPercent: 10, companyId: 10 },
+    { _id: 2, email: "owner@example.com", role: "company_owner", name: "Owner A", companyId: 10 },
   ], { production: true });
   const { db, login, api, baseUrl } = server;
   const now = new Date();
@@ -140,6 +141,48 @@ try {
   assert.equal(emails[1].to, "second@example.com");
   assert.ok(Buffer.from(emails[1].attachments[0].content, "base64").length > 20000, "the retry sends the stored PDF");
   pass("a failed send shows a clear error and a Retry button; Retry sends the stored PDF and the row turns Sent");
+
+  // ── the admin log: retry a failed email straight from the list, and what each channel can report ──
+  mode = "http500";
+  await page.getByLabel("To (client email)").fill("third@example.com");
+  await page.getByRole("button", { name: "Send Quotation" }).click();
+  await dialog.locator('[role="alert"]', { hasText: "temporary problem" }).waitFor({ timeout: 90000 });
+  mode = "ok";
+  // a second failed email for the phone-sized pass: a copy of the failed one (its stored PDF too), to another address
+  const failed = await db.collection("quotationdeliveries").findOne({ recipient: "third@example.com", status: "failed" });
+  assert.ok(failed, "the failed email is in the log");
+  const copyId = `qd_${randomBytes(16).toString("hex")}`;
+  await db.collection("quotationdeliveries").insertOne({ ...failed, _id: copyId, recipient: "fourth@example.com", providerMessageId: null, viewTokenHash: null, viewTokenSealed: null });
+  const file = await db.collection("quotationdeliveryfiles").findOne({ _id: failed._id });
+  await db.collection("quotationdeliveryfiles").insertOne({ ...file, _id: copyId });
+
+  const owner = await login("owner@example.com", "admin");
+  for (const [viewport, address, testId] of [[{ width: 1280, height: 900 }, "third@example.com", "deliveries-retry"], [{ width: 375, height: 800 }, "fourth@example.com", "deliveries-retry-card"]]) {
+    const ownerContext = await browser.newContext({ viewport });
+    await ownerContext.addCookies(owner.split("; ").filter(Boolean).map((pair) => { const i = pair.indexOf("="); return { name: pair.slice(0, i), value: pair.slice(i + 1), url: baseUrl }; }));
+    const adminPage = await ownerContext.newPage();
+    adminPage.setDefaultTimeout(45000);
+    await adminPage.goto(`${baseUrl}/admin/deliveries`, { waitUntil: "domcontentloaded" });
+    await adminPage.locator('[data-testid="delivery-channel-support"]').waitFor();
+    const note = await adminPage.locator('[data-testid="delivery-channel-support"]').innerText();
+    assert.match(note, /Email: sent, delivered, read, and failed/);
+    assert.match(note, /WhatsApp[\s\S]*cannot report delivered or failed/, "says what WhatsApp cannot report");
+    assert.ok(await adminPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), `no horizontal scroll at ${viewport.width}px`);
+    await adminPage.getByPlaceholder(/search/i).fill(address);
+    const retryButton = adminPage.locator(`[data-testid="${testId}"]:visible`);
+    // the search applies after a short pause: wait until only this address is left in the list
+    for (let tries = 0; tries < 100 && (await retryButton.count()) !== 1; tries += 1) await adminPage.waitForTimeout(150);
+    assert.equal(await retryButton.count(), 1, "the list narrowed to the one failed email");
+    await retryButton.waitFor();
+    const before = emails.length;
+    await retryButton.click();
+    await adminPage.locator(`[data-testid="${testId}"]:visible`).waitFor({ state: "detached" });
+    assert.equal(emails.length, before + 1, `the retry sent the stored PDF again at ${viewport.width}px`);
+    assert.equal(emails[emails.length - 1].to, address);
+    assert.equal((await db.collection("quotationdeliveries").findOne({ recipient: address })).status, "sent", "and the delivery is now Sent");
+    await ownerContext.close();
+  }
+  pass("the admin Deliveries log offers Retry on a failed email (table and phone card), re-sends the stored PDF, and states what email and WhatsApp can each report; no overflow at 1280px and 375px");
 
   console.log(`\n${count} passed`);
 } catch (error) {

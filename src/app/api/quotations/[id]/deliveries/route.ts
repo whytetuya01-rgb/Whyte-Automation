@@ -130,6 +130,7 @@ export async function POST(req: Request, context: RouteContext) {
       const delivery = new QuotationDelivery({
         _id: deliveryId,
         quotationId,
+        revision: quotation.revision ?? 1,
         channel,
         recipient: parsed.data.to,
         subject: "subject" in parsed.data ? parsed.data.subject : `Quotation ${quotation.quotationNumber}`,
