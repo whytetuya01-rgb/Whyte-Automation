@@ -74,6 +74,8 @@ export {
   type IQuotationDeliveryDocument,
 } from "./QuotationDelivery";
 export { QuotationDeliveryFile, DELIVERY_MAX_PDF_BYTES, type IQuotationDeliveryFileDocument } from "./QuotationDeliveryFile";
+export { QuotationRevision, type IQuotationRevision, type IQuotationRevisionDocument, type IRevisionPdf, type RevisionSnapshot, type RevisionSnapshotItem, type RevisionSnapshotRoom } from "./QuotationRevision";
+export { QuotationRevisionFile, type IQuotationRevisionFileDocument } from "./QuotationRevisionFile";
 export { QuotationRoom, type IQuotationRoom, type IQuotationRoomDocument } from "./QuotationRoom";
 export { QuotationItem, type IQuotationItem, type IQuotationItemDocument } from "./QuotationItem";
 export { AdminUser, type IAdminUser, type IAdminUserDocument } from "./AdminUser";

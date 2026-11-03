@@ -1101,7 +1101,7 @@ export default function StepProposalPreview({
       }
 
       toast.success("Proposal PDF downloaded!");
-      markQuotationSent();
+      markQuotationSent(pdfBlob);
     } catch (err: unknown) {
       console.error("PDF generation failed:", err);
       toast.error(
@@ -1113,10 +1113,17 @@ export default function StepProposalPreview({
     }
   };
 
-  const markQuotationSent = async () => {
+  const markQuotationSent = async (pdfBlob?: Blob) => {
     if (!quotation?.id) return;
     try {
       await apiJson.post(`/api/quotations/${quotation.id}/mark-sent`);
+      // The PDF just produced is kept with the version being issued. Stored once: if this version already has its PDF the
+      // server says so and nothing changes, which is fine.
+      if (pdfBlob) {
+        const form = new FormData();
+        form.append("pdf", pdfBlob, `${quotation.quotationNumber ?? "quotation"}.pdf`);
+        await fetch(`/api/quotations/${quotation.id}/revisions/current/pdf`, { method: "POST", body: form }).catch(() => undefined);
+      }
     } catch (err: unknown) {
       console.warn("Failed to mark quotation as sent:", err);
       toast.error(toErrorMessage(err, "Could not mark this quotation as sent."));
@@ -1424,7 +1431,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                     </div>
                     <div className="flex items-center gap-3 text-gray-500 font-mono text-[13px]">
                       <span className="text-gray-950 font-bold">
-                        {quotation.quotationNumber}
+                        {quotation.quotationNumber}{(quotation.revision ?? 1) > 1 ? ` · Rev ${quotation.revision}` : ""}
                       </span>
                       <span>•</span>
                       <span>{formatDate(quotation.createdAt)}</span>
@@ -1449,8 +1456,8 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                             <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
                               {content.text.quotationReference}
                             </span>
-                            <p className="text-base font-black font-mono tracking-tight text-gray-950">
-                              {quotation.quotationNumber}
+                            <p className="text-base font-black font-mono tracking-tight text-gray-950" data-testid="document-quotation-number">
+                              {quotation.quotationNumber}{(quotation.revision ?? 1) > 1 ? ` · Rev ${quotation.revision}` : ""}
                             </p>
                             <p className="text-[13px] text-gray-500">
                               {formatDate(quotation.createdAt)}

@@ -87,9 +87,11 @@ These are new, so on a production database they do not exist until the procedure
 | `VariantPriceChange`  | `variantpricechanges`  | 4                | Per-variant before/after price history                     |
 | `GoogleCalendarConnection` | `googlecalendarconnections` | 4       | `one_google_connection_per_user`, `one_user_per_google_account` (unique) are required before anyone can connect Google |
 | `CalendarEventLink`   | `calendareventlinks`   | 5                | `one_link_per_task_and_connection` (unique) is required before anyone can connect Google |
+| `QuotationRevision`   | `quotationrevisions`   | 2                | `one_record_per_quotation_revision` (unique) stops two records for one version |
+| `QuotationRevisionFile` | `quotationrevisionfiles` | 1              | Stored PDFs of issued revisions (write-once) |
 | CRM (`Lead`, `Customer`, `CrmActivity`, `LeadSource`, `CalendarFeed`, …) | see `list` | | If these collections are also new in production, run `--all-missing` |
 
-Use `list` for the authoritative current numbers (32 models, 203 declared indexes at the time of writing).
+Use `list` for the authoritative current numbers (34 models, 206 declared indexes at the time of writing).
 
 ## Transactions
 

@@ -1,3 +1,4 @@
+import { assertQuotationEditable, issueRevision } from "@/lib/quotationRevisionService";
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
@@ -130,12 +131,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
 
       // LOCK: Approved or Delivered quotations cannot be modified through normal edit APIs
-      if (existing.status === "approved" || existing.status === "delivered") {
-        throw new ApiError(
-          "FORBIDDEN",
-          `Quotation is ${existing.status} and cannot be edited. Please clone the quotation to make revisions.`
-        );
-      }
+      assertQuotationEditable(existing);
 
       // Role-based access control: Dealers can only modify their own quotations
       if (!canModifyQuotation(role, userId, existing, permissions)) {
@@ -382,6 +378,11 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
       if (!quotation) {
         throw new ApiError("NOT_FOUND", "Quotation not found.");
+      }
+
+      if (nextStatus === "sent" && existing.status === "draft") {
+        const issued = await Quotation.findById(quotationId);
+        if (issued) await issueRevision(issued, { userId });
       }
 
       if (nextStatus && nextStatus !== existing.status) {

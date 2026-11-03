@@ -213,6 +213,8 @@ export interface QuotationRoom {
 export interface Quotation {
   id: string;
   quotationNumber: string;
+  /** Which issued version this is; shown on the document from revision 2 on. */
+  revision?: number;
   customerId?: number | null;
   customer?: {
     id: number;
@@ -308,7 +310,10 @@ export type QuotationAuditAction =
   | "status_changed"
   | "quotation_approved"
   | "quotation_rejected"
-  | "quotation_delivered";
+  | "quotation_delivered"
+  | "revision_created"
+  | "revision_requested"
+  | "revision_request_decided";
 
 export interface QuotationActivityEvent {
   id: string;

@@ -1,5 +1,6 @@
 "use client";
 
+import QuotationRevisionBar from "./QuotationRevisionBar";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
@@ -1136,6 +1137,10 @@ export default function ProposalBuilder({
             <X size={14} />
           </button>
         </div>
+      )}
+
+      {quotation?.id && !isOfflineDraft && (
+        <QuotationRevisionBar quotationId={String(quotation.id)} status={String(quotation.status ?? "draft")} revision={Number((quotation as { revision?: number }).revision ?? 1)} />
       )}
 
       {/* Unavailable-catalog-reference warning — reappears on every load

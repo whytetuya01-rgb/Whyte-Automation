@@ -1,3 +1,4 @@
+import { issueRevision } from "@/lib/quotationRevisionService";
 import { createHash, createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { emailSchema } from "@/lib/validation/fields";
@@ -208,6 +209,7 @@ export async function markQuotationSentIfDraft(quotation: IQuotationDocument, us
   quotation.sentAt = new Date();
   quotation.sentBy = userId;
   await quotation.save();
+  await issueRevision(quotation, { userId });
   await recordQuotationEvent({
     quotationId: quotation._id,
     action: "status_changed",

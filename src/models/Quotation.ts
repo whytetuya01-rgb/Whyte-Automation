@@ -6,6 +6,18 @@ import type { SoftDeleteFields } from "@/lib/softDelete/fields";
 import { historicalReferenceOptions } from "@/lib/softDelete/scope";
 import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
+export interface QuotationRevisionRequest {
+  status: "pending" | "approved" | "rejected";
+  requestedBy: number;
+  requestedByName: string | null;
+  requestedAt: Date;
+  reason: string;
+  decidedBy: number | null;
+  decidedByName: string | null;
+  decidedAt: Date | null;
+  decisionNote: string | null;
+}
+
 export interface IQuotation extends SoftDeleteFields {
   _id: string;
   id?: string;
@@ -49,6 +61,12 @@ export interface IQuotation extends SoftDeleteFields {
   deliveredAt: Date | null;
   deliveredBy: number | null;
   clonedFromQuotationId: string | null;
+  /** Which issued version this is (1 = the first). Changing an issued quotation means creating revision N+1; see `QuotationRevision`. */
+  revision: number;
+  /** A request to revise an approved / delivered quotation that an approver has not decided yet (or the last decision). */
+  revisionRequest: QuotationRevisionRequest | null;
+  /** Why the current (not yet issued) revision was made; copied onto its revision record when it is issued. */
+  revisionReason: string | null;
   terms: string | null;
   validUntil: Date | null;
   defaultTier: string | null;
@@ -108,6 +126,9 @@ const QuotationSchema = new Schema<IQuotationDocument>(
     deliveredAt: { type: Date, default: null },
     deliveredBy: { type: Number, ref: "AdminUser", default: null },
     clonedFromQuotationId: { type: String, default: null },
+    revision: { type: Number, default: 1, min: 1 },
+    revisionRequest: { type: Schema.Types.Mixed, default: null },
+    revisionReason: { type: String, default: null, maxlength: 500 },
     terms: { type: String, default: null },
     validUntil: { type: Date, default: null },
     defaultTier: { type: String, default: null },

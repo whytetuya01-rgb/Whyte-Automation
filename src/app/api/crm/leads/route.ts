@@ -106,6 +106,8 @@ export async function POST(req: Request) {
         await assertValidLeadAssignees({ companyId, dealerId: assignedDealerId, assignedSalesId });
         assignmentRuleUsed = "explicit";
       } else {
+        // A dealer given with no salesperson is still checked: it must be an active dealer of THIS company.
+        await assertValidLeadAssignees({ companyId, dealerId: assignedDealerId, assignedSalesId: null });
         // Run automatic lead assignment if not explicitly chosen
         const assignment = await determineLeadAssignee(companyId, {
           sourceId: input.sourceId,

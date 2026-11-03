@@ -1,3 +1,4 @@
+import { adoptDeliveryPdf } from "@/lib/quotationRevisionService";
 import { connectMongoDB } from "@/lib/mongodb";
 import { AdminUser, Company, Quotation, QuotationDelivery, QuotationDeliveryFile, DELIVERY_MAX_PDF_BYTES } from "@/models";
 import { withSession } from "@/lib/api-auth";
@@ -154,6 +155,7 @@ export async function POST(req: Request, context: RouteContext) {
         pushDeliveryEvent(delivery, "shared", `Shared on WhatsApp with +${parsed.data.to}.`, now);
         await delivery.save();
         await markQuotationSentIfDraft(quotation, userId, "whatsapp");
+        await adoptDeliveryPdf(quotationId, { _id: deliveryId }); // the revision being sent keeps this exact PDF
         const message = parsed.data.message ?? defaultWhatsAppMessage({ clientName: quotation.clientName, quotationNumber: quotation.quotationNumber, companyName });
         return apiSuccess(
           { ...deliveryDto(delivery.toObject()), whatsappUrl: whatsappShareUrl(parsed.data.to, `${message}\n\nView your quotation: ${viewUrl}`) },
@@ -172,7 +174,10 @@ export async function POST(req: Request, context: RouteContext) {
         viewUrl,
       });
       await delivery.save();
-      if (accepted) await markQuotationSentIfDraft(quotation, userId);
+      if (accepted) {
+        await markQuotationSentIfDraft(quotation, userId);
+        await adoptDeliveryPdf(quotationId, { _id: deliveryId }); // the revision being sent keeps this exact PDF
+      }
 
       return apiSuccess(deliveryDto(delivery.toObject()), { status: 201 });
     });

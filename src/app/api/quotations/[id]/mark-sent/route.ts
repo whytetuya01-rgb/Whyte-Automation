@@ -8,6 +8,7 @@ import { recordQuotationEvent } from "@/lib/quotationAudit";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 import { quotationHasProducts } from "@/lib/quotationProducts";
 import { syncLeadWithQuotation } from "@/lib/crmService";
+import { issueRevision } from "@/lib/quotationRevisionService";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,8 @@ export async function POST(_req: Request, context: RouteContext) {
       quotation.sentAt = new Date();
       quotation.sentBy = userId;
       await quotation.save();
+      // Freeze what is being issued (a frozen copy of the quotation as it is now).
+      await issueRevision(quotation, { userId });
       await recordQuotationEvent({
         quotationId,
         action: "status_changed",
@@ -66,6 +69,7 @@ export async function POST(_req: Request, context: RouteContext) {
       status: quotation.status,
       sentAt: quotation.sentAt,
       sentBy: quotation.sentBy,
+      revision: quotation.revision ?? 1,
     });
     });
   } catch (error) {

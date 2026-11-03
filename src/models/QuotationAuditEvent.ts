@@ -20,6 +20,9 @@ export const QUOTATION_AUDIT_ACTIONS = [
   "quotation_approved",
   "quotation_rejected",
   "quotation_delivered",
+  "revision_created",
+  "revision_requested",
+  "revision_request_decided",
 ] as const;
 
 export type QuotationAuditAction = (typeof QUOTATION_AUDIT_ACTIONS)[number];

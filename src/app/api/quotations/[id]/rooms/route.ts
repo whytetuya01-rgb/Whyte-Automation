@@ -1,3 +1,4 @@
+import { assertQuotationEditable } from "@/lib/quotationRevisionService";
 import { connectMongoDB } from "@/lib/mongodb";
 import { Quotation, QuotationRoom, RoomType } from "@/models";
 import { getNextSequence } from "@/lib/counter";
@@ -18,17 +19,12 @@ export async function POST(req: Request, context: RouteContext) {
     const quotationId = parseQuotationId(id);
 
     await connectMongoDB();
-    const quotation = await Quotation.findById(quotationId).select("_id status dealerId assignedSalesId createdBy").lean();
+    const quotation = await Quotation.findById(quotationId).select("_id status revision dealerId assignedSalesId createdBy").lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
 
-    if (quotation.status === "approved" || quotation.status === "delivered") {
-      throw new ApiError(
-        "FORBIDDEN",
-        `Quotation is ${quotation.status} and locked. Please clone it to make revisions.`
-      );
-    }
+    assertQuotationEditable(quotation);
 
     if (!canModifyQuotation(role, userId, quotation, permissions)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
