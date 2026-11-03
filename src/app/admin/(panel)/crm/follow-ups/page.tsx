@@ -459,25 +459,26 @@ function FollowUpActionModal({ row, mode, onClose, onSaved }: { row: FollowUpRow
  * own them. Everyone else sees nothing. The follow-ups are never reassigned automatically: this only points to the review.
  */
 function ReassignmentNotice() {
-  const [totals, setTotals] = useState<{ tasks: number; owners: number } | null>(null);
+  const [found, setFound] = useState<{ totals: { tasks: number; owners: number }; truncated: boolean } | null>(null);
   useEffect(() => {
     let cancelled = false;
     apiJson
-      .get<{ canReassign: boolean; totals: { tasks: number; owners: number } }>("/api/crm/follow-ups/reassignment?summary=1")
+      .get<{ canReassign: boolean; totals: { tasks: number; owners: number }; truncated?: boolean }>("/api/crm/follow-ups/reassignment?summary=1")
       .then((data) => {
-        if (!cancelled && data.canReassign && data.totals.tasks > 0) setTotals(data.totals);
+        if (!cancelled && data.canReassign && data.totals.tasks > 0) setFound({ totals: data.totals, truncated: data.truncated === true });
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, []);
-  if (!totals) return null;
+  if (!found) return null;
+  const { totals, truncated } = found;
   return (
     <div role="status" data-testid="reassign-notice" className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
       <p className="flex items-center gap-2 text-sm font-medium text-amber-900">
         <AlertTriangle size={16} className="shrink-0" aria-hidden />
-        {totals.tasks} follow-up{totals.tasks === 1 ? "" : "s"} belong{totals.tasks === 1 ? "s" : ""} to {totals.owners} {totals.owners === 1 ? "person" : "people"} who can no longer own {totals.tasks === 1 ? "it" : "them"}.
+        {truncated ? "At least " : ""}{totals.tasks} follow-up{totals.tasks === 1 ? "" : "s"} belong{totals.tasks === 1 && !truncated ? "s" : ""} to {truncated ? "at least " : ""}{totals.owners} {totals.owners === 1 ? "person" : "people"} who can no longer own {totals.tasks === 1 ? "it" : "them"}.
       </p>
       <Link href="/admin/crm/follow-ups/reassignment" className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100">
         Review and reassign

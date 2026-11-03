@@ -140,6 +140,7 @@ export interface Lead {
   status: LeadStatus;
   priority: LeadPriority;
   notes?: string | null;
+  tags?: string[];
   lastContactedAt?: string | null;
   nextFollowUpAt?: string | null;
   convertedQuotationId?: string | null;
@@ -203,6 +204,7 @@ export interface OpportunityCard {
   createdAt: string;
   isHotLead?: boolean;
   quotationViewCount?: number;
+  tags?: string[];
 }
 
 export interface PipelineStageData {

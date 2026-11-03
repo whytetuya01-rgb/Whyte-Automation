@@ -1,7 +1,7 @@
 import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
-import { parseSearchQueryParam, parseIntQueryParam } from "@/lib/validation/common";
+import { parseSearchQueryParam, parseIntQueryParam, parseStringQueryParam } from "@/lib/validation/common";
 import { getPipelineBoardData } from "@/lib/crmService";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +22,7 @@ export async function GET(req: Request) {
       const search = parseSearchQueryParam(searchParams, "search");
       const salesId = parseIntQueryParam(searchParams, "assignedSalesId");
       const dealerId = parseIntQueryParam(searchParams, "dealerId");
+      const tag = parseStringQueryParam(searchParams, "tag", { max: 60 });
 
       const stages = await getPipelineBoardData(
         companyId,
@@ -30,6 +31,7 @@ export async function GET(req: Request) {
           search: search || undefined,
           assignedSalesId: salesId || undefined,
           dealerId: dealerId || undefined,
+          tag: tag || undefined,
         }
       );
 

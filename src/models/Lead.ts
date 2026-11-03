@@ -27,6 +27,7 @@ export interface ILead extends SoftDeleteFields {
   status: LeadStatus;
   priority: LeadPriority;
   notes: string | null;
+  tags: string[];
   lastContactedAt: Date | null;
   nextFollowUpAt: Date | null;
   convertedQuotationId: string | null;
@@ -74,6 +75,7 @@ const LeadSchema = new Schema<ILeadDocument>(
       index: true,
     },
     notes: { type: String, default: null },
+    tags: { type: [String], default: [] },
     lastContactedAt: { type: Date, default: null },
     nextFollowUpAt: { type: Date, default: null, index: true },
     convertedQuotationId: { type: String, ref: "Quotation", default: null, index: true },
@@ -155,6 +157,7 @@ LeadSchema.pre("save", function (this: ILeadDocument) {
 // Optimized Compound Indexes for filtering, search, and tenant isolation
 LeadSchema.index({ companyId: 1, referenceNumber: 1 }, { unique: true });
 LeadSchema.index({ companyId: 1, status: 1, createdAt: -1 });
+LeadSchema.index({ companyId: 1, tags: 1 });
 LeadSchema.index({ companyId: 1, assignedSalesId: 1, status: 1 });
 LeadSchema.index({ companyId: 1, dealerId: 1, status: 1 });
 LeadSchema.index({ companyId: 1, customerId: 1 });

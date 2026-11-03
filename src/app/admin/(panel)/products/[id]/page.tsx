@@ -706,6 +706,24 @@ export default function ProductDetailPage() {
                 </div>
               )}
             </div>
+
+            {(product.images?.length ?? 0) > 1 && (
+              <ul className="grid grid-cols-3 gap-2 min-[420px]:grid-cols-6 lg:grid-cols-3 xl:grid-cols-6" aria-label="All product images" data-testid="product-gallery">
+                {product.images?.map((image, index) => (
+                  <li key={image.url}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedImageModal(image.url)}
+                      aria-label={`View image ${index + 1} of ${product.images?.length}`}
+                      className="aspect-square w-full overflow-hidden rounded-lg border border-neutral-200 bg-neutral-50/60 p-1 hover:border-neutral-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={image.url} alt="" className="h-full w-full object-contain" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           {/* ACTIVE STATUS TOGGLE CARD */}

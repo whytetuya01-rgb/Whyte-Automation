@@ -106,7 +106,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
               {(role === "super_admin" || role === "admin") && (
                 <Link
-                  href="/admin/dashboard"
+                  href="/admin/apps"
                   className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-purple-700 bg-purple-50 hover:bg-purple-100 transition border border-purple-100"
                 >
                   <LayoutDashboard size={14} />
@@ -219,7 +219,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           )}
           {(role === "super_admin" || role === "admin") && (
             <Link
-              href="/admin/dashboard"
+              href="/admin/apps"
               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-purple-700 hover:text-purple-950 hover:bg-purple-100/60 transition shrink-0"
             >
               <LayoutDashboard size={13} />

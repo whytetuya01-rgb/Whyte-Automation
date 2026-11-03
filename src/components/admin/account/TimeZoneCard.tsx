@@ -7,6 +7,7 @@ import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import { rememberUserTimeZone } from "@/lib/useUserTimeZone";
+import { resolveFollowUpTimeZone } from "@/lib/followUps";
 
 interface Settings {
   profile: { name: string; email: string; role: string };
@@ -61,7 +62,8 @@ export default function TimeZoneCard() {
 
   const options = useMemo(() => {
     const at = new Date();
-    const rest = knownZones().filter((zone) => !COMMON_ZONES.includes(zone));
+    // Written the way the server stores them, so "Asia/Calcutta" and "Asia/Kolkata" are one entry, not two.
+    const rest = [...new Set(knownZones().map(resolveFollowUpTimeZone))].filter((zone) => !COMMON_ZONES.includes(zone));
     const label = (zone: string) => `${zone.replace(/_/g, " ")} (${offsetOf(zone, at)})`;
     return { common: COMMON_ZONES.map((zone) => ({ zone, label: label(zone) })), rest: rest.map((zone) => ({ zone, label: label(zone) })) };
   }, []);

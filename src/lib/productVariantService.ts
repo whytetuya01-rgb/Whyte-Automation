@@ -347,6 +347,8 @@ export interface VariantMatrixActiveVariant {
   taxAmount: string;
   cost: string;
   purchaseTaxPercent: string;
+  imageUrl?: string | null;
+  imagePublicId?: string | null;
   isActive: boolean;
   sortOrder: number;
 }
@@ -423,6 +425,8 @@ interface RawVariant {
   taxPercent?: unknown;
   cost?: unknown;
   purchaseTaxPercent?: unknown;
+  imageUrl?: unknown;
+  imagePublicId?: unknown;
   isActive?: unknown;
   sortOrder?: unknown;
 }
@@ -617,6 +621,8 @@ export function buildVariantMatrixSnapshot(params: {
       taxAmount: pricing.taxAmount.toFixed(2),
       cost: pricing.cost.toFixed(2),
       purchaseTaxPercent: pricing.purchaseTaxPercent.toFixed(2),
+      imageUrl: asTrimmedOrNull(variant.imageUrl),
+      imagePublicId: asTrimmedOrNull(variant.imagePublicId),
       isActive: variant.isActive !== false,
       sortOrder: typeof variant.sortOrder === "number" ? variant.sortOrder : 0,
     });
@@ -759,6 +765,8 @@ export function serializeVariant(
     taxAmount: pricing.taxAmount.toFixed(2),
     cost: pricing.cost.toFixed(2),
     purchaseTaxPercent: pricing.purchaseTaxPercent.toFixed(2),
+    imageUrl: asTrimmedOrNull(variant.imageUrl),
+    imagePublicId: asTrimmedOrNull(variant.imagePublicId),
     isActive: variant.isActive !== false,
     sortOrder: typeof variant.sortOrder === "number" ? variant.sortOrder : 0,
   };

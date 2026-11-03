@@ -2,6 +2,7 @@ import { z } from "zod";
 import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { numericIdSchema, optionalText, strictObject } from "@/lib/validation/common";
+import { kickCalendarSync } from "@/lib/googleCalendar/kick";
 import { withRequiredTransaction } from "@/lib/transaction";
 import { canReassignFollowUps, MAX_REASSIGN_BATCH, reassignFollowUps } from "@/lib/followUpReassignment";
 
@@ -30,6 +31,7 @@ export async function POST(req: Request) {
       const result = await withRequiredTransaction((session) =>
         reassignFollowUps({ actor: { userId, role, permissions, companyId, timeZone }, session }, { tasks: input.tasks, toOwnerId: input.toOwnerId, note: input.note ?? null })
       );
+      if (result.reassigned.length > 0) kickCalendarSync();
       return apiSuccess(result);
     });
   } catch (error) {

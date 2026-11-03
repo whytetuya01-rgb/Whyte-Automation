@@ -1,10 +1,12 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Product, ProductVariant } from "@/types";
 import Modal from "@/components/shared/Modal";
 import { Button, Input } from "@/components/ui";
 import notify from "@/lib/notify";
+import VariantImageControl from "@/components/admin/products/VariantImageControl";
+import { imagesOf } from "@/lib/productImages";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import { ApiClientError, apiJson, toErrorMessage } from "@/lib/apiClient";
 import {
@@ -94,6 +96,10 @@ interface EditRow {
   originalTaxPercent: string;
   originalCost: string;
   originalPurchaseTaxPercent: string;
+  /** The variant's own picture (null = uses the product's cover) and the one it loaded with. */
+  imageUrl: string | null;
+  imagePublicId: string | null;
+  originalImageUrl: string | null;
   deletedAt: string | null;
   codeError: string | null;
   priceError: string | null;
@@ -263,6 +269,9 @@ export default function ProductVariantsEditModal({
       originalTaxPercent: taxPctStr,
       originalCost: costStr,
       originalPurchaseTaxPercent: ptpStr,
+      imageUrl: isActive ? row.variant?.imageUrl ?? null : null,
+      imagePublicId: isActive ? row.variant?.imagePublicId ?? null : null,
+      originalImageUrl: isActive ? row.variant?.imageUrl ?? null : null,
       deletedAt: row.history?.deletedAt ?? null,
       codeError: null,
       priceError: null,
@@ -337,7 +346,8 @@ export default function ProductVariantsEditModal({
             normalisePrice(row.priceWithoutTax) !== normalisePrice(row.originalPriceWithoutTax) ||
             normalisePrice(row.taxPercent) !== normalisePrice(row.originalTaxPercent) ||
             normalisePrice(row.cost) !== normalisePrice(row.originalCost) ||
-            normalisePrice(row.purchaseTaxPercent) !== normalisePrice(row.originalPurchaseTaxPercent))
+            normalisePrice(row.purchaseTaxPercent) !== normalisePrice(row.originalPurchaseTaxPercent) ||
+            row.imageUrl !== row.originalImageUrl)
       ),
     [rows]
   );
@@ -353,6 +363,37 @@ export default function ProductVariantsEditModal({
 
   const setField = (key: string, patch: Partial<EditRow>) =>
     setRows((prev) => prev.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+
+  // Variant pictures: uploaded here and not saved yet (deleted again if dropped or the modal closes), and saved pictures that a
+  // save has replaced or removed (deleted from storage once the save succeeds).
+  const unsavedPictures = useRef<Set<string>>(new Set());
+  const replacedPictures = useRef<Set<string>>(new Set());
+  const dropFromStorage = useCallback((publicId: string) => {
+    apiJson.delete("/api/upload", { body: JSON.stringify({ publicId }) }).catch(() => {});
+  }, []);
+  const discardUnsavedPictures = useCallback(() => {
+    for (const publicId of unsavedPictures.current) dropFromStorage(publicId);
+    unsavedPictures.current.clear();
+    replacedPictures.current.clear();
+  }, [dropFromStorage]);
+  useEffect(() => {
+    if (!isOpen) discardUnsavedPictures();
+  }, [isOpen, discardUnsavedPictures]);
+  useEffect(() => discardUnsavedPictures, [discardUnsavedPictures]);
+
+  const handlePictureChange = (key: string, picture: { url: string; publicId: string | null } | null) => {
+    const row = rows.find((candidate) => candidate.key === key);
+    if (row?.imagePublicId) {
+      if (unsavedPictures.current.has(row.imagePublicId)) {
+        unsavedPictures.current.delete(row.imagePublicId);
+        dropFromStorage(row.imagePublicId);
+      } else {
+        replacedPictures.current.add(row.imagePublicId);
+      }
+    }
+    if (picture?.publicId) unsavedPictures.current.add(picture.publicId);
+    setField(key, { imageUrl: picture?.url ?? null, imagePublicId: picture?.publicId ?? null });
+  };
 
   const handleNameChange = (key: string, value: string) =>
     setField(key, { name: value, displayName: value });
@@ -647,6 +688,8 @@ export default function ProductVariantsEditModal({
       taxPercent: Number(row.taxPercent || 18),
       cost: Number(row.cost || 0),
       purchaseTaxPercent: Number(row.purchaseTaxPercent || 18),
+      // The picture is sent only when it changed.
+      ...(row.imageUrl !== row.originalImageUrl ? { imageUrl: row.imageUrl, imagePublicId: row.imagePublicId } : {}),
     }));
 
     // Pre-flight duplicate detection against the final set of active codes.
@@ -672,6 +715,10 @@ export default function ProductVariantsEditModal({
         "Variants updated",
         data.message ?? `Updated ${payloadRows.length} variant(s) for "${matrix?.productName}".`
       );
+      // Saved: pictures that were replaced or removed are no longer referenced anywhere.
+      unsavedPictures.current.clear();
+      for (const publicId of replacedPictures.current) dropFromStorage(publicId);
+      replacedPictures.current.clear();
       onVariantsChange(normaliseVariantList(data.variants));
       await loadMatrix({ syncParent: false });
     } catch (err: unknown) {
@@ -826,7 +873,8 @@ export default function ProductVariantsEditModal({
                         normalisePrice(row.priceWithoutTax) !== normalisePrice(row.originalPriceWithoutTax) ||
                         normalisePrice(row.taxPercent) !== normalisePrice(row.originalTaxPercent) ||
                         normalisePrice(row.cost) !== normalisePrice(row.originalCost) ||
-                        normalisePrice(row.purchaseTaxPercent) !== normalisePrice(row.originalPurchaseTaxPercent));
+                        normalisePrice(row.purchaseTaxPercent) !== normalisePrice(row.originalPurchaseTaxPercent) ||
+                        row.imageUrl !== row.originalImageUrl);
 
                     return (
                       <tr
@@ -893,6 +941,16 @@ export default function ProductVariantsEditModal({
                             <span className="text-[10px] text-neutral-400">
                               #{row.variantId}
                             </span>
+                          )}
+                          {isActive && row.variantId !== null && (
+                            <div className="mt-1.5">
+                              <VariantImageControl
+                                url={row.imageUrl}
+                                fallbackUrl={imagesOf(product ?? {})[0]?.url ?? null}
+                                disabled={busyKey !== null || saving}
+                                onChange={(picture) => handlePictureChange(row.key, picture)}
+                              />
+                            </div>
                           )}
                         </td>
 

@@ -6,7 +6,8 @@ import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-re
 import { updateLeadSchema } from "@/lib/validation/crm";
 import { assertValidLeadAssignees, crmVisibilityFilter, recordCrmActivity, resolveLeadReferences } from "@/lib/crmService";
 import { withRequiredTransaction } from "@/lib/transaction";
-import { applyLeadFormFollowUp, ensureFollowUpTaskIndexes } from "@/lib/followUpService";
+import { kickCalendarSync } from "@/lib/googleCalendar/kick";
+import { applyLeadFormFollowUp } from "@/lib/followUpService";
 import { notifyLeadAssigned } from "@/lib/leadAssignmentService";
 
 export const dynamic = "force-dynamic";
@@ -94,7 +95,6 @@ export async function PATCH(req: Request, context: RouteContext) {
         ? await resolveLeadReferences({ companyId, role, userId, sourceId: input.sourceId })
         : null;
 
-      await ensureFollowUpTaskIndexes();
       await withRequiredTransaction(async (session) => {
         const lead = await Lead.findOne({ _id: id, companyId, ...visibility }).session(session ?? null);
         if (!lead) {
@@ -158,6 +158,10 @@ export async function PATCH(req: Request, context: RouteContext) {
         if (input.notes !== undefined) {
           lead.notes = input.notes;
         }
+        if (input.tags !== undefined && input.tags.join("\u0000") !== (lead.tags ?? []).join("\u0000")) {
+          lead.tags = input.tags;
+          changes.push(input.tags.length ? `Tags set to ${input.tags.join(", ")}` : "Tags cleared");
+        }
         if (input.lostReason !== undefined) {
           lead.lostReason = input.lostReason;
         }
@@ -196,6 +200,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         }
       });
 
+      kickCalendarSync();
       return apiSuccess({ id: current._id, updated: true });
     });
   } catch (error) {

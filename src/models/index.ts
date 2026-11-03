@@ -16,6 +16,24 @@ export {
 } from "./HouseTypeRoomTemplate";
 export { Quotation, type IQuotation, type IQuotationDocument } from "./Quotation";
 export { CalendarFeed, type ICalendarFeed, type ICalendarFeedDocument } from "./CalendarFeed";
+export { PriceChangeBatch, type IPriceChangeBatch, type IPriceChangeBatchDocument } from "./PriceChangeBatch";
+export { VariantPriceChange, type IVariantPriceChange, type IVariantPriceChangeDocument, type IPriceSnapshot } from "./VariantPriceChange";
+export {
+  GoogleCalendarConnection,
+  GOOGLE_CONNECTION_STATUSES,
+  type GoogleConnectionStatus,
+  type IGoogleCalendarConnection,
+  type IGoogleCalendarConnectionDocument,
+} from "./GoogleCalendarConnection";
+export {
+  CalendarEventLink,
+  CALENDAR_LINK_STATUSES,
+  CALENDAR_LINK_WANTS,
+  type CalendarLinkStatus,
+  type CalendarLinkWant,
+  type ICalendarEventLink,
+  type ICalendarEventLinkDocument,
+} from "./CalendarEventLink";
 export {
   FollowUpTask,
   FOLLOW_UP_TASK_STATUSES,

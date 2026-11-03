@@ -20,6 +20,9 @@ export interface IProductVariant extends SoftDeleteFields {
   price: mongoose.Types.Decimal128 | string;
   cost?: mongoose.Types.Decimal128 | string;
   purchaseTaxPercent?: mongoose.Types.Decimal128 | string;
+  /** Optional picture for this variant (its own finish/colour); null = use the product's cover. */
+  imageUrl?: string | null;
+  imagePublicId?: string | null;
   isActive: boolean;
   sortOrder: number;
   createdAt?: Date;
@@ -45,6 +48,8 @@ const ProductVariantSchema = new Schema<IProductVariantDocument>(
     price: createDecimalField({ required: true, min: 0 }),
     cost: createDecimalField({ default: "0.00", min: 0 }),
     purchaseTaxPercent: createDecimalField({ default: "18.00", min: 0 }),
+    imageUrl: { type: String, default: null },
+    imagePublicId: { type: String, default: null },
     isActive: { type: Boolean, default: true, index: true },
     sortOrder: { type: Number, default: 0, index: true },
     createdAt: { type: Date, default: Date.now },
@@ -150,6 +155,9 @@ if (existingProductVariantModel) {
     existingProductVariantModel.schema.add({
       cost: createDecimalField({ default: "0.00", min: 0 }),
     });
+  }
+  if (!existingProductVariantModel.schema.path("imageUrl")) {
+    existingProductVariantModel.schema.add({ imageUrl: { type: String, default: null }, imagePublicId: { type: String, default: null } });
   }
   if (!existingProductVariantModel.schema.path("purchaseTaxPercent")) {
     existingProductVariantModel.schema.add({

@@ -24,6 +24,7 @@ import { apiJson, notifyApiError } from "@/lib/apiClient";
 import type { Lead, LeadPriority, LeadStatus } from "@/types/crm";
 import { LEAD_PRIORITY_CONFIG, LEAD_STATUS_CONFIG } from "@/types/crm";
 import ActivityTimeline from "./ActivityTimeline";
+import { TagChips } from "./LeadTags";
 import { formatCurrency } from "@/lib/utils";
 import { normalizeWhatsAppNumber } from "@/lib/quotationDeliveryShared";
 
@@ -169,6 +170,11 @@ export default function LeadDetailDrawer({
             <h2 className="text-lg font-bold text-neutral-900 mt-1 truncate">
               {lead.customerName}
             </h2>
+            {lead.tags && lead.tags.length > 0 && (
+              <div className="mt-1.5">
+                <TagChips tags={lead.tags} max={6} size="sm" />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

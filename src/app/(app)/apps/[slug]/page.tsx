@@ -20,6 +20,10 @@ export default async function AppComingSoonPage({ params }: { params: Promise<{ 
     redirect("/");
   }
 
+  if (role === "super_admin" || role === "company_owner" || role === "admin" || role === "configurable_admin") {
+    redirect("/admin/apps");
+  }
+
   const { slug } = await params;
   const app = findLauncherApp(slug);
 

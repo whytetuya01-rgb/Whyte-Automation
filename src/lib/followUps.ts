@@ -16,9 +16,14 @@ export const FOLLOW_UP_DURATION_MINUTES = 30;
 
 export type FollowUpBucket = "overdue" | "today" | "upcoming";
 
-/** True for a name the runtime knows as an IANA time zone, e.g. "Asia/Kolkata" or "America/New_York". */
+/**
+ * True for a name the runtime knows as an IANA time zone written "Area/Location" (e.g. "Asia/Kolkata",
+ * "America/New_York") or "UTC". Fixed offsets ("+05:30") and abbreviations ("IST", "EST") are refused: they do not follow
+ * daylight saving, "IST" alone means three different places, and Google Calendar wants a real zone name.
+ */
 export function isValidTimeZone(timeZone: unknown): timeZone is string {
-  if (typeof timeZone !== "string" || timeZone.trim() === "") return false;
+  if (typeof timeZone !== "string") return false;
+  if (timeZone !== "UTC" && !/^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)+$/.test(timeZone)) return false;
   try {
     new Intl.DateTimeFormat("en", { timeZone });
     return true;
@@ -27,14 +32,35 @@ export function isValidTimeZone(timeZone: unknown): timeZone is string {
   }
 }
 
+/** Old names some runtimes still report (Node reports "Asia/Calcutta"), written the way the current IANA database writes them. */
+const PREFERRED_ZONE_NAMES: Record<string, string> = {
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Asia/Thimbu": "Asia/Thimphu",
+  "Asia/Dacca": "Asia/Dhaka",
+  "Asia/Ulan_Bator": "Asia/Ulaanbaatar",
+  "Asia/Macao": "Asia/Macau",
+  "Asia/Ujung_Pandang": "Asia/Makassar",
+  "Atlantic/Faeroe": "Atlantic/Faroe",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "America/Indianapolis": "America/Indiana/Indianapolis",
+  "America/Louisville": "America/Kentucky/Louisville",
+  "America/Godthab": "America/Nuuk",
+  "Europe/Kiev": "Europe/Kyiv",
+};
+
 /**
- * The zone to use for a person: the one they chose (any name the runtime knows, written the standard way: "Asia/Calcutta"
- * becomes "Asia/Kolkata"), or India when they have not chosen one or it is not valid.
+ * The zone to use for a person: the one they chose, written the standard way (the same zone always gets the same name:
+ * "Asia/Calcutta" becomes "Asia/Kolkata"), or India when they have not chosen one or it is not valid.
  */
 export function resolveFollowUpTimeZone(chosen: unknown): string {
   if (!isValidTimeZone(chosen)) return FOLLOW_UP_TIME_ZONE;
   try {
-    return new Intl.DateTimeFormat("en", { timeZone: chosen }).resolvedOptions().timeZone;
+    const canonical = new Intl.DateTimeFormat("en", { timeZone: chosen }).resolvedOptions().timeZone;
+    const preferred = PREFERRED_ZONE_NAMES[canonical];
+    return preferred && isValidTimeZone(preferred) ? preferred : canonical;
   } catch {
     return FOLLOW_UP_TIME_ZONE;
   }

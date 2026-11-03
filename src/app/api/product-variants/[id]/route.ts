@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import { ProductVariant } from "@/models";
+import { assertProductImageAllowed } from "@/lib/imageOwnership";
 import { withPermission } from "@/lib/api-auth";
 import {
   ApiError,
@@ -50,7 +51,7 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    return await withPermission("catalog:edit", async () => {
+    return await withPermission("catalog:edit", async ({ companyId }) => {
     await connectMongoDB();
     const variantId = parseNumericId((await context.params).id, "variant id");
 
@@ -71,8 +72,21 @@ export async function PATCH(req: Request, context: RouteContext) {
       data[key] = value;
     }
 
+    // Tier and finish belong to the category matrix and are never changed here (the schema turns an omitted axis into null,
+    // which would otherwise erase them on any edit, such as adding a picture).
+    delete data.automationTier;
+    delete data.surfaceFinish;
+
     if (Object.keys(data).length === 0) {
       throw new ApiError("VALIDATION_ERROR", "No fields were provided to update.");
+    }
+
+    // The variant's own picture: removing it clears its asset id too; a different picture must be this company's upload.
+    if (data.imageUrl === null) data.imagePublicId = null;
+    else if (typeof data.imageUrl === "string" && data.imageUrl !== existingVariant.imageUrl && data.imagePublicId === undefined) data.imagePublicId = null;
+    if (typeof data.imagePublicId === "string" && data.imagePublicId) {
+      if (companyId === null) throw new ApiError("FORBIDDEN", "A company context is required to change a variant image.");
+      await assertProductImageAllowed(data.imagePublicId, companyId, existingVariant.imagePublicId);
     }
 
     // Variant codes must stay unique within the product

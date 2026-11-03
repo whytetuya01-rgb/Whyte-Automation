@@ -7,7 +7,9 @@ import { withTransaction } from "@/lib/transaction";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { getCategoryVariantMatrix } from "@/lib/categoryConfig";
 import { withPermission, withSession } from "@/lib/api-auth";
-import { assertProductImageAllowed } from "@/lib/imageOwnership";
+import { assertProductImageAllowed, assertProductImagesAllowed } from "@/lib/imageOwnership";
+import { coverFields, type ProductImage } from "@/lib/productImages";
+import { assertAccessoriesAllowed } from "@/lib/productAccessoriesServer";
 import { hasPermission } from "@/lib/permissions";
 import {
   ApiError,
@@ -354,6 +356,17 @@ export async function POST(req: Request) {
       throw new ApiError("FORBIDDEN", "A company context is required to create a product.");
     }
     await assertProductImageAllowed(productData.imagePublicId, companyId);
+    // A gallery (up to six pictures, cover first): every uploaded picture must be this company's, and the older single-image
+    // fields follow the cover so the PDF, pickers and offline catalogue keep working.
+    let gallery: ProductImage[] | undefined;
+    if (productData.images !== undefined) {
+      await assertProductImagesAllowed(productData.images, companyId);
+      gallery = productData.images;
+      Object.assign(productData, coverFields(gallery));
+    }
+
+    // Suggested accessories must be this company's own products.
+    const accessoryIds = productData.accessoryIds === undefined ? [] : await assertAccessoriesAllowed(productData.accessoryIds);
 
     // The HSN/SAC code and GST rate must come from the company's own lists.
     assertProductTaxAllowed(await loadCompanyTaxSettings(companyId), { hsnCode: productData.hsnCode, gstRate: productData.gstRate });
@@ -460,6 +473,8 @@ export async function POST(req: Request) {
         unit: productData.unit ?? "pcs",
         imageUrl: productData.imageUrl,
         imagePublicId: productData.imagePublicId,
+        ...(gallery && gallery.length > 0 ? { images: gallery } : {}),
+        ...(accessoryIds.length > 0 ? { accessoryIds } : {}),
         moduleSize: productData.moduleSize,
         notes: productData.notes,
         sortOrder: productData.sortOrder ?? 0,

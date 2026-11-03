@@ -102,7 +102,7 @@ export default function DealerProfilePage() {
       return;
     }
     if (status === "authenticated" && role && role !== "dealer") {
-      router.replace("/admin/dashboard");
+      router.replace("/admin/apps");
       return;
     }
 

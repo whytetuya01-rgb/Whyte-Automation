@@ -26,7 +26,7 @@ export async function GET(req: Request) {
         throw new ApiError("FORBIDDEN", "Only people who can manage users and leads can review and reassign follow-ups.");
       }
       const report = await findOrphanedFollowUps(companyId, { listTasks: !summaryOnly });
-      return apiSuccess(summaryOnly ? { canReassign: true, totals: report.totals } : { canReassign: true, ...report });
+      return apiSuccess(summaryOnly ? { canReassign: true, totals: report.totals, truncated: report.truncated } : { canReassign: true, ...report });
     });
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/crm/follow-ups/reassignment" });

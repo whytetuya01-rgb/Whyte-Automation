@@ -54,3 +54,25 @@ export async function assertProductImageAllowed(
     throw error;
   }
 }
+
+/**
+ * Every uploaded picture in a product's gallery must belong to the caller's company. Pictures the product already has stay
+ * accepted (existing data is never invalidated); a new one must be an asset this company owns.
+ */
+export async function assertProductImagesAllowed(
+  images: ReadonlyArray<{ publicId: string | null }>,
+  companyId: number,
+  current: ReadonlyArray<{ publicId: string | null }> = []
+): Promise<void> {
+  const existing = new Set(current.map((image) => image.publicId).filter(Boolean));
+  for (const image of images) {
+    if (image.publicId && !existing.has(image.publicId)) {
+      try {
+        await assertImageManageable(image.publicId, companyId);
+      } catch (error) {
+        if (error instanceof ApiError) throw new ApiError("FORBIDDEN", "That image does not belong to your company.", { field: "images" });
+        throw error;
+      }
+    }
+  }
+}

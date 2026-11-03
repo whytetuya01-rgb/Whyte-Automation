@@ -107,7 +107,7 @@ export default function DealerEarningsPage() {
       return;
     }
     if (status === "authenticated" && role && role !== "dealer") {
-      router.replace("/admin/dashboard");
+      router.replace("/admin/apps");
       return;
     }
   }, [status, role, router]);

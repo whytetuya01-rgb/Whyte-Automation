@@ -22,6 +22,7 @@ import notify from "@/lib/notify";
 import { Input, Button } from "@/components/ui";
 import WhyteLogo from "@/components/shared/WhyteLogo";
 import { REVIEW_BLOCK_MESSAGES, type LoginBlock } from "@/lib/companyReviewStatus";
+import { resolveAdminLoginDestination } from "@/lib/adminAuthRedirect";
 
 function LoginForm() {
   const router = useRouter();
@@ -30,10 +31,7 @@ function LoginForm() {
   // it is user-controlled input. Only same-origin relative paths are honoured so
   // the post-login redirect cannot be used to bounce someone off-site.
   const requestedCallback = searchParams.get("callbackUrl");
-  const callbackUrl =
-    requestedCallback && requestedCallback.startsWith("/admin/") && !requestedCallback.startsWith("//") && requestedCallback !== "/admin/login"
-      ? requestedCallback
-      : "/admin/dashboard";
+  const callbackUrl = resolveAdminLoginDestination(requestedCallback);
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");

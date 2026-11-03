@@ -54,6 +54,7 @@ import {
 import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
 import ChangeProductModal from "./ChangeProductModal";
+import { suggestAccessories } from "@/lib/productAccessories";
 
 /** The quantity of a new entry until the user types another one. */
 const DEFAULT_NEW_ENTRY_QUANTITY = "1";
@@ -387,6 +388,34 @@ export default function StepProductConfig({
   const filteredProducts = useMemo(() => {
     return filteredCatalog.map((r) => r.product);
   }, [filteredCatalog]);
+
+  // Accessories the products in this room usually go with. Only ever SUGGESTED: nothing is added until the person clicks.
+  const suggestedAccessories = useMemo(() => {
+    const roomProductIds = (currentRoom?.items ?? [])
+      .map((i) => Number(i.productId ?? (i as any).product?.id ?? (i as any).product?._id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    if (roomProductIds.length === 0) return [];
+    const byId = new Map(products.map((p) => [Number(p.id ?? (p as any)._id), p]));
+    return suggestAccessories(
+      roomProductIds,
+      products.map((p) => ({ id: Number(p.id ?? (p as any)._id), isActive: p.isActive, accessoryIds: p.accessoryIds }))
+    ).flatMap((id) => (byId.get(id) ? [byId.get(id) as EditorCatalogProduct] : []));
+  }, [currentRoom, products]);
+
+  const handleAddSuggested = async (product: EditorCatalogProduct) => {
+    if (!currentRoom) return;
+    const roomId = Number(currentRoom.id ?? (currentRoom as any)._id);
+    const prodId = Number(product.id ?? (product as any)._id);
+    const variants = (product.variants ?? []).filter((v) => v.isActive !== false);
+    if (variants.length === 1) return handleAddVariant(product, variants[0]);
+    if (variants.length === 0) {
+      await onAddItem(roomId, prodId);
+      return;
+    }
+    // Several variants: the person chooses one in the catalogue below.
+    setSearch(product.name);
+    setExpandedCardIds((prev) => new Set(prev).add(prodId));
+  };
 
   // Add product handler. Every call creates a NEW, independent quotation item (its own id, quantity, installation
   // location and variant), even when the same product / variant is already in the room: entries are never merged.
@@ -1061,6 +1090,33 @@ export default function StepProductConfig({
               </div>
             )}
           </div>
+
+          {suggestedAccessories.length > 0 && (
+            <section className="rounded-2xl border border-gray-200 bg-white p-3.5 sm:p-4 space-y-2.5" aria-label="Suggested accessories" data-testid="suggested-accessories">
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="text-xs uppercase tracking-wider text-gray-500 font-bold">Suggested accessories</h3>
+                <span className="text-[11px] text-gray-400">Usually go with what is in this room</span>
+              </div>
+              <ul className="flex flex-wrap gap-2">
+                {suggestedAccessories.map((accessory) => {
+                  const active = (accessory.variants ?? []).filter((v) => v.isActive !== false);
+                  return (
+                    <li key={accessory.id} className="inline-flex max-w-full items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 py-1.5 pl-3 pr-1.5 text-xs" data-testid="suggested-accessory">
+                      <span className="truncate font-semibold text-gray-900">{accessory.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => void handleAddSuggested(accessory)}
+                        className="shrink-0 rounded-lg bg-gray-900 px-2.5 py-1 text-[11px] font-bold text-white hover:bg-black cursor-pointer"
+                        data-testid="suggested-accessory-add"
+                      >
+                        {active.length > 1 ? "Choose variant" : "Add"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          )}
 
           {/* Product Catalog Grid */}
           <div className="space-y-3">

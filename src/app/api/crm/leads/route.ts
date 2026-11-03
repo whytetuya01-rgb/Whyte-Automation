@@ -8,7 +8,8 @@ import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination
 import { parseSearchQueryParam, parseStringQueryParam, parseIntQueryParam } from "@/lib/validation/common";
 import { getNextLeadSequence } from "@/lib/counter";
 import { withRequiredTransaction } from "@/lib/transaction";
-import { createLeadFollowUp, ensureFollowUpTaskIndexes } from "@/lib/followUpService";
+import { kickCalendarSync } from "@/lib/googleCalendar/kick";
+import { createLeadFollowUp } from "@/lib/followUpService";
 import { assertValidLeadAssignees, crmVisibilityFilter, findCustomerByContact, phoneMatchRegex, recordCrmActivity, resolveLeadReferences, scopedQuery } from "@/lib/crmService";
 import { determineLeadAssignee, notifyLeadAssigned } from "@/lib/leadAssignmentService";
 
@@ -35,6 +36,7 @@ export async function GET(req: Request) {
       const priority = parseStringQueryParam(searchParams, "priority", { max: 30 });
       const salesId = parseIntQueryParam(searchParams, "assignedSalesId");
       const dealerId = parseIntQueryParam(searchParams, "dealerId");
+      const tag = parseStringQueryParam(searchParams, "tag", { max: 60 });
 
       // Visibility and every requested filter must all hold: a parameter can only narrow the result.
       const requested: Array<Record<string, unknown>> = [];
@@ -42,6 +44,7 @@ export async function GET(req: Request) {
       if (priority && priority !== "all") requested.push({ priority });
       if (salesId) requested.push({ assignedSalesId: salesId });
       if (dealerId) requested.push({ dealerId });
+      if (tag) requested.push({ tags: new RegExp(`^${tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") });
       if (search) {
         const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
         requested.push({
@@ -129,7 +132,6 @@ export async function POST(req: Request) {
       }
 
       // The lead, its follow-up task and the timeline entry are created together, or not at all.
-      await ensureFollowUpTaskIndexes();
       const newLead = await withRequiredTransaction(async (session) => {
         const [created] = await Lead.create(
           [
@@ -155,6 +157,7 @@ export async function POST(req: Request) {
               status: input.status,
               priority: input.priority,
               notes: input.notes ?? null,
+              tags: input.tags ?? [],
               nextFollowUpAt: input.nextFollowUpAt ?? null,
               createdBy: userId,
               createdAt: createdOn,
@@ -230,6 +233,7 @@ export async function POST(req: Request) {
         : [];
       const existingCustomer = await findCustomerByContact(companyId, input.phone, input.email);
 
+      if (input.nextFollowUpAt) kickCalendarSync();
       return apiSuccess(
         {
           id: newLead._id,

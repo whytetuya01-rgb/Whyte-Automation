@@ -16,7 +16,7 @@ export default async function DealerAccessPage() {
   if (!role || !(await isSessionActorStillValid(userId, role))) {
     redirect("/login");
   }
-  redirect("/admin/dashboard");
+  redirect("/admin/apps");
 
   return (
     <main className="admin-theme min-h-screen bg-neutral-50 flex items-center justify-center p-6">

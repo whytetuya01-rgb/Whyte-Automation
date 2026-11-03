@@ -17,6 +17,11 @@ export default async function AppsPage() {
     redirect("/");
   }
 
+  // Admin-panel roles get the launcher inside the admin panel (its own top bar and sidebar), not the workspace header.
+  if (role === "super_admin" || role === "company_owner" || role === "admin" || role === "configurable_admin") {
+    redirect("/admin/apps");
+  }
+
   const firstName = user?.name?.trim().split(/\s+/)[0];
 
   return (

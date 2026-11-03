@@ -30,6 +30,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Lead, LeadPriority, LeadStatus, PaginatedResponse } from "@/types/crm";
 import { LEAD_PRIORITY_CONFIG, LEAD_STATUS_CONFIG } from "@/types/crm";
 import LeadModal from "@/components/admin/crm/LeadModal";
+import { TagChips } from "@/components/admin/crm/LeadTags";
 import LeadDetailDrawer from "@/components/admin/crm/LeadDetailDrawer";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 
@@ -298,6 +299,11 @@ export default function LeadsPage() {
                         {lead.projectType && (
                           <div className="text-[11px] text-neutral-500 font-medium mt-0.5">
                             {lead.projectType} {lead.location ? `• ${lead.location}` : ""}
+                          </div>
+                        )}
+                        {lead.tags && lead.tags.length > 0 && (
+                          <div className="mt-1">
+                            <TagChips tags={lead.tags} max={3} />
                           </div>
                         )}
                       </td>

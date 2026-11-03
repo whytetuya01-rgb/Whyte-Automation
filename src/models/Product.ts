@@ -18,6 +18,10 @@ export interface IProduct extends SoftDeleteFields {
   unit: string;
   imageUrl: string | null;
   imagePublicId?: string | null;
+  /** Up to six pictures, cover first (see `@/lib/productImages`); absent on products saved before galleries existed. */
+  images?: Array<{ url: string; publicId: string | null }>;
+  /** Other products of this company that are suggested alongside this one (never added automatically). Absent = none. */
+  accessoryIds?: number[];
   moduleSize: string | null;
   notes: string | null;
   isActive: boolean;
@@ -56,6 +60,8 @@ const ProductSchema = new Schema<IProductDocument>(
     unit: { type: String, default: "pcs", trim: true },
     imageUrl: { type: String, default: null },
     imagePublicId: { type: String, default: null },
+    images: { type: [new Schema({ url: { type: String, required: true }, publicId: { type: String, default: null } }, { _id: false })], default: undefined },
+    accessoryIds: { type: [Number], default: undefined },
     moduleSize: { type: String, default: null },
     notes: { type: String, default: null },
     isActive: { type: Boolean, default: true, index: true },
@@ -133,8 +139,8 @@ ProductSchema.index({ companyId: 1, type: 1, isActive: 1 });
 softDeletePlugin(ProductSchema, { blockHardDelete: true });
 tenantScopePlugin(ProductSchema);
 
-// Dev hot reload keeps an older compiled model, which would silently drop the tax and specification fields.
-if (mongoose.models.Product && (!mongoose.models.Product.schema.path("gstRate") || !mongoose.models.Product.schema.path("specs"))) {
+// Dev hot reload keeps an older compiled model, which would silently drop the tax, specification and image fields.
+if (mongoose.models.Product && (!mongoose.models.Product.schema.path("gstRate") || !mongoose.models.Product.schema.path("specs") || !mongoose.models.Product.schema.path("images") || !mongoose.models.Product.schema.path("accessoryIds"))) {
   mongoose.deleteModel("Product");
 }
 

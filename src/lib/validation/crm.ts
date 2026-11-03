@@ -10,6 +10,24 @@ import {
   optionalGstinSchema,
   optionalPhoneSchema,
 } from "@/lib/validation/fields";
+import { LEAD_TAG_FORBIDDEN, MAX_LEAD_TAGS, MAX_LEAD_TAG_LENGTH, normalizeTags } from "@/lib/leadTags";
+
+/** Tags on a lead: tidied, empties and case-insensitive duplicates dropped, then limited in number and length. */
+export const leadTagsSchema = z
+  .array(z.string().max(200))
+  .max(MAX_LEAD_TAGS * 3)
+  .transform(normalizeTags)
+  .pipe(
+    z
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(MAX_LEAD_TAG_LENGTH, `A tag can have at most ${MAX_LEAD_TAG_LENGTH} characters.`)
+          .refine((tag) => !LEAD_TAG_FORBIDDEN.test(tag), "A tag cannot contain < or > characters.")
+      )
+      .max(MAX_LEAD_TAGS, `A lead can have at most ${MAX_LEAD_TAGS} tags.`)
+  );
 
 export const customerTypeEnum = z.enum([
   "individual",
@@ -106,6 +124,7 @@ export const createLeadSchema = strictObject({
   status: leadStatusEnum.default("new"),
   priority: leadPriorityEnum.default("medium"),
   notes: optionalText(2000),
+  tags: leadTagsSchema.optional(),
   nextFollowUpAt: optionalDateField,
   /** Who owns the follow-up. Default: the person creating the lead. */
   followUpOwnerId: numericIdSchema.optional().nullable(),
@@ -130,6 +149,7 @@ export const updateLeadSchema = strictObject({
   status: leadStatusEnum.optional(),
   priority: leadPriorityEnum.optional(),
   notes: optionalText(2000),
+  tags: leadTagsSchema.optional(),
   nextFollowUpAt: optionalDateField,
   /** Hands the open follow-up to this person. */
   followUpOwnerId: numericIdSchema.optional().nullable(),

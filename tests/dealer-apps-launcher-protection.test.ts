@@ -9,6 +9,7 @@
  */
 
 import assert from "node:assert/strict";
+import { resolveAdminLoginDestination } from "@/lib/adminAuthRedirect";
 
 let testCount = 0;
 function pass(desc: string) {
@@ -24,7 +25,7 @@ function runTests() {
   // =========================================================================
   {
     // Simulating layout rendering logic for dealer
-    const role = "dealer";
+    const role: string = "dealer";
     const canSeeApps = role !== "dealer";
     const canSeeQuotations = true;
     const canSeeEarnings = role === "dealer";
@@ -69,7 +70,7 @@ function runTests() {
     }
 
     // Sales Executive
-    const seRole = "sales_executive";
+    const seRole: string = "sales_executive";
     assert.equal(seRole !== "dealer", true, "Sales Executive must see Apps tab");
     assert.equal(seRole === "sales_executive", true, "Sales Executive must see My Leads tab");
     pass("2. Admin and Sales Executive roles preserve their respective Apps Launcher tabs");
@@ -194,6 +195,98 @@ function runTests() {
     assert.equal(normalizeLoginDestination("sales_executive", "/my-leads"), "/my-leads");
     pass("5. Dealer login callbacks to /apps or admin paths are sanitized to '/'");
   }
+
+  // =========================================================================
+  // Test 6: Admin and Super Admin Login Destination (resolveAdminLoginDestination)
+  // =========================================================================
+  {
+    // When admin or superadmin logs in with no callbackUrl, navigates to /admin/apps
+    assert.equal(resolveAdminLoginDestination(null), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination(""), "/admin/apps");
+
+    // When admin or superadmin logs in with callbackUrl pointing to dashboard, navigates to /admin/apps
+    assert.equal(resolveAdminLoginDestination("/admin/dashboard"), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination("/admin/dashboard?app=dashboard"), "/admin/apps");
+
+    // When admin or superadmin logs in with root or login callbacks, navigates to /admin/apps
+    assert.equal(resolveAdminLoginDestination("/"), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination("/admin"), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination("/admin/login"), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination("/login"), "/admin/apps");
+
+    // When admin or superadmin logs in targeting apps launcher
+    assert.equal(resolveAdminLoginDestination("/apps"), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination("/apps/crm"), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination("/admin/apps"), "/admin/apps");
+
+    // Specific administrative deep links are safely preserved
+    assert.equal(resolveAdminLoginDestination("/admin/products"), "/admin/products");
+    assert.equal(resolveAdminLoginDestination("/admin/crm/leads?status=open"), "/admin/crm/leads?status=open");
+    assert.equal(resolveAdminLoginDestination("/admin/company"), "/admin/company");
+
+    // Malicious external or protocol-relative callbacks bounce to /admin/apps
+    assert.equal(resolveAdminLoginDestination("//attacker.com"), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination("https://attacker.com"), "/admin/apps");
+    assert.equal(resolveAdminLoginDestination("/dealer/access"), "/admin/apps");
+
+    pass("6. Admin and Super Admin login redirects to /admin/apps instead of dashboard while honoring valid deep links");
+  }
+
+  // =========================================================================
+  // Test 7: Admin & Super Admin Proxy Route Redirection to /admin/apps
+  // =========================================================================
+  {
+    function simulateAdminProxy(role: string, pathname: string): { redirect: boolean; destination: string } {
+      const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
+      if (role && ADMIN_ROLES.has(role)) {
+        if (pathname === "/admin" || pathname === "/apps" || pathname.startsWith("/apps/")) {
+          return { redirect: true, destination: "/admin/apps" };
+        }
+        const isApiRequest = pathname === "/api" || pathname.startsWith("/api/");
+        const isAdminPage = pathname === "/admin" || pathname.startsWith("/admin/");
+        const isPublicPage = ["/login", "/register", "/admin/login"].includes(pathname);
+        if (!isApiRequest && !isAdminPage && !isPublicPage && !pathname.startsWith("/quotation/")) {
+          return { redirect: true, destination: "/admin/apps" };
+        }
+      }
+      return { redirect: false, destination: "" };
+    }
+
+    for (const role of ["super_admin", "admin", "company_owner", "configurable_admin"]) {
+      // Root / bounces to /admin/apps (NOT /admin/dashboard)
+      const rootRes = simulateAdminProxy(role, "/");
+      assert.equal(rootRes.redirect, true);
+      assert.equal(rootRes.destination, "/admin/apps", `${role} visiting / must navigate to /admin/apps`);
+
+      // /admin bounces to /admin/apps
+      const adminRes = simulateAdminProxy(role, "/admin");
+      assert.equal(adminRes.redirect, true);
+      assert.equal(adminRes.destination, "/admin/apps");
+
+      // /apps bounces to /admin/apps
+      const appsRes = simulateAdminProxy(role, "/apps");
+      assert.equal(appsRes.redirect, true);
+      assert.equal(appsRes.destination, "/admin/apps");
+
+      // /apps/crm bounces to /admin/apps
+      const appsSubRes = simulateAdminProxy(role, "/apps/crm");
+      assert.equal(appsSubRes.redirect, true);
+      assert.equal(appsSubRes.destination, "/admin/apps");
+
+      // Proposal builder /quotation/new is allowed through
+      const quotationRes = simulateAdminProxy(role, "/quotation/new");
+      assert.equal(quotationRes.redirect, false);
+
+      // Authorized admin subpages are allowed through
+      const leadsRes = simulateAdminProxy(role, "/admin/crm/leads");
+      assert.equal(leadsRes.redirect, false);
+      const dashRes = simulateAdminProxy(role, "/admin/dashboard");
+      assert.equal(dashRes.redirect, false);
+    }
+
+    pass("7. Admin & Super Admin root navigation in Proxy redirects to /admin/apps (not dashboard)");
+  }
+
 
   console.log(`\nALL ${testCount} DEALER PROTECTION TESTS PASSED SUCCESSFULLY!`);
 }

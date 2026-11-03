@@ -5,6 +5,7 @@ import { AdminUser, FollowUpTask, FOLLOW_UP_OWNER_HISTORY_LIMIT, type ILeadDocum
 import { ApiError } from "@/lib/api-response";
 import { hasPermission } from "@/lib/permissions";
 import { assertIndexesDeployed } from "@/lib/mongoIndexPolicy";
+import { queueCalendarSync } from "@/lib/googleCalendar/sync";
 import { getRolePermissions } from "@/lib/roleService";
 import { recordCrmActivity } from "@/lib/crmService";
 import { FOLLOW_UP_TIME_ZONE } from "@/lib/followUps";
@@ -67,10 +68,13 @@ const isDuplicateKey = (error: unknown) => typeof error === "object" && error !=
 const conflictError = () => new ApiError("CONFLICT", "This follow-up was just changed by someone else. Refresh the page and try again.");
 
 /**
- * Makes sure the one-open-task index exists before a follow-up is written (two requests could otherwise both create the
- * open task of the same lead). The routes call this BEFORE they open a transaction. In development and tests Mongoose has
- * built the index by then. In production nothing is ever created by a request: if the index has not been deployed yet the
- * request stops with a clear 503 and changes nothing (deploy it with `scripts/indexes.ts`, see docs/index-deployment.md).
+ * Makes sure the one-open-task index exists before an open task is CREATED (two requests could otherwise both create the
+ * open task of the same lead). `createTask` calls this, and only `createTask`: a request that creates no task (a lead with
+ * no follow-up date, an edit that leaves the follow-up alone, finishing, cancelling or reassigning an existing task) never
+ * depends on the index. In development and tests Mongoose has built the index by then. In production nothing is ever
+ * created by a request: if the index has not been deployed yet the request that would create a task stops with a clear 503
+ * and changes nothing, because it runs inside the caller's transaction (deploy the index with `scripts/indexes.ts`, see
+ * docs/index-deployment.md).
  */
 export function ensureFollowUpTaskIndexes(): Promise<void> {
   return assertIndexesDeployed(FollowUpTask, ["one_open_task_per_lead"]);
@@ -182,6 +186,7 @@ export async function openTasksByLead(companyId: number, leadIds: string[]): Pro
 export type OpenTask = Pick<IFollowUpTask, "_id" | "leadId" | "ownerId" | "originalOwnerId" | "dueAt" | "version">;
 
 async function createTask(ctx: FollowUpContext, lead: ILeadDocument, params: { ownerId: number; dueAt: Date; createdVia: IFollowUpTask["createdVia"]; scheduleChangedAt?: Date }): Promise<OpenTask> {
+  await ensureFollowUpTaskIndexes();
   const now = ctx.now ?? new Date();
   const doc = {
     _id: newTaskId(),
@@ -205,6 +210,7 @@ async function createTask(ctx: FollowUpContext, lead: ILeadDocument, params: { o
     if (isDuplicateKey(error)) throw conflictError();
     throw error;
   }
+  await queueCalendarSync(ctx.session, ctx.actor.companyId, doc._id, now); // outbox: saved with the task, or not at all
   return { _id: doc._id, leadId: doc.leadId, ownerId: doc.ownerId, originalOwnerId: doc.originalOwnerId, dueAt: doc.dueAt, version: 1 };
 }
 
@@ -239,7 +245,9 @@ export async function updateOpenTaskIfCurrent(ctx: FollowUpContext, task: Pick<O
     },
     { session: ctx.session }
   );
-  return result.modifiedCount === 1;
+  if (result.modifiedCount !== 1) return false;
+  await queueCalendarSync(ctx.session, ctx.actor.companyId, String(task._id), ctx.now);
+  return true;
 }
 
 /** Same, but a task that has moved on is an error (409): for a change the person asked for on one follow-up. */

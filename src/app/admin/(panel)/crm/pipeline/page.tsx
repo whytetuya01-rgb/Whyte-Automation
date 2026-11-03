@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   CalendarClock,
   Inbox,
+  Tag,
   X,
 } from "lucide-react";
 import PageHeader from "@/components/admin/PageHeader";
@@ -30,6 +31,8 @@ import type { Lead, OpportunityCard, PipelineStageData, PipelineStageId } from "
 import { LEAD_PRIORITY_CONFIG } from "@/types/crm";
 import LeadDetailDrawer from "@/components/admin/crm/LeadDetailDrawer";
 import LeadModal from "@/components/admin/crm/LeadModal";
+import { TagChip, TagChips } from "@/components/admin/crm/LeadTags";
+import type { TagCount } from "@/lib/leadTags";
 
 const STAGE_OPTIONS: Array<{ id: PipelineStageId; label: string }> = [
   { id: "new", label: "New Lead" },
@@ -107,6 +110,33 @@ function BoardSkeleton() {
   );
 }
 
+/** The tag filter row: every tag in use (most used first) as a chip with its lead count; click one to show only those leads. */
+function TagFilterBar({ tags, active, onSelect }: { tags: TagCount[]; active: string | null; onSelect: (tag: string | null) => void }) {
+  if (tags.length === 0) return null;
+  return (
+    <div className="flex items-center gap-2 border-t border-neutral-100 pt-3" data-testid="tag-filter">
+      <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+        <Tag size={11} aria-hidden="true" />
+        Tags
+      </span>
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+        {tags.slice(0, 20).map((entry) => (
+          <span key={entry.tag} className="inline-flex shrink-0 items-center gap-1">
+            <TagChip tag={entry.tag} size="sm" active={active?.toLowerCase() === entry.tag.toLowerCase()} onClick={() => onSelect(active?.toLowerCase() === entry.tag.toLowerCase() ? null : entry.tag)} />
+            <span className="text-[10px] font-medium text-neutral-400">{entry.count}</span>
+          </span>
+        ))}
+      </div>
+      {active && (
+        <button type="button" onClick={() => onSelect(null)} className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-semibold text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">
+          <X size={11} aria-hidden="true" />
+          Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
 export default function PipelinePage() {
   const timeZone = useUserTimeZone();
   const [stages, setStages] = useState<PipelineStageData[]>([]);
@@ -115,6 +145,8 @@ export default function PipelinePage() {
   const [loadFailed, setLoadFailed] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
   const [draggingCardId, setDraggingCardId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<PipelineStageId | null>(null);
 
@@ -122,6 +154,7 @@ export default function PipelinePage() {
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [leadModalOpen, setLeadModalOpen] = useState(false);
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
   const [lostCardId, setLostCardId] = useState<string | null>(null);
   const [lostReason, setLostReason] = useState("");
   const [savingLost, setSavingLost] = useState(false);
@@ -140,8 +173,13 @@ export default function PipelinePage() {
     try {
       const params = new URLSearchParams();
       if (search) params.set("search", search);
-      const res = await apiJson.get<PipelineStageData[]>(`/api/crm/pipeline?${params.toString()}`);
+      if (tagFilter) params.set("tag", tagFilter);
+      const [res, tagRes] = await Promise.all([
+        apiJson.get<PipelineStageData[]>(`/api/crm/pipeline?${params.toString()}`),
+        apiJson.get<{ tags: TagCount[] }>("/api/crm/lead-tags").catch(() => null),
+      ]);
       if (Array.isArray(res)) setStages(res);
+      if (tagRes && Array.isArray(tagRes.tags)) setTagCounts(tagRes.tags);
       setLoadFailed(false);
     } catch (err) {
       setLoadFailed(true);
@@ -151,7 +189,7 @@ export default function PipelinePage() {
       setInitialLoading(false);
       setRefreshing(false);
     }
-  }, [search]);
+  }, [search, tagFilter]);
 
   useEffect(() => {
     void fetchPipeline();
@@ -251,7 +289,7 @@ export default function PipelinePage() {
               <UserCheck size={14} className="text-neutral-500" aria-hidden="true" />
               Leads table
             </Link>
-            <Button type="button" variant="primary" size="sm" leftIcon={<Plus size={15} />} onClick={() => setLeadModalOpen(true)}>
+            <Button type="button" variant="primary" size="sm" leftIcon={<Plus size={15} />} onClick={() => { setEditingLead(null); setLeadModalOpen(true); }}>
               New lead
             </Button>
           </div>
@@ -273,7 +311,8 @@ export default function PipelinePage() {
       </div>
 
       {/* Search and refresh */}
-      <div className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-white p-3 shadow-2xs sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-3 rounded-2xl border border-neutral-200 bg-white p-3 shadow-2xs">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-md">
           <Input
             value={searchInput}
@@ -298,11 +337,14 @@ export default function PipelinePage() {
           <span className="text-xs text-neutral-500" aria-live="polite">
             {summary.total} {summary.total === 1 ? "opportunity" : "opportunities"}
             {search ? ` matching “${search}”` : ""}
+            {tagFilter ? ` tagged “${tagFilter}”` : ""}
           </span>
           <Button type="button" variant="outline" size="sm" onClick={() => void fetchPipeline()} disabled={refreshing} leftIcon={<RefreshCw size={13} className={refreshing ? "animate-spin" : undefined} />}>
             Refresh
           </Button>
         </div>
+        </div>
+        <TagFilterBar tags={tagCounts} active={tagFilter} onSelect={setTagFilter} />
       </div>
 
       {/* Board */}
@@ -353,7 +395,7 @@ export default function PipelinePage() {
                     {stage.items.length === 0 ? (
                       <div className="flex flex-col items-center gap-1.5 rounded-xl border border-dashed border-neutral-300 bg-white/50 px-3 py-9 text-center text-neutral-400">
                         <Inbox size={20} aria-hidden="true" />
-                        <span className="text-xs font-medium">{isTarget ? "Drop to move here" : search ? "No match" : "Nothing here yet"}</span>
+                        <span className="text-xs font-medium">{isTarget ? "Drop to move here" : search || tagFilter ? "No match" : "Nothing here yet"}</span>
                       </div>
                     ) : (
                       stage.items.map((card) => {
@@ -405,6 +447,12 @@ export default function PipelinePage() {
                               <h4 className="truncate text-sm font-bold leading-tight text-neutral-900 transition group-hover:text-accent">{card.customerName}</h4>
                               {card.projectType && <p className="mt-0.5 truncate text-xs text-neutral-500">{card.projectType}</p>}
                             </div>
+
+                            {card.tags && card.tags.length > 0 && (
+                              <div onClick={(e) => e.stopPropagation()}>
+                                <TagChips tags={card.tags} max={3} onTagClick={(tag) => setTagFilter((current) => (current?.toLowerCase() === tag.toLowerCase() ? null : tag))} activeTag={tagFilter} />
+                              </div>
+                            )}
 
                             <div className="flex items-end justify-between gap-2">
                               <div>
@@ -479,6 +527,10 @@ export default function PipelinePage() {
           setDrawerOpen(false);
           setSelectedLead(null);
         }}
+        onEditLead={(lead) => {
+          setEditingLead(lead);
+          setLeadModalOpen(true);
+        }}
         onLeadUpdated={() => {
           void fetchPipeline();
           if (selectedLead) {
@@ -489,8 +541,23 @@ export default function PipelinePage() {
         }}
       />
 
-      {/* New lead */}
-      <LeadModal isOpen={leadModalOpen} onClose={() => setLeadModalOpen(false)} onSaved={() => void fetchPipeline()} />
+      {/* New lead, or an existing one opened from its detail drawer */}
+      <LeadModal
+        isOpen={leadModalOpen}
+        lead={editingLead}
+        onClose={() => {
+          setLeadModalOpen(false);
+          setEditingLead(null);
+        }}
+        onSaved={() => {
+          void fetchPipeline();
+          if (editingLead) {
+            apiJson.get<Lead>(`/api/crm/leads/${editingLead.id}`).then((r) => {
+              if (r) setSelectedLead(r);
+            }).catch(() => {});
+          }
+        }}
+      />
 
       {/* Why was it lost? */}
       <Modal isOpen={lostCardId !== null} onClose={() => !savingLost && setLostCardId(null)} title="Mark as lost" size="md">

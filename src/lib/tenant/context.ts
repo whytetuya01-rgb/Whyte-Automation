@@ -24,7 +24,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
  */
 
 /** Why a query was deliberately run with no company filter. Every use is logged. */
-export type UnscopedReason = "platform-admin" | "migration" | "auth-lookup" | "public-registration" | "provider-webhook" | "public-quotation-link" | "public-calendar-feed";
+export type UnscopedReason = "platform-admin" | "migration" | "auth-lookup" | "public-registration" | "provider-webhook" | "public-quotation-link" | "public-calendar-feed" | "calendar-sync-worker";
 
 const KNOWN_UNSCOPED_REASONS: ReadonlySet<string> = new Set<UnscopedReason>([
   "platform-admin",
@@ -37,6 +37,8 @@ const KNOWN_UNSCOPED_REASONS: ReadonlySet<string> = new Set<UnscopedReason>([
   "public-quotation-link",
   // A calendar app fetching someone's private follow-up link: finds the one feed its secret belongs to (then scopes to it).
   "public-calendar-feed",
+  // The Google Calendar sync worker (cron): picks the next due sync items across companies, then works on each inside its own company.
+  "calendar-sync-worker",
 ]);
 
 export interface TenantContextValue {

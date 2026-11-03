@@ -1,3 +1,5 @@
+import { imagesOf } from "@/lib/productImages";
+import { cleanAccessoryIds } from "@/lib/productAccessories";
 import type { Quotation, QuotationRoom, QuotationItem, QuotationItemVariantSummary, Category, RoomType, HouseType, Product, ProductVariant } from "@/types";
 import { serializeVariant } from "@/lib/productVariantService";
 import { calculateQuotationGst } from "@/lib/pricing";
@@ -64,6 +66,8 @@ export function normalizeProduct(product: any): Product {
     unit: product.unit ? String(product.unit) : "pcs",
     imageUrl: product.imageUrl ? String(product.imageUrl) : null,
     imagePublicId: product.imagePublicId ? String(product.imagePublicId) : null,
+    images: imagesOf(product),
+    accessoryIds: cleanAccessoryIds(product.accessoryIds),
     moduleSize: product.moduleSize ? String(product.moduleSize) : null,
     notes: product.notes ? String(product.notes) : null,
     isActive: product.isActive !== false,

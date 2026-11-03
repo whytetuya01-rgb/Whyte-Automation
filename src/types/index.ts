@@ -90,6 +90,10 @@ export interface Product {
   unit: string;
   imageUrl: string | null;
   imagePublicId?: string | null;
+  /** Up to six pictures, cover first (always present on API output; a product with only the older single image has one). */
+  images?: Array<{ url: string; publicId: string | null }>;
+  /** Other products suggested alongside this one (never added automatically); always an array on API output. */
+  accessoryIds?: number[];
   moduleSize?: string | null;
   notes: string | null;
   isActive: boolean;
@@ -134,6 +138,8 @@ export type EditorCatalogProduct = Pick<
     variants?: EditorCatalogVariant[];
     /** Specifications the picker shows (label + formatted value), resolved on the server; absent when none. */
     specs?: Array<{ key: string; label: string; text: string }>;
+    /** Products suggested with this one; absent when none. */
+    accessoryIds?: number[];
   };
 
 /**

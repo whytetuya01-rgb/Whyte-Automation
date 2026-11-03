@@ -8,6 +8,7 @@ import NotificationBell from "./NotificationBell";
 import OfflineStatusPill from "@/components/offline/OfflineStatusPill";
 import { ArrowUpRight, LayoutGrid, Shield } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { WhyteContentLoader, WhyteFullScreenLoader } from "@/components/shared/WhyteLoader";
 import { usePageLoading } from "@/components/providers/NavigationLoaderProvider";
 import AnimatedLogo from "./sidebar/AnimatedLogo";
@@ -50,6 +51,8 @@ export default function AdminLayoutWrapper({
   const [drawerOpenCount, setDrawerOpenCount] = useState(0);
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { isContentLoading } = usePageLoading();
+  // The Apps launcher is a full-width home screen (like Odoo's): no sidebar, no menu button.
+  const isLauncher = usePathname() === "/admin/apps";
 
   useEffect(() => {
     const checkScreen = () => {
@@ -110,6 +113,7 @@ export default function AdminLayoutWrapper({
         {/* Top Header - Black with Whyte Pink Accent */}
         <header className="h-[48px] sm:h-[50px] lg:h-[52px] shrink-0 bg-[#0E0E10] border-b border-[#222226] flex items-center justify-between px-3 sm:px-4 md:px-6 z-50 sticky top-0 shadow-xs">
           <div className="flex items-center gap-2 sm:gap-3  lg:gap-4">
+            {!isLauncher && (
             <button
               onClick={toggleSidebar}
               className="text-neutral-300 hover:text-white p-1.5 sm:p-2 -ml-1 rounded-xl hover:bg-white/10 transition-colors focus:outline-none focus:ring-2 focus:ring-[var(--color-admin-primary-on-dark,#D85B83)]/30 cursor-pointer"
@@ -118,6 +122,7 @@ export default function AdminLayoutWrapper({
             >
               <HamburgerMorph state={isMobile ? (isOpen ? "close" : "menu") : collapsed ? "arrow" : "menu"} />
             </button>
+            )}
             <Link
               href="/admin/dashboard?app=dashboard"
               className="inline-flex items-center rounded-xl px-1.5 sm:px-2 py-0.5 hover:opacity-90 transition"
@@ -160,7 +165,7 @@ export default function AdminLayoutWrapper({
         <div className="flex flex-1 overflow-hidden relative">
           {/* Mobile Overlay — fades to black/50 with a slight blur; click closes. */}
           <AnimatePresence>
-            {isMobile && isOpen && (
+            {!isLauncher && isMobile && isOpen && (
               <motion.div
                 key="drawer-backdrop"
                 className="fixed inset-0 top-[48px] sm:top-[50px] lg:top-[52px] bg-black/50 z-30 lg:hidden backdrop-blur-xs"
@@ -176,6 +181,7 @@ export default function AdminLayoutWrapper({
           {/* Sidebar Container — mobile: spring drawer (swipe left to close);
             desktop: width animates between full and the 76px icon rail on the
             same timing as the content offset below. */}
+          {!isLauncher && (
           <motion.div
             data-admin-sidebar-shell=""
             className={`
@@ -200,13 +206,14 @@ export default function AdminLayoutWrapper({
               entranceDelay={isMobile && drawerOpenCount > 0 ? MOBILE_ENTRANCE_DELAY_S : 0}
             />
           </motion.div>
+          )}
 
           {/* Main Content Area */}
           <main
             className={`
             flex-1 overflow-auto min-w-0 flex flex-col bg-[#F6F6F7] w-full
             transition-[margin] duration-[var(--motion-layout)] ease-[var(--motion-ease)]
-            ${isRail ? "lg:ml-[76px]" : "lg:ml-64 xl:ml-68"}
+            ${isLauncher ? "" : isRail ? "lg:ml-[76px]" : "lg:ml-64 xl:ml-68"}
           `}
           >
             {isContentLoading ? (

@@ -21,7 +21,7 @@ import type { EditorCatalogProduct, EditorCatalogVariant } from "@/types";
  */
 
 const PRODUCT_PROJECTION =
-  "name code description type categoryId automationTier surfaceFinish price imageUrl moduleSize isActive isMatrix matrixDimensions specs";
+  "name code description type categoryId automationTier surfaceFinish price imageUrl moduleSize isActive isMatrix matrixDimensions specs accessoryIds";
 
 // `serializeVariant` derives price from price / priceWithoutTax / taxPercent and falls
 // back to config.series / config.finish when a variant has no tier / finish of its own.
@@ -92,6 +92,7 @@ export function buildEditorCatalog({ products, variants, categories }: EditorCat
       isMatrix: product.isMatrix,
       matrixDimensions: product.matrixDimensions,
       ...(specs.length > 0 ? { specs } : {}),
+      ...(product.accessoryIds && product.accessoryIds.length > 0 ? { accessoryIds: product.accessoryIds } : {}),
       ...(categoryName !== undefined && product.categoryId !== null
         ? { category: { id: product.categoryId, name: categoryName } }
         : {}),

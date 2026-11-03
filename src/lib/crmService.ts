@@ -555,13 +555,16 @@ export const PIPELINE_STAGES: Array<{ id: PipelineStageId; name: string; color: 
 export async function getPipelineBoardData(
   companyId: number,
   userCtx: { role: string; userId: number },
-  filters?: { search?: string; assignedSalesId?: number | null; dealerId?: number | null }
+  filters?: { search?: string; assignedSalesId?: number | null; dealerId?: number | null; tag?: string }
 ): Promise<PipelineStageData[]> {
   await connectMongoDB();
 
   const requested: Array<Record<string, unknown>> = [];
   if (filters?.assignedSalesId) requested.push({ assignedSalesId: filters.assignedSalesId });
   if (filters?.dealerId) requested.push({ dealerId: filters.dealerId });
+  if (filters?.tag && filters.tag.trim()) {
+    requested.push({ tags: new RegExp(`^${filters.tag.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") });
+  }
   if (filters?.search && filters.search.trim()) {
     const rx = new RegExp(filters.search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
     requested.push({ $or: [{ customerName: rx }, { referenceNumber: rx }, { phone: rx }, { projectType: rx }] });
@@ -657,6 +660,7 @@ export async function getPipelineBoardData(
       createdAt: new Date(lead.createdAt).toISOString(),
       isHotLead,
       quotationViewCount: viewCount,
+      tags: Array.isArray(lead.tags) ? lead.tags : [],
     };
 
     const targetList = stageMap.get(stageId);

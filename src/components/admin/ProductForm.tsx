@@ -10,9 +10,6 @@ import { getCategoryVariantMatrix, formatTierLabel, formatFinishLabel } from "@/
 import { suggestVariantCode, validateVariantCode } from "@/lib/productVariantService";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import {
-  ImagePlus,
-  X,
-  Package,
   Tag,
   Layers,
   Hash,
@@ -31,6 +28,9 @@ import {
 } from "lucide-react";
 import { Input, Select, SearchableSelect, Textarea, Button, Switch, type SelectOption } from "@/components/ui";
 import { formatGstRate, taxCodeLabel, type TaxSettingsView } from "@/lib/taxSettings";
+import ProductImagesEditor from "@/components/admin/products/ProductImagesEditor";
+import AccessoryPicker from "@/components/admin/products/AccessoryPicker";
+import { imagesOf, removedPublicIds, type ProductImage } from "@/lib/productImages";
 import { SPEC_LIMITS, flattenCategoryTree, specFieldsForCategory } from "@/lib/productSpecs";
 import {
   calculateFromTaxExclusivePrice,
@@ -131,8 +131,6 @@ export default function ProductForm({
     moduleSize: product?.moduleSize ?? "",
     unit: product?.unit ?? "pcs",
     notes: product?.notes ?? "",
-    imageUrl: product?.imageUrl ?? "",
-    imagePublicId: product?.imagePublicId ?? "",
     isActive: product?.isActive ?? true,
     sortOrder: product?.sortOrder ?? 0,
     hsnCode: product?.hsnCode ?? "",
@@ -159,30 +157,29 @@ export default function ProductForm({
   );
 
   const [saving, setSaving] = useState(false);
-  const [uploadingImage, setUploadingImage] = useState(false);
   const [showSecondaryInfo, setShowSecondaryInfo] = useState(isEdit);
 
-  // Tracks a Cloudinary asset uploaded during THIS form session that has not
-  // yet been attached to a saved product (i.e. not the original product's
-  // own image). If the form is cancelled, closed, or unmounted for any
-  // reason (Cancel button, modal backdrop/X, Escape) while this is still
-  // set, the cleanup effect below deletes it — otherwise every upload that
-  // never gets saved leaves a permanent orphaned asset in Cloudinary.
-  const pendingUploadPublicIdRef = useRef<string | null>(null);
+  // The product's pictures (up to six, cover first). `savedImages` is what the product had when the form opened.
+  const [images, setImages] = useState<ProductImage[]>(() => imagesOf(product ?? {}));
+  const savedImages = useRef<ProductImage[]>(imagesOf(product ?? {}));
+  // Other products suggested with this one on quotations (never added automatically).
+  const [accessoryIds, setAccessoryIds] = useState<number[]>(() => product?.accessoryIds ?? []);
 
-  // Stable identity (no deps) so the mount/unmount effect below only ever
-  // runs once — it must NOT re-fire its cleanup on every render, only on
-  // actual unmount.
+  // Cloudinary assets uploaded during THIS form session that are not saved on a product yet. If the form is cancelled,
+  // closed or unmounted while any are still here, they are deleted - otherwise every upload that never gets saved leaves a
+  // permanent orphaned asset. A saved product's own pictures are never in this set.
+  const unsavedUploadsRef = useRef<Set<string>>(new Set());
+
+  // Stable identity (no deps) so the unmount effect below only ever runs once.
   const deleteUploadedImage = useCallback((publicId: string) => {
-    // Best-effort: this is cleanup, not a user-facing operation — a failure
-    // here must never block cancelling/closing the form.
+    // Best-effort: this is cleanup, not a user-facing operation - a failure must never block cancelling/closing the form.
     apiJson.delete("/api/upload", { body: JSON.stringify({ publicId }) }).catch(() => {});
   }, []);
 
   useEffect(() => {
+    const unsaved = unsavedUploadsRef.current;
     return () => {
-      const publicId = pendingUploadPublicIdRef.current;
-      if (publicId) deleteUploadedImage(publicId);
+      for (const publicId of unsaved) deleteUploadedImage(publicId);
     };
   }, [deleteUploadedImage]);
 
@@ -613,71 +610,6 @@ export default function ProductForm({
     (row) => row.variantCode.trim() === ""
   ).length;
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      notify.error("Invalid file", "Please select a valid image file (JPG, PNG, WebP).");
-      return;
-    }
-
-    setUploadingImage(true);
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const errorData = (await res.json().catch(() => null)) as
-          | { error?: { message?: string } | string }
-          | null;
-        const rawMessage =
-          typeof errorData?.error === "string"
-            ? errorData.error
-            : errorData?.error?.message;
-        throw new Error(rawMessage || "Failed to upload image");
-      }
-
-      // The API wraps mutations as { success, data: { url, publicId } }.
-      const payload = (await res.json()) as {
-        data?: { url?: string; publicId?: string };
-        url?: string;
-        publicId?: string;
-      };
-      const uploadedUrl = payload.data?.url ?? payload.url;
-      const uploadedPublicId = payload.data?.publicId ?? payload.publicId ?? null;
-      if (!uploadedUrl) {
-        throw new Error("Upload succeeded but no image URL was returned.");
-      }
-
-      // Replacing an earlier upload from this same unsaved session: that
-      // previous asset is now unreachable from the form and would otherwise
-      // become a second orphan, so delete it right away instead of waiting
-      // for unmount.
-      if (pendingUploadPublicIdRef.current && pendingUploadPublicIdRef.current !== uploadedPublicId) {
-        deleteUploadedImage(pendingUploadPublicIdRef.current);
-      }
-      pendingUploadPublicIdRef.current = uploadedPublicId;
-
-      setForm((prev) => ({
-        ...prev,
-        imageUrl: uploadedUrl,
-        imagePublicId: uploadedPublicId ?? "",
-      }));
-      notify.success("Image uploaded", "Product image uploaded successfully.");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Image upload failed";
-      notify.error("Upload error", msg);
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
   const [errors, setErrors] = useState<{
     name?: string;
     categoryId?: string;
@@ -735,8 +667,9 @@ export default function ProductForm({
         moduleSize: form.moduleSize.trim() || null,
         unit: form.unit.trim() || "pcs",
         notes: form.notes.trim() || null,
-        imageUrl: form.imageUrl.trim() || null,
-        imagePublicId: form.imagePublicId.trim() || null,
+        // The older single-image fields follow the first picture on the server.
+        images: images.map(({ url, publicId }) => ({ url, publicId })),
+        accessoryIds,
         isActive: form.isActive,
         sortOrder: Number(form.sortOrder) || 0,
         hsnCode: form.hsnCode || null,
@@ -755,18 +688,11 @@ export default function ProductForm({
       if (isEdit && product) {
         await apiJson.patch(`/api/products/${product.id}`, payload);
 
-        // The new image (if any) is now saved on the product — it's no
-        // longer "pending", so the unmount cleanup must leave it alone.
-        pendingUploadPublicIdRef.current = null;
-
-        // If the image was replaced or removed, the product's *old*
-        // Cloudinary asset is no longer referenced anywhere — clean it up
-        // now that the replacement has saved successfully.
-        const oldPublicId = (product.imagePublicId ?? "").trim();
-        const newPublicId = form.imagePublicId.trim();
-        if (oldPublicId && oldPublicId !== newPublicId) {
-          deleteUploadedImage(oldPublicId);
-        }
+        // The pictures are saved on the product now, so the unmount cleanup must leave them alone. Uploaded pictures that
+        // were dropped are no longer referenced anywhere: delete them from storage now that the save has succeeded.
+        unsavedUploadsRef.current.clear();
+        for (const publicId of removedPublicIds(savedImages.current, images)) deleteUploadedImage(publicId);
+        savedImages.current = images;
 
         notify.success("Product updated", `Product "${form.name}" has been updated.`);
       } else {
@@ -787,9 +713,8 @@ export default function ProductForm({
           { ...payload, variants: variantsPayload }
         );
 
-        // The uploaded image (if any) is now saved on the newly created
-        // product — no longer "pending".
-        pendingUploadPublicIdRef.current = null;
+        // The uploaded pictures are now saved on the newly created product - no longer "pending".
+        unsavedUploadsRef.current.clear();
 
         const count = created?.variants?.length ?? variantsPayload.length;
         notify.success(
@@ -814,75 +739,25 @@ export default function ProductForm({
       {/* SECTION 1: PRIMARY PRODUCT IDENTITY / CONFIGURATION            */}
       {/* ============================================================== */}
       <div className="space-y-4">
-        {/* 1. Product Image */}
+        {/* 1. Product Images */}
         <div className="rounded-xl border border-neutral-200 bg-neutral-50/60 p-4">
-          <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-500 mb-2">
-            1. Product Image
-          </label>
-          <div className="flex items-start gap-4">
-            <div className="relative h-20 w-20 shrink-0 rounded-xl border border-neutral-200 bg-white overflow-hidden flex items-center justify-center shadow-xs">
-              {form.imageUrl ? (
-                <img
-                  src={form.imageUrl}
-                  alt="Product thumbnail"
-                  className="h-full w-full object-contain p-1"
-                  onError={(e) => {
-                    (e.target as HTMLElement).style.display = "none";
-                  }}
-                />
-              ) : (
-                <Package className="h-8 w-8 text-neutral-300" />
-              )}
-              {form.imageUrl && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    // If what's showing is this session's own unsaved upload
-                    // (not the product's pre-existing image), delete it now
-                    // instead of leaving it orphaned in Cloudinary.
-                    if (pendingUploadPublicIdRef.current && pendingUploadPublicIdRef.current === form.imagePublicId) {
-                      deleteUploadedImage(pendingUploadPublicIdRef.current);
-                      pendingUploadPublicIdRef.current = null;
-                    }
-                    setForm((prev) => ({ ...prev, imageUrl: "", imagePublicId: "" }));
-                  }}
-                  className="absolute top-1 right-1 h-5 w-5 rounded-full bg-neutral-900/80 text-white flex items-center justify-center hover:bg-neutral-900 transition-colors"
-                  title="Remove image"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-neutral-500">1. Product Images</label>
+          <ProductImagesEditor
+            images={images}
+            onChange={setImages}
+            onUploaded={(publicId) => unsavedUploadsRef.current.add(publicId)}
+            onDiscardUploaded={(publicId) => {
+              unsavedUploadsRef.current.delete(publicId);
+              deleteUploadedImage(publicId);
+            }}
+            isUnsaved={(publicId) => unsavedUploadsRef.current.has(publicId)}
+          />
+        </div>
 
-            <div className="flex-1 space-y-2">
-              <div>
-                <Input
-                  value={form.imageUrl}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, imageUrl: e.target.value }))
-                  }
-                  placeholder="Image path or URL (e.g. /whyte_catalog_images/Tactus_item_001.jpg)"
-                  className="text-xs font-mono"
-                />
-                <p className="text-[11px] text-neutral-400 mt-1">
-                  Static catalog image path or external HTTPS URL.
-                </p>
-              </div>
-              <div>
-                <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 bg-white text-xs font-medium text-neutral-700 hover:bg-neutral-50 cursor-pointer transition-colors shadow-2xs">
-                  <ImagePlus className="h-3.5 w-3.5 text-neutral-500" />
-                  <span>{uploadingImage ? "Uploading..." : "Upload New Image"}</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    onChange={handleImageUpload}
-                    disabled={uploadingImage}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
+        {/* Suggested accessories */}
+        <div className="rounded-xl border border-neutral-200 bg-neutral-50/60 p-4">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-neutral-500">Suggested Accessories</label>
+          <AccessoryPicker selfId={product?.id} value={accessoryIds} onChange={setAccessoryIds} />
         </div>
 
         {/* Primary Identity Fields (Grid) */}

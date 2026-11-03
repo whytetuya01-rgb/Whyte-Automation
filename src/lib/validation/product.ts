@@ -3,6 +3,8 @@ import { VARIANT_CODE_RULE } from "@/lib/productVariantService";
 import { resolveVariantPricing } from "@/lib/pricing";
 import { productGstRateField, productHsnCodeField } from "@/lib/validation/taxSettings";
 import { productSpecsField } from "@/lib/validation/productSpecs";
+import { IMAGE_URL_PATTERN, MAX_PRODUCT_IMAGES } from "@/lib/productImages";
+import { MAX_ACCESSORIES } from "@/lib/productAccessories";
 
 /**
  * Shared Zod schemas for product / variant mutations.
@@ -44,6 +46,37 @@ const requiredText = (max = MAX_STRING, message = "This field is required.") =>
     .string({ message })
     .transform((value) => value.trim())
     .pipe(z.string().min(1, message).max(max, `Must be ${max} characters or fewer.`));
+
+/** A picture address: our own https upload, another https link, or a static catalogue path ("/whyte_catalog_images/x.jpg"). */
+const imageUrlField = z
+  .string()
+  .trim()
+  .min(1)
+  .max(MAX_LONG_STRING)
+  .regex(IMAGE_URL_PATTERN, "Use an https link or a path that starts with a single /.");
+
+/** Up to six pictures, cover first. A repeated picture is refused rather than silently collapsed. */
+export const productImagesField = z
+  .array(z.object({ url: imageUrlField, publicId: z.union([z.string().trim().max(MAX_LONG_STRING), z.null()]).optional().transform((v) => (v ? v : null)) }).strict())
+  .max(MAX_PRODUCT_IMAGES, `A product can have up to ${MAX_PRODUCT_IMAGES} images.`)
+  .refine((images) => new Set(images.map((image) => image.url)).size === images.length, "The same image is listed twice.")
+  .optional();
+
+/** Up to 20 products suggested with this one. Repeats are refused rather than silently collapsed. */
+export const accessoryIdsField = z
+  .array(
+    z.union([z.number(), z.string()]).transform((value, ctx) => {
+      const parsed = typeof value === "number" ? value : /^\d+$/.test(value.trim()) ? Number(value) : NaN;
+      if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+        ctx.addIssue({ code: "custom", message: "Must be a valid product id." });
+        return z.NEVER;
+      }
+      return parsed;
+    })
+  )
+  .max(MAX_ACCESSORIES, `A product can suggest up to ${MAX_ACCESSORIES} accessories.`)
+  .refine((ids) => new Set(ids).size === ids.length, "The same accessory is listed twice.")
+  .optional();
 
 export const numericIdSchema = z.union([z.number(), z.string()]).transform((value, ctx) => {
   const raw = typeof value === "number" ? value : value.trim();
@@ -216,6 +249,8 @@ export const createProductSchema = z
     unit: optionalText(50),
     imageUrl: optionalText(MAX_LONG_STRING),
     imagePublicId: optionalText(MAX_LONG_STRING),
+    images: productImagesField,
+    accessoryIds: accessoryIdsField,
     moduleSize: optionalText(100),
     notes: optionalText(MAX_LONG_STRING),
     isActive: booleanField,
@@ -242,6 +277,8 @@ export const updateProductSchema = z
     unit: optionalText(50),
     imageUrl: optionalText(MAX_LONG_STRING),
     imagePublicId: optionalText(MAX_LONG_STRING),
+    images: productImagesField,
+    accessoryIds: accessoryIdsField,
     moduleSize: optionalText(100),
     notes: optionalText(MAX_LONG_STRING),
     isActive: booleanField,
@@ -282,6 +319,9 @@ export const bulkVariantUpdateSchema = z
             purchaseTaxPercent: optionalPriceFieldSchema,
             automationTier: axisField,
             surfaceFinish: axisField,
+            /** Sent only when the picture changed; null removes it. Absent = untouched. */
+            imageUrl: z.union([imageUrlField, z.null()]).optional(),
+            imagePublicId: optionalText(MAX_LONG_STRING),
             isActive: booleanField,
             sortOrder: intField(),
           })
@@ -328,6 +368,9 @@ export const updateVariantSchema = z
     taxPercent: optionalPriceFieldSchema,
     cost: optionalPriceFieldSchema,
     purchaseTaxPercent: optionalPriceFieldSchema,
+    /** The variant's own picture; null removes it (the product's cover is used again). */
+    imageUrl: z.union([imageUrlField, z.null()]).optional(),
+    imagePublicId: optionalText(MAX_LONG_STRING),
     isActive: booleanField,
     sortOrder: intField(),
   })

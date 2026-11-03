@@ -1,3 +1,4 @@
+import { assertProductImageAllowed } from "@/lib/imageOwnership";
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
@@ -117,7 +118,7 @@ export async function POST(req: Request, context: RouteContext) {
  */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    return await withPermission("catalog:edit", async () => {
+    return await withPermission("catalog:edit", async ({ companyId }) => {
     await connectMongoDB();
     const productId = parseNumericId((await context.params).id, "product id");
 
@@ -178,6 +179,17 @@ export async function PATCH(req: Request, context: RouteContext) {
       );
     }
 
+    // A variant's own picture: a new uploaded one must be this company's (an unchanged one stays accepted).
+    const existingById = new Map(existingVariants.map((variant) => [variant._id, variant]));
+    for (const variant of incoming) {
+      if (variant.imageUrl === undefined) continue;
+      const current = existingById.get(variant.id);
+      if (variant.imagePublicId) {
+        if (companyId === null) throw new ApiError("FORBIDDEN", "A company context is required to change a variant image.");
+        await assertProductImageAllowed(variant.imagePublicId, companyId, current?.imagePublicId);
+      }
+    }
+
     const bulkOps = incoming.map((variant) => {
       const updateFields: Record<string, unknown> = {
         variantCode: variant.variantCode,
@@ -198,6 +210,10 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
       if (variant.surfaceFinish !== undefined) {
         updateFields.surfaceFinish = variant.surfaceFinish;
+      }
+      if (variant.imageUrl !== undefined) {
+        updateFields.imageUrl = variant.imageUrl;
+        updateFields.imagePublicId = variant.imageUrl === null ? null : variant.imagePublicId ?? null;
       }
       if (variant.isActive !== undefined) {
         updateFields.isActive = variant.isActive;

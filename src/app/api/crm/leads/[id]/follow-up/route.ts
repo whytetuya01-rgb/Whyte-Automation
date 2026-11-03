@@ -7,7 +7,8 @@ import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-re
 import { numericIdSchema, optionalText, strictObject } from "@/lib/validation/common";
 import { crmVisibilityFilter } from "@/lib/crmService";
 import { withRequiredTransaction } from "@/lib/transaction";
-import { assertSchedulableDate, cancelFollowUp, completeFollowUp, describeFollowUp, ensureFollowUpTaskIndexes, rescheduleFollowUp } from "@/lib/followUpService";
+import { kickCalendarSync } from "@/lib/googleCalendar/kick";
+import { assertSchedulableDate, cancelFollowUp, completeFollowUp, describeFollowUp, rescheduleFollowUp } from "@/lib/followUpService";
 
 export const dynamic = "force-dynamic";
 
@@ -80,8 +81,6 @@ export async function POST(req: Request, context: RouteContext) {
       if (next && input.action !== "cancel") assertSchedulableDate(next);
       const expected = input.expectedNextFollowUpAt === undefined ? undefined : input.expectedNextFollowUpAt === null ? null : parseWhen(input.expectedNextFollowUpAt, "expectedNextFollowUpAt");
 
-      await connectMongoDB();
-      await ensureFollowUpTaskIndexes();
       const result = await withRequiredTransaction(async (session) => {
         const lead = await Lead.findOne({ _id: id, companyId, ...crmVisibilityFilter({ role, userId }) }).session(session ?? null);
         if (!lead) throw new ApiError("NOT_FOUND", "Lead not found or access denied.");
@@ -103,6 +102,7 @@ export async function POST(req: Request, context: RouteContext) {
         };
       });
 
+      kickCalendarSync();
       return apiSuccess(result);
     });
   } catch (error) {

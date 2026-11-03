@@ -146,8 +146,11 @@ export async function proxy(request: NextRequest) {
   }
 
   if (role && ADMIN_ROLES.has(role)) {
-    if (!isApiRequest(pathname) && !isAdminPage(pathname) && !isPublicPage(pathname) && !pathname.startsWith("/quotation/") && !pathname.startsWith("/apps")) {
-      return redirectTo(request, "/admin/dashboard");
+    if (pathname === "/admin" || pathname === "/apps" || pathname.startsWith("/apps/")) {
+      return redirectTo(request, "/admin/apps");
+    }
+    if (!isApiRequest(pathname) && !isAdminPage(pathname) && !isPublicPage(pathname) && !pathname.startsWith("/quotation/")) {
+      return redirectTo(request, "/admin/apps");
     }
     return NextResponse.next({ request: { headers: requestHeaders } });
   }

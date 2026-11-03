@@ -7,6 +7,8 @@ import IndiaPhoneInput from "@/components/ui/IndiaPhoneInput";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import type { Customer, Lead, LeadPriority, LeadSource, LeadStatus } from "@/types/crm";
+import { TagInput } from "@/components/admin/crm/LeadTags";
+import type { TagCount } from "@/lib/leadTags";
 
 interface LeadModalProps {
   isOpen: boolean;
@@ -53,6 +55,8 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
   const [assignedSalesId, setAssignedSalesId] = useState("");
   const [dealerId, setDealerId] = useState("");
   const [notes, setNotes] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<TagCount[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   // Dynamic dropdown options
@@ -105,6 +109,10 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       .catch(() => {});
 
     setFollowUpOwnerId("");
+    apiJson
+      .get<{ tags: TagCount[] }>("/api/crm/lead-tags")
+      .then((res) => setTagSuggestions(Array.isArray(res?.tags) ? res.tags : []))
+      .catch(() => setTagSuggestions([]));
     setOwnerTouched(false);
     setCurrentOwner(null);
 
@@ -129,6 +137,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setAssignedSalesId(lead.assignedSalesId ? String(lead.assignedSalesId) : "");
       setDealerId(lead.dealerId ? String(lead.dealerId) : "");
       setNotes(lead.notes || "");
+      setTags(Array.isArray(lead.tags) ? lead.tags : []);
     } else {
       // Defaults for new lead (an existing customer's details when the lead is for them)
       setCustomerName(customer?.name ?? "");
@@ -148,6 +157,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setStatus("new");
       setAssignedSalesId("");
       setDealerId("");
+      setTags([]);
       setNotes("");
     }
   }, [isOpen, lead, customer]);
@@ -208,6 +218,8 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
         assignedSalesId: assignedSalesId ? Number(assignedSalesId) : undefined,
         dealerId: dealerId ? Number(dealerId) : undefined,
         notes: notes.trim() || undefined,
+        // Editing always sends the list so removing every tag clears them.
+        tags: isEditing ? tags : tags.length ? tags : undefined,
       };
 
       if (isEditing && lead) {
@@ -432,6 +444,8 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
               ]}
             />
           </div>
+
+          <TagInput value={tags} onChange={setTags} suggestions={tagSuggestions} />
 
           <Textarea
             label="Client Requirements & Internal Notes"

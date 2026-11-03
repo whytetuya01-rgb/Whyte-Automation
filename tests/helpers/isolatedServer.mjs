@@ -90,7 +90,8 @@ export async function startIsolatedServer(label, users, options = {}) {
     MONGODB_URI: mongoUri,
     // These servers run PRODUCTION builds on a throwaway database. In production Mongoose does not build indexes by itself
     // (src/lib/mongoIndexPolicy.ts); here it must, because the database starts empty. Explicit, and only for tests.
-    MONGOOSE_AUTO_INDEX: "1",
+    // `autoIndex: false` runs the real production policy instead (nothing is created; a test deploys what it needs).
+    MONGOOSE_AUTO_INDEX: options.autoIndex === false ? "0" : "1",
     NEXTAUTH_SECRET: randomBytes(48).toString("base64url"),
     NEXTAUTH_URL: baseUrl,
     TEST_DIST_DIR: distDir,

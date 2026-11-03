@@ -123,6 +123,8 @@ export const APP_NAVIGATION_REGISTRY: readonly AppNavigationEntry[] = [
       "/admin/products",
       "/admin/categories",
       "/admin/tax-settings",
+      "/admin/pricing",
+      "/admin/import-export",
       "/admin/house-types",
       "/admin/room-types",
     ],
@@ -294,6 +296,8 @@ export function getDefaultAppForRoute(pathname: string): AppNavigationEntry {
     pathname.startsWith("/admin/products") ||
     pathname.startsWith("/admin/categories") ||
     pathname.startsWith("/admin/tax-settings") ||
+    pathname.startsWith("/admin/pricing") ||
+    pathname.startsWith("/admin/import-export") ||
     pathname.startsWith("/admin/house-types") ||
     pathname.startsWith("/admin/room-types")
   ) {

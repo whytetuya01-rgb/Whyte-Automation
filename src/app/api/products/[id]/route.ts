@@ -4,7 +4,9 @@ import { Product, ProductVariant, ProductVariantHistory, Category } from "@/mode
 import { withTransaction } from "@/lib/transaction";
 import { getNextSequence } from "@/lib/counter";
 import { withPermission, withSession } from "@/lib/api-auth";
-import { assertProductImageAllowed } from "@/lib/imageOwnership";
+import { assertProductImageAllowed, assertProductImagesAllowed } from "@/lib/imageOwnership";
+import { coverFields, imagesOf, withLegacyCover, type ProductImage } from "@/lib/productImages";
+import { assertAccessoriesAllowed } from "@/lib/productAccessoriesServer";
 import {
   ApiError,
   apiSuccess,
@@ -103,6 +105,24 @@ export async function PATCH(req: Request, context: RouteContext) {
 
     if (Object.keys(data).length === 0) {
       throw new ApiError("VALIDATION_ERROR", "No fields were provided to update.");
+    }
+
+    // Suggested accessories (when sent) replace the product's list; they must be this company's own products.
+    if (data.accessoryIds !== undefined) data.accessoryIds = await assertAccessoriesAllowed(data.accessoryIds, productId);
+
+    // The gallery (up to six pictures, cover first) replaces the product's pictures; the older single-image fields always
+    // follow its first picture. A client that still sends only the single image moves the cover of the gallery instead.
+    const currentImages = imagesOf(existingProduct);
+    if (data.images !== undefined) {
+      if (companyId === null) {
+        throw new ApiError("FORBIDDEN", "A company context is required to change product images.");
+      }
+      await assertProductImagesAllowed(data.images as ProductImage[], companyId, currentImages);
+      Object.assign(data, coverFields(data.images as ProductImage[]));
+    } else if (data.imageUrl !== undefined || data.imagePublicId !== undefined) {
+      const nextUrl = (data.imageUrl !== undefined ? data.imageUrl : existingProduct.imageUrl ?? null) as string | null;
+      const nextPublicId = (data.imagePublicId !== undefined ? data.imagePublicId : nextUrl === (existingProduct.imageUrl ?? null) ? existingProduct.imagePublicId ?? null : null) as string | null;
+      data.images = withLegacyCover(currentImages, { imageUrl: nextUrl, imagePublicId: nextPublicId });
     }
 
     // Replacing the image may only point at an asset this company owns; an
