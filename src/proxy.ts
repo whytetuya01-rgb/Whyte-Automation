@@ -42,6 +42,9 @@ const PUBLIC_QUOTATION_LINK_VIEW_API = "/api/public/quotation-links/view";
 /** A person's private calendar link for their follow-ups (opened by a calendar app, no session). The route checks the secret. */
 // The Google Calendar sync worker: called by a scheduler, not a person. The route itself demands the CRON_SECRET bearer token.
 const PUBLIC_CRON_WORKERS = new Set(["/api/cron/google-calendar-sync", "/api/cron/follow-up-reminders"]);
+// Where Google sends the browser back. The route checks the session itself; someone whose session ended while they were at
+// Google is sent to My account with a message (a redirect, no data) instead of a bare 401.
+const GOOGLE_CALENDAR_CALLBACK = "/api/integrations/google-calendar/callback";
 const PUBLIC_CALENDAR_FEED = /^\/api\/calendar\/follow-ups\/[A-Za-z0-9_-]+\.ics$/;
 const DEALER_LANDING_PAGE = "/dealer/access";
 const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
@@ -87,6 +90,9 @@ export async function proxy(request: NextRequest) {
   }
 
   if (PUBLIC_CRON_WORKERS.has(pathname) && (request.method === "GET" || request.method === "POST")) {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+  if (pathname === GOOGLE_CALENDAR_CALLBACK && request.method === "GET") {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 

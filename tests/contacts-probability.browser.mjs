@@ -158,7 +158,7 @@ try {
   assert.match(await villa.getByTestId("card-referrer").innerText(), /Architect: Neha Shah/);
   assert.match(await villa.getByTestId("card-closing").innerText(), /Closes 12 Dec/);
   assert.match(await pc("Dev Interiors").getByTestId("card-probability").innerText(), /25% likely/);
-  assert.equal(await desk.page.getByTestId("pipeline-column").filter({ hasText: "Quoted" }).getByTestId("stage-expected").count(), 1);
+  assert.equal(await desk.page.getByTestId("pipeline-column").filter({ has: desk.page.getByRole("heading", { name: "Proposal Sent", exact: true }) }).getByTestId("stage-expected").count(), 1, "the Quoted stage (shown as Proposal Sent) shows its expected total");
   assert.match(await desk.page.getByTestId("pipeline-summary").innerText(), /expected/i, "the open pipeline tile shows the expected total");
   assert.ok(await noHorizontalScroll(desk.page));
   await shot(desk.page, "pipeline-probability-1280");

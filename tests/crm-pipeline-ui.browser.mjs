@@ -74,7 +74,7 @@ try {
   assert.equal(await column(page, "negotiation").getByTestId("pipeline-card").count(), 1, "a quoted lead with negotiation notes sits in Negotiation");
   assert.match(await column(page, "new").locator("header").innerText(), /2[\s\S]*6,50,000|2[\s\S]*650,000/, "the stage header shows its count and total");
   const summary = await page.getByTestId("pipeline-summary").innerText();
-  assert.match(summary, /Open pipeline[\s\S]*6 open opportunities/i, `open = every stage except won and lost (summary was: ${JSON.stringify(summary)})`);
+  assert.match(summary, /Open pipeline[\s\S]*6 open ·/i, `open = every stage except won and lost (summary was: ${JSON.stringify(summary)})`);
   assert.match(summary, /Closed won[\s\S]*1 deal won/i);
   assert.match(summary, /Needs attention\s*\n?\s*2/i, "two cards need attention: stuck 10 days / overdue follow-up, and stuck 16 days");
   assert.ok(await noHorizontalScroll(page), "no horizontal page scroll at 1280px (the board scrolls inside itself)");
