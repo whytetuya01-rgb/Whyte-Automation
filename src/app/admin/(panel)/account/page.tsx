@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { UserCog } from "lucide-react";
 import PageHeader from "@/components/admin/PageHeader";
 import TimeZoneCard from "@/components/admin/account/TimeZoneCard";
+import ReminderEmailCard from "@/components/admin/account/ReminderEmailCard";
 import { apiJson } from "@/lib/apiClient";
 
 interface Profile {
@@ -61,6 +62,8 @@ export default function MyAccountPage() {
       </section>
 
       <TimeZoneCard />
+
+      <ReminderEmailCard />
     </div>
   );
 }

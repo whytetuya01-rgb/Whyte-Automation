@@ -41,7 +41,7 @@ const PUBLIC_QUOTATION_LINK_PDF = /^\/api\/public\/quotation-links\/[A-Za-z0-9_-
 const PUBLIC_QUOTATION_LINK_VIEW_API = "/api/public/quotation-links/view";
 /** A person's private calendar link for their follow-ups (opened by a calendar app, no session). The route checks the secret. */
 // The Google Calendar sync worker: called by a scheduler, not a person. The route itself demands the CRON_SECRET bearer token.
-const PUBLIC_CRON_WORKER = "/api/cron/google-calendar-sync";
+const PUBLIC_CRON_WORKERS = new Set(["/api/cron/google-calendar-sync", "/api/cron/follow-up-reminders"]);
 const PUBLIC_CALENDAR_FEED = /^\/api\/calendar\/follow-ups\/[A-Za-z0-9_-]+\.ics$/;
 const DEALER_LANDING_PAGE = "/dealer/access";
 const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
@@ -86,7 +86,7 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
-  if (pathname === PUBLIC_CRON_WORKER && (request.method === "GET" || request.method === "POST")) {
+  if (PUBLIC_CRON_WORKERS.has(pathname) && (request.method === "GET" || request.method === "POST")) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 

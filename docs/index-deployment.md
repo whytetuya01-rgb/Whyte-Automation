@@ -89,9 +89,10 @@ These are new, so on a production database they do not exist until the procedure
 | `CalendarEventLink`   | `calendareventlinks`   | 5                | `one_link_per_task_and_connection` (unique) is required before anyone can connect Google |
 | `QuotationRevision`   | `quotationrevisions`   | 2                | `one_record_per_quotation_revision` (unique) stops two records for one version |
 | `QuotationRevisionFile` | `quotationrevisionfiles` | 1              | Stored PDFs of issued revisions (write-once) |
+| `FollowUpReminderDigest` | `followupreminderdigests` | 1            | One morning follow-up email per person per day (the id makes repeats impossible; no index is required for that) |
 | CRM (`Lead`, `Customer`, `CrmActivity`, `LeadSource`, `CalendarFeed`, …) | see `list` | | If these collections are also new in production, run `--all-missing` |
 
-Use `list` for the authoritative current numbers (34 models, 206 declared indexes at the time of writing).
+Use `list` for the authoritative current numbers (35 models, 209 declared indexes at the time of writing).
 
 ## Transactions
 

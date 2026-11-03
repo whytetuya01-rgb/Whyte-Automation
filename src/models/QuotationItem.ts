@@ -19,6 +19,10 @@ export interface IQuotationItem extends SoftDeleteFields {
   unitPrice: mongoose.Types.Decimal128 | string;
   isCustomPrice?: boolean;
   originalUnitPrice?: mongoose.Types.Decimal128 | string | null;
+  /** Per-product discount (Admin / Company Owner): `unitPrice` is the price after it, `preDiscountUnitPrice` the price before. */
+  discountType?: "percentage" | "fixed" | null;
+  discountValue?: number | null;
+  preDiscountUnitPrice?: mongoose.Types.Decimal128 | string | null;
   priceWithoutTax?: mongoose.Types.Decimal128 | string | null;
   taxPercent?: mongoose.Types.Decimal128 | string | null;
   taxAmount?: mongoose.Types.Decimal128 | string | null;
@@ -43,6 +47,9 @@ const QuotationItemSchema = new Schema<IQuotationItemDocument>(
     unitPrice: createDecimalField({ required: true, min: 0 }),
     isCustomPrice: { type: Boolean, default: false },
     originalUnitPrice: createDecimalField({ default: null, min: 0 }),
+    discountType: { type: String, enum: ["percentage", "fixed"], default: null },
+    discountValue: { type: Number, default: null, min: 0 },
+    preDiscountUnitPrice: createDecimalField({ default: null, min: 0 }),
     priceWithoutTax: createDecimalField({ default: null, min: 0 }),
     taxPercent: createDecimalField({ default: null, min: 0 }),
     taxAmount: createDecimalField({ default: null, min: 0 }),
@@ -140,6 +147,13 @@ if (existingQuotationItemModel) {
   if (!existingQuotationItemModel.schema.path("originalUnitPrice")) {
     existingQuotationItemModel.schema.add({
       originalUnitPrice: createDecimalField({ default: null, min: 0 }),
+    });
+  }
+  if (!existingQuotationItemModel.schema.path("discountType")) {
+    existingQuotationItemModel.schema.add({
+      discountType: { type: String, enum: ["percentage", "fixed"], default: null },
+      discountValue: { type: Number, default: null, min: 0 },
+      preDiscountUnitPrice: createDecimalField({ default: null, min: 0 }),
     });
   }
 }

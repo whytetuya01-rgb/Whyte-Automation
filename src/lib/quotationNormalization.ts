@@ -2,6 +2,7 @@ import { imagesOf } from "@/lib/productImages";
 import { cleanAccessoryIds } from "@/lib/productAccessories";
 import type { Quotation, QuotationRoom, QuotationItem, QuotationItemVariantSummary, Category, RoomType, HouseType, Product, ProductVariant } from "@/types";
 import { serializeVariant } from "@/lib/productVariantService";
+import { intactItemDiscount } from "@/lib/itemDiscount";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { normalizeProductGstRate } from "@/lib/taxSettings";
 import { normalizeProductSpecs } from "@/lib/productSpecs";
@@ -252,6 +253,15 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
     ? rawOriginalUnitPrice.toFixed(2)
     : null;
 
+  // A per-product discount is shown only while the stored discount still explains the line's price.
+  const rawPreDiscount =
+    item.preDiscountUnitPrice !== undefined && item.preDiscountUnitPrice !== null
+      ? typeof item.preDiscountUnitPrice === "object" && "$numberDecimal" in item.preDiscountUnitPrice
+        ? Number(item.preDiscountUnitPrice.$numberDecimal)
+        : Number(item.preDiscountUnitPrice)
+      : null;
+  const itemDiscount = intactItemDiscount({ unitPrice, discountType: item.discountType, discountValue: item.discountValue, preDiscountUnitPrice: rawPreDiscount });
+
   return {
     ...item,
     id,
@@ -265,6 +275,9 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
     unitPrice,
     isCustomPrice,
     originalUnitPrice,
+    discountType: itemDiscount?.type ?? null,
+    discountValue: itemDiscount?.value ?? null,
+    preDiscountUnitPrice: itemDiscount ? itemDiscount.preDiscountUnitPrice.toFixed(2) : null,
     priceWithoutTax: isNaN(rawPriceWithoutTax) ? undefined : rawPriceWithoutTax.toFixed(2),
     taxPercent: isNaN(taxPercent) ? undefined : taxPercent.toFixed(2),
     taxAmount: isNaN(rawTaxAmount) ? undefined : rawTaxAmount.toFixed(2),

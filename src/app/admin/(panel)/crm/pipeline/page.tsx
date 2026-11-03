@@ -15,6 +15,8 @@ import {
   TrendingUp,
   AlertTriangle,
   CalendarClock,
+  CalendarCheck,
+  Handshake,
   Inbox,
   Tag,
   X,
@@ -33,6 +35,8 @@ import LeadDetailDrawer from "@/components/admin/crm/LeadDetailDrawer";
 import LeadModal from "@/components/admin/crm/LeadModal";
 import { TagChip, TagChips } from "@/components/admin/crm/LeadTags";
 import type { TagCount } from "@/lib/leadTags";
+import { effectiveProbability, probabilityTone, weightedValue } from "@/lib/pipelineProbability";
+import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
 
 const STAGE_OPTIONS: Array<{ id: PipelineStageId; label: string }> = [
   { id: "new", label: "New Lead" },
@@ -71,10 +75,12 @@ function followUpInfo(iso: string | null | undefined, timeZone?: string): { text
 function withCardMoved(stages: PipelineStageData[], cardId: string, target: PipelineStageId): PipelineStageData[] {
   const card = stages.flatMap((stage) => stage.items).find((item) => item.id === cardId);
   if (!card || card.stage === target) return stages;
-  const moved: OpportunityCard = { ...card, stage: target, daysInStage: 0 };
+  // A new stage starts from its own default chance (the salesperson's override belongs to the stage it was set in).
+  const probability = effectiveProbability(target, null);
+  const moved: OpportunityCard = { ...card, stage: target, daysInStage: 0, probability, probabilityOverridden: false, weightedValue: weightedValue(card.estimatedValue, probability) };
   return stages.map((stage) => {
     const items = stage.id === card.stage ? stage.items.filter((item) => item.id !== cardId) : stage.id === target ? [moved, ...stage.items] : stage.items;
-    return { ...stage, items, count: items.length, totalValue: items.reduce((sum, item) => sum + (item.estimatedValue || 0), 0) };
+    return { ...stage, items, count: items.length, totalValue: items.reduce((sum, item) => sum + (item.estimatedValue || 0), 0), weightedValue: items.reduce((sum, item) => sum + (item.weightedValue || 0), 0) };
   });
 }
 
@@ -263,6 +269,7 @@ export default function PipelinePage() {
     const openCards = open.flatMap((stage) => stage.items);
     return {
       openValue: open.reduce((sum, stage) => sum + stage.totalValue, 0),
+      expectedValue: open.reduce((sum, stage) => sum + (stage.weightedValue ?? 0), 0),
       openCount: openCards.length,
       wonValue: won?.totalValue ?? 0,
       wonCount: won?.count ?? 0,
@@ -298,7 +305,7 @@ export default function PipelinePage() {
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="pipeline-summary">
-        <SummaryTile icon={TrendingUp} label="Open pipeline" value={formatCurrency(summary.openValue)} hint={`${summary.openCount} open ${summary.openCount === 1 ? "opportunity" : "opportunities"}`} tone="bg-sky-50 text-sky-600" />
+        <SummaryTile icon={TrendingUp} label="Open pipeline" value={formatCurrency(summary.openValue)} hint={`${summary.openCount} open · ${formatCurrency(summary.expectedValue)} expected`} tone="bg-sky-50 text-sky-600" />
         <SummaryTile icon={Trophy} label="Closed won" value={formatCurrency(summary.wonValue)} hint={`${summary.wonCount} ${summary.wonCount === 1 ? "deal" : "deals"} won`} tone="bg-emerald-50 text-emerald-600" />
         <SummaryTile icon={Flame} label="Hot leads" value={String(summary.hot)} hint="Quotation viewed several times" tone="bg-amber-50 text-amber-600" />
         <SummaryTile
@@ -389,6 +396,11 @@ export default function PipelinePage() {
                       <span className="rounded-full border border-neutral-200 bg-white px-2 py-0.5 text-[11px] font-bold text-neutral-600">{stage.count}</span>
                     </div>
                     <p className="mt-0.5 font-mono text-xs font-semibold text-neutral-500">{formatCurrency(stage.totalValue)}</p>
+                    {isOpenStage(stage.id) && stage.count > 0 && (
+                      <p className="text-[10px] font-medium text-neutral-400" title="Total value weighted by each deal's chance of closing" data-testid="stage-expected">
+                        Expected {formatCurrency(stage.weightedValue ?? 0)}
+                      </p>
+                    )}
                   </header>
 
                   <div className="flex-1 space-y-2.5 overflow-y-auto px-2.5 pb-3">
@@ -402,6 +414,7 @@ export default function PipelinePage() {
                         const priority = LEAD_PRIORITY_CONFIG[card.priority] || LEAD_PRIORITY_CONFIG.medium;
                         const owner = card.assignedSalesName || card.dealerName || "Direct";
                         const followUp = isOpenStage(card.stage) ? followUpInfo(card.nextFollowUpAt, timeZone) : null;
+                        const closing = isOpenStage(card.stage) && card.expectedClosingDate ? new Date(card.expectedClosingDate) : null;
                         const stuck = isOpenStage(card.stage) && card.daysInStage >= 7;
                         return (
                           <article
@@ -448,6 +461,16 @@ export default function PipelinePage() {
                               {card.projectType && <p className="mt-0.5 truncate text-xs text-neutral-500">{card.projectType}</p>}
                             </div>
 
+                            {card.referrerName && (
+                              <p className="flex min-w-0 items-center gap-1 text-[11px] text-neutral-500" title={card.referrerType ? CUSTOMER_TYPE_LABELS[card.referrerType] : undefined} data-testid="card-referrer">
+                                <Handshake size={11} className="shrink-0 text-neutral-400" aria-hidden="true" />
+                                <span className="truncate">
+                                  {card.referrerType ? `${CUSTOMER_TYPE_LABELS[card.referrerType].split(" / ")[0]}: ` : "Via "}
+                                  <span className="font-semibold text-neutral-700">{card.referrerName}</span>
+                                </span>
+                              </p>
+                            )}
+
                             {card.tags && card.tags.length > 0 && (
                               <div onClick={(e) => e.stopPropagation()}>
                                 <TagChips tags={card.tags} max={3} onTagClick={(tag) => setTagFilter((current) => (current?.toLowerCase() === tag.toLowerCase() ? null : tag))} activeTag={tagFilter} />
@@ -468,12 +491,35 @@ export default function PipelinePage() {
                               )}
                             </div>
 
-                            {(stuck || followUp) && (
+                            {isOpenStage(card.stage) && (
+                              <div data-testid="card-probability">
+                                <div className="flex items-center justify-between gap-2 text-[10px] font-semibold text-neutral-500">
+                                  <span title={card.probabilityOverridden ? "Set on this lead" : "The stage's default chance"}>
+                                    {card.probability}% likely{card.probabilityOverridden ? " · set" : ""}
+                                  </span>
+                                  {card.estimatedValue > 0 && <span className="font-mono text-neutral-400">≈ {formatCurrency(card.weightedValue)}</span>}
+                                </div>
+                                <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-neutral-100" role="progressbar" aria-label="Chance this deal closes" aria-valuemin={0} aria-valuemax={100} aria-valuenow={card.probability}>
+                                  <div
+                                    className={cn("h-full rounded-full transition-all", probabilityTone(card.probability) === "high" ? "bg-emerald-500" : probabilityTone(card.probability) === "medium" ? "bg-amber-400" : "bg-neutral-300")}
+                                    style={{ width: `${card.probability}%` }}
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {(stuck || followUp || closing) && (
                               <div className="flex flex-wrap gap-1.5">
                                 {stuck && (
                                   <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold", card.daysInStage >= 14 ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700")}>
                                     <Clock size={10} aria-hidden="true" />
                                     {card.daysInStage}d in stage
+                                  </span>
+                                )}
+                                {closing && (
+                                  <span className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold text-neutral-600" title="Expected closing date" data-testid="card-closing">
+                                    <CalendarCheck size={10} aria-hidden="true" />
+                                    Closes {closing.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" })}
                                   </span>
                                 )}
                                 {followUp && (

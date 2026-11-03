@@ -15,9 +15,8 @@ interface DashboardCardProps {
 }
 
 /**
- * The canonical executive card shell used across the dashboard.
- * Designed with Linear / Stripe aesthetics: clean white surface, subtle micro-shadow,
- * crisp border, and structured typography.
+ * Premium Executive Card shell with subtle specular highlights,
+ * micro-elevation, and refined action links.
  */
 export default function DashboardCard({
   title,
@@ -32,26 +31,27 @@ export default function DashboardCard({
   return (
     <section
       className={cn(
-        "bg-white rounded-2xl border border-[#E5E5E7] flex flex-col min-w-0",
-        "shadow-[0_1px_3px_0_rgba(0,0,0,0.02)] transition-all duration-200",
+        "group/card bg-white rounded-2xl border border-[#E5E5E7] flex flex-col min-w-0 overflow-hidden",
+        "shadow-[0_2px_8px_-2px_rgba(0,0,0,0.03),0_1px_2px_0_rgba(0,0,0,0.02)]",
+        "hover:shadow-[0_12px_28px_-8px_rgba(0,0,0,0.06)] hover:border-neutral-300/80 transition-all duration-300",
         className
       )}
     >
-      <header className="flex items-start justify-between gap-3 px-5 pt-5 pb-3.5 border-b border-[#F0F0F2]">
+      <header className="flex items-start justify-between gap-3 px-5 pt-5 pb-3.5 border-b border-[#F0F0F2] bg-gradient-to-b from-white to-[#FAFAFB]">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             {Icon && (
-              <span className="w-6 h-6 rounded-lg bg-[#F6F6F7] border border-[#E5E5E7] flex items-center justify-center shrink-0 text-[#5F5F68]">
+              <span className="w-6 h-6 rounded-lg bg-[#F6F6F7] border border-[#E5E5E7] flex items-center justify-center shrink-0 text-[#5F5F68] group-hover/card:text-[var(--color-admin-primary,#D85B83)] group-hover/card:border-[var(--color-admin-primary-border,#F1B8C8)] transition-colors">
                 <Icon size={13} aria-hidden="true" />
               </span>
             )}
-            <h2 className="text-sm font-semibold text-[#111111] tracking-tight leading-tight flex items-center gap-2">
+            <h2 className="text-sm font-bold text-[#111111] tracking-tight leading-tight flex items-center gap-2">
               <span>{title}</span>
               {badge}
             </h2>
           </div>
           {description && (
-            <p className="text-xs text-[#8A8A93] mt-0.5 font-normal leading-relaxed">
+            <p className="text-xs text-[#8A8A93] mt-0.5 font-normal leading-normal truncate">
               {description}
             </p>
           )}
@@ -60,15 +60,15 @@ export default function DashboardCard({
         {action && (
           <Link
             href={action.href}
-            className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-[#5F5F68] hover:text-[#111111] hover:underline underline-offset-2 transition-colors self-center"
+            className="group/link shrink-0 inline-flex items-center gap-1 text-xs font-bold text-[var(--color-admin-primary-foreground,#B83E68)] hover:text-[#111111] transition-colors"
           >
             <span>{action.label}</span>
-            <ArrowRight size={13} aria-hidden="true" />
+            <ArrowRight size={12} className="transition-transform duration-200 group-hover/link:translate-x-0.5" />
           </Link>
         )}
       </header>
 
-      <div className={cn("flex-1 min-w-0", flush ? "" : "p-5")}>
+      <div className={cn("flex-1 min-w-0", !flush && "p-5")}>
         {children}
       </div>
     </section>

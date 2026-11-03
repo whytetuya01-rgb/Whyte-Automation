@@ -4,7 +4,7 @@ import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { updateLeadSchema } from "@/lib/validation/crm";
-import { assertValidLeadAssignees, crmVisibilityFilter, recordCrmActivity, resolveLeadReferences } from "@/lib/crmService";
+import { assertValidLeadAssignees, assertValidReferrer, crmVisibilityFilter, recordCrmActivity, resolveLeadReferences } from "@/lib/crmService";
 import { withRequiredTransaction } from "@/lib/transaction";
 import { kickCalendarSync } from "@/lib/googleCalendar/kick";
 import { applyLeadFormFollowUp } from "@/lib/followUpService";
@@ -33,6 +33,7 @@ export async function GET(_req: Request, context: RouteContext) {
         .populate({ path: "assignedSales", select: "name firstName lastName email contactNumber" })
         .populate({ path: "dealer", select: "name firstName lastName companyName contactNumber" })
         .populate({ path: "customer" })
+        .populate({ path: "referrer", select: "name customerType companyName phone" })
         .populate({ path: "convertedQuotation", select: "quotationNumber status discountType discountValue" })
         .lean();
 
@@ -157,6 +158,17 @@ export async function PATCH(req: Request, context: RouteContext) {
         }
         if (input.notes !== undefined) {
           lead.notes = input.notes;
+        }
+        if (input.probability !== undefined && input.probability !== (lead.probability ?? null)) {
+          lead.probability = input.probability;
+          changes.push(input.probability === null ? "Win probability reset to the stage default" : `Win probability set to ${input.probability}%`);
+        }
+        if (input.referrerId !== undefined && input.referrerId !== (lead.referrerId ?? null)) {
+          if (input.referrerId !== null) {
+            await assertValidReferrer({ companyId, role, userId, referrerId: input.referrerId, customerId: lead.customerId });
+          }
+          lead.referrerId = input.referrerId;
+          changes.push(input.referrerId === null ? "Referring contact removed" : "Referring contact changed");
         }
         if (input.tags !== undefined && input.tags.join("\u0000") !== (lead.tags ?? []).join("\u0000")) {
           lead.tags = input.tags;

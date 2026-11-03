@@ -27,6 +27,7 @@ export async function GET(req: Request) {
       const pagination = parsePaginationParams(searchParams);
       const search = parseSearchQueryParam(searchParams, "search");
       const customerType = parseStringQueryParam(searchParams, "customerType", { max: 30 });
+      const tag = parseStringQueryParam(searchParams, "tag", { max: 60 });
       // "name" = A to Z (for pick lists); default = newest first.
       const sort = parseStringQueryParam(searchParams, "sort", { max: 10, allowed: ["name", "recent"] });
       const salesId = parseIntQueryParam(searchParams, "assignedSalesId");
@@ -35,11 +36,12 @@ export async function GET(req: Request) {
       // Visibility and every requested filter must all hold: a parameter can only narrow the result.
       const requested: Array<Record<string, unknown>> = [];
       if (customerType && customerType !== "all") requested.push({ customerType });
+      if (tag) requested.push({ tags: new RegExp(`^${tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`, "i") });
       if (salesId) requested.push({ assignedSalesId: salesId });
       if (dealerId) requested.push({ dealerId });
       if (search) {
         const rx = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i");
-        requested.push({ $or: [{ name: rx }, { phone: rx }, { email: rx }, { gstNumber: rx }, { billingAddress: rx }, { siteAddress: rx }] });
+        requested.push({ $or: [{ name: rx }, { companyName: rx }, { phone: rx }, { email: rx }, { gstNumber: rx }, { billingAddress: rx }, { siteAddress: rx }] });
       }
       const query = scopedQuery(companyId, crmVisibilityFilter({ role, userId }), requested);
 
@@ -124,6 +126,9 @@ export async function POST(req: Request) {
           siteAddress: input.siteAddress ?? null,
           gstNumber: input.gstNumber ?? null,
           customerType: input.customerType,
+          companyName: input.companyName ?? null,
+          designation: input.designation ?? null,
+          tags: input.tags ?? [],
           assignedSalesId: input.assignedSalesId ?? null,
           dealerId,
           notes: input.notes ?? null,

@@ -2,18 +2,30 @@ import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import type { QuotationStatus } from "@/types";
 import { STATUS_ORDER, STATUS_STYLE } from "./statusStyle";
+import { formatCurrency } from "@/lib/utils";
+
+interface StatusSummaryProps {
+  counts: Record<QuotationStatus, number>;
+  total: number;
+  totalValue?: number;
+  pendingValue?: number;
+  approvedValue?: number;
+  averageValue?: number;
+}
 
 /**
  * Executive Lifecycle Funnel Distribution widget.
- * Features proportional segmented bars, progress percentage meters, and clean interactive status rows.
+ * Features proportional segmented bars, progress percentage meters, itemized status rows,
+ * and comprehensive quotation pipeline values.
  */
 export default function StatusSummary({
   counts,
   total,
-}: {
-  counts: Record<QuotationStatus, number>;
-  total: number;
-}) {
+  totalValue,
+  pendingValue,
+  approvedValue,
+  averageValue,
+}: StatusSummaryProps) {
   if (total === 0) {
     return (
       <div className="py-8 text-center bg-[#F6F6F7]/60 rounded-xl border border-dashed border-[#E5E5E7] p-4">
@@ -87,6 +99,24 @@ export default function StatusSummary({
           );
         })}
       </ul>
+
+      {/* Financials & Value Summary */}
+      <div className="space-y-1.5 pt-1 border-t border-[#F0F0F2]">
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-[#8A8A93]">Total Pipeline Value</span>
+          <span className="font-bold text-[#111111] tabular-nums">
+            {formatCurrency(totalValue ?? (approvedValue ?? 0) + (pendingValue ?? 0))}
+          </span>
+        </div>
+        {averageValue !== undefined && averageValue > 0 && (
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="text-[#8A8A93]">Average Quotation Value</span>
+            <span className="font-semibold text-[#5F5F68] tabular-nums">
+              {formatCurrency(averageValue)}
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Footer Total */}
       <div className="flex items-center justify-between rounded-xl bg-[#F6F6F7] px-3.5 py-2.5 text-xs border border-[#E5E5E7]">

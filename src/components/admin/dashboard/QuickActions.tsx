@@ -1,7 +1,6 @@
 import Link from "next/link";
 import {
   Building2,
-  ChevronRight,
   DoorOpen,
   FolderTree,
   Home,
@@ -53,32 +52,18 @@ export default function QuickActions() {
       </Link>
 
       {/* Grid of Secondary Shortcuts */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         {ACTIONS.map(({ href, label, description, icon: Icon }) => (
           <Link
             key={href}
             href={href}
-            className="group flex items-center justify-between p-2.5 rounded-xl border border-[#E5E5E7] bg-white hover:border-neutral-300 hover:bg-[#F6F6F7]/60 hover:shadow-2xs transition-all duration-150 min-w-0"
+            title={`${label}: ${description}`}
+            className="group flex min-w-0 flex-col items-center gap-1.5 rounded-xl border border-[#E5E5E7] bg-white px-1.5 py-3 text-center transition-all duration-150 hover:border-neutral-300 hover:bg-[#F6F6F7]/60 hover:shadow-2xs"
           >
-            <div className="flex items-center gap-2.5 min-w-0 truncate">
-              <span className="w-8 h-8 rounded-lg bg-[#F6F6F7] border border-[#E5E5E7] group-hover:bg-white group-hover:border-neutral-300 group-hover:text-[var(--color-admin-primary,#D85B83)] text-[#5F5F68] flex items-center justify-center shrink-0 transition-colors shadow-2xs">
-                <Icon size={14} aria-hidden="true" />
-              </span>
-              <div className="min-w-0 truncate">
-                <div className="text-xs font-semibold text-[#111111] group-hover:text-black truncate leading-tight">
-                  {label}
-                </div>
-                <div className="text-[10px] text-[#8A8A93] truncate mt-0.5 font-normal">
-                  {description}
-                </div>
-              </div>
-            </div>
-
-            <ChevronRight
-              size={13}
-              className="text-[#8A8A93] group-hover:text-[#111111] group-hover:translate-x-0.5 transition-all shrink-0 ml-1"
-              aria-hidden="true"
-            />
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#E5E5E7] bg-[#F6F6F7] text-[#5F5F68] transition-colors group-hover:border-neutral-300 group-hover:bg-white group-hover:text-[var(--color-admin-primary,#D85B83)]">
+              <Icon size={14} aria-hidden="true" />
+            </span>
+            <span className="line-clamp-2 text-[11px] font-semibold leading-tight text-[#111111]">{label}</span>
           </Link>
         ))}
       </div>

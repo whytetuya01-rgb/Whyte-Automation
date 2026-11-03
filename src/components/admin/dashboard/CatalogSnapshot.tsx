@@ -9,20 +9,13 @@ export const TYPE_LABELS: Record<string, string> = {
   other: "Other Devices",
 };
 
-const BAR_COLORS = [
-  "var(--color-admin-primary, #D85B83)",
-  "#111111",
-  "#475569",
-  "#059669",
-  "#D97706",
-  "#8A8A93",
-];
+const BAR_COLOR = "var(--color-admin-primary, #D85B83)";
 
 /**
  * Compact catalog health widget: product stats and hardware-type distribution.
  * Rendered with architectural clean meters and high-contrast typography.
  */
-export default function CatalogSnapshot({ catalog }: { catalog: DashboardData["catalog"] }) {
+export default function CatalogSnapshot({ catalog, maxTypes }: { catalog: DashboardData["catalog"]; /** Show this many types and fold the rest into "Other". */ maxTypes?: number }) {
   if (catalog.totalProducts === 0) {
     return (
       <div className="py-8 text-center bg-[#F6F6F7]/60 rounded-xl border border-dashed border-[#E5E5E7] p-4">
@@ -39,6 +32,18 @@ export default function CatalogSnapshot({ catalog }: { catalog: DashboardData["c
     { label: "Series", value: catalog.seriesCount },
   ];
 
+  const sorted = [...catalog.typeBreakdown].sort((a, b) => b.count - a.count);
+  const types =
+    maxTypes && sorted.length > maxTypes
+      ? [
+          ...sorted.slice(0, maxTypes - 1),
+          sorted.slice(maxTypes - 1).reduce(
+            (other, item) => ({ type: "other", count: other.count + item.count, percent: other.percent + item.percent }),
+            { type: "other", count: 0, percent: 0 }
+          ),
+        ]
+      : sorted;
+
   return (
     <div className="space-y-4">
       {/* 4 Stat Metric Pills */}
@@ -46,14 +51,14 @@ export default function CatalogSnapshot({ catalog }: { catalog: DashboardData["c
         {stats.map((stat) => (
           <div key={stat.label} className="text-center p-2 rounded-xl bg-[#F6F6F7]/60 border border-[#E5E5E7]">
             <dd className="text-sm sm:text-base font-semibold text-[#111111] tabular-nums">{stat.value}</dd>
-            <dt className="text-[10px] text-[#8A8A93] font-medium uppercase tracking-wider mt-0.5">{stat.label}</dt>
+            <dt className="mt-0.5 truncate text-[10px] font-medium text-[#8A8A93]">{stat.label}</dt>
           </div>
         ))}
       </dl>
 
       {/* Hardware Distribution Breakdown */}
       <ul className="space-y-2.5 pt-1">
-        {catalog.typeBreakdown.map((item, index) => (
+        {types.map((item) => (
           <li key={item.type} className="text-xs space-y-1">
             <div className="flex items-center justify-between text-[#5F5F68]">
               <span className="font-medium text-[#111111] truncate">{TYPE_LABELS[item.type] ?? item.type}</span>
@@ -66,7 +71,7 @@ export default function CatalogSnapshot({ catalog }: { catalog: DashboardData["c
                 className="h-full rounded-full transition-all duration-300"
                 style={{
                   width: `${item.percent}%`,
-                  backgroundColor: BAR_COLORS[index % BAR_COLORS.length],
+                  backgroundColor: BAR_COLOR,
                 }}
               />
             </div>

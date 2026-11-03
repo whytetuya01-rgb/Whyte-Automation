@@ -5,7 +5,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
-import { AlertTriangle, ArrowLeft, Check, Clock, Home, Save, X, WifiOff, Database } from "lucide-react";
+import { useSession } from "next-auth/react";
+import { AlertTriangle, ArrowLeft, Check, Clock, Copy, Home, Save, X, WifiOff, Database } from "lucide-react";
+import CloneQuotationModal, { type CloneSource } from "@/components/admin/quotations/CloneQuotationModal";
 import {
   Quotation,
   EditorCatalogProduct,
@@ -106,6 +108,26 @@ export default function ProposalBuilder({
   const [categories, setCategories] = useState<Category[]>(normalizeCategories(initialCategories));
   const [roomTypes, setRoomTypes] = useState<RoomType[]>(normalizeRoomTypes(initialRoomTypes));
   const [company, setCompany] = useState<Company | null>(initialCompany);
+
+  // "Clone this quotation": the dialog and, for Admins, the dealers a clone can be given to.
+  const { data: authSession } = useSession();
+  const sessionRole = (authSession?.user as { role?: string } | undefined)?.role;
+  const canChooseCloneOwner = sessionRole === "super_admin" || sessionRole === "company_owner" || sessionRole === "admin";
+  const [cloneSource, setCloneSource] = useState<CloneSource | null>(null);
+  const [cloneDealers, setCloneDealers] = useState<Array<{ value: string; label: string }>>([]);
+  const openCloneDialog = () => {
+    if (!quotation?.id) return;
+    setCloneSource({ id: String(quotation.id), quotationNumber: String(quotation.quotationNumber ?? "quotation"), clientName: String(quotation.clientName ?? "this client") });
+    if (canChooseCloneOwner && cloneDealers.length === 0) {
+      fetch("/api/admin/dealers?pageSize=100")
+        .then((response) => (response.ok ? response.json() : null))
+        .then((body) => {
+          const list = Array.isArray(body?.data) ? body.data : [];
+          setCloneDealers(list.map((dealer: { id: number; name?: string | null; email?: string }) => ({ value: String(dealer.id), label: dealer.name || dealer.email || "Dealer" })));
+        })
+        .catch(() => {});
+    }
+  };
 
   // Fetch status ref to guard against redundant/duplicate network fetches
   const fetchStatusRef = useRef({
@@ -794,6 +816,10 @@ export default function ProposalBuilder({
     if (!quotation?.id) return false;
 
     if (isOfflineDraft && offlineDraft) {
+      if (data.discountType !== undefined) {
+        toast.error("Product discounts need a connection. Go online to give one.");
+        return false;
+      }
       const nextRooms = (quotation.rooms || []).map((room) => {
         const nextItems = (room.items || []).map((item) => {
           if (Number(item.id ?? (item as any)._id) !== Number(itemId)) return item;
@@ -1258,6 +1284,20 @@ export default function ProposalBuilder({
             </div>
           ) : null}
 
+          {quotation?.id && !isOfflineDraft && (
+            <button
+              type="button"
+              onClick={openCloneDialog}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
+              title="Clone this quotation into a new draft"
+              aria-label="Clone this quotation"
+              data-testid="builder-clone"
+            >
+              <Copy size={14} aria-hidden="true" />
+              <span className="hidden sm:inline">Clone</span>
+            </button>
+          )}
+
           <Link
             href={isOfflineDraft ? "/quotations" : "/"}
             className="hidden sm:inline-flex px-3.5 py-1.5 rounded-xl border border-gray-200 text-xs font-semibold text-gray-700 hover:bg-gray-50 transition"
@@ -1266,6 +1306,15 @@ export default function ProposalBuilder({
           </Link>
         </div>
       </div>
+
+      {quotation?.id && !isOfflineDraft && (
+        <CloneQuotationModal
+          source={cloneSource}
+          dealerOptions={cloneDealers}
+          canChooseOwner={canChooseCloneOwner}
+          onClose={() => setCloneSource(null)}
+        />
+      )}
 
       {/* Offline Draft Banner */}
       {isOfflineDraft && (

@@ -8,6 +8,8 @@ import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import type { Customer, CustomerType } from "@/types/crm";
 import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
+import { TagInput } from "@/components/admin/crm/LeadTags";
+import type { TagCount } from "@/lib/leadTags";
 
 interface CustomerModalProps {
   isOpen: boolean;
@@ -31,6 +33,10 @@ export default function CustomerModal({ isOpen, onClose, onSaved, customer }: Cu
   const [assignedSalesId, setAssignedSalesId] = useState("");
   const [dealerId, setDealerId] = useState("");
   const [notes, setNotes] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [designation, setDesignation] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagSuggestions, setTagSuggestions] = useState<TagCount[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   // Dropdowns
@@ -66,8 +72,16 @@ export default function CustomerModal({ isOpen, onClose, onSaved, customer }: Cu
       })
       .catch(() => {});
 
+    apiJson
+      .get<{ tags: TagCount[] }>("/api/crm/customer-tags")
+      .then((res) => setTagSuggestions(Array.isArray(res?.tags) ? res.tags : []))
+      .catch(() => setTagSuggestions([]));
+
     if (customer) {
       setName(customer.name || "");
+      setCompanyName(customer.companyName || "");
+      setDesignation(customer.designation || "");
+      setTags(Array.isArray(customer.tags) ? customer.tags : []);
       setCustomerType(customer.customerType || "individual");
       setPhone(customer.phone || "");
       setWhatsapp(customer.whatsapp || "");
@@ -81,6 +95,9 @@ export default function CustomerModal({ isOpen, onClose, onSaved, customer }: Cu
       setNotes(customer.notes || "");
     } else {
       setName("");
+      setCompanyName("");
+      setDesignation("");
+      setTags([]);
       setCustomerType("individual");
       setPhone("");
       setSameWhatsapp(true);
@@ -107,6 +124,10 @@ export default function CustomerModal({ isOpen, onClose, onSaved, customer }: Cu
       const payload = {
         name: name.trim(),
         customerType,
+        // Editing sends null for an emptied field so it clears; creating leaves it out.
+        companyName: companyName.trim() || (isEditing ? null : undefined),
+        designation: designation.trim() || (isEditing ? null : undefined),
+        tags: isEditing ? tags : tags.length ? tags : undefined,
         phone: phone.trim() || undefined,
         whatsapp: (sameWhatsapp ? phone.trim() : whatsapp.trim()) || undefined,
         email: email.trim() || undefined,
@@ -161,6 +182,23 @@ export default function CustomerModal({ isOpen, onClose, onSaved, customer }: Cu
               value: val,
               label: lbl,
             }))}
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Input
+            label="Firm / Company"
+            value={companyName}
+            onChange={(e) => setCompanyName(e.target.value)}
+            placeholder="e.g. Studio Nine Architects"
+            className="text-sm"
+          />
+          <Input
+            label="Designation"
+            value={designation}
+            onChange={(e) => setDesignation(e.target.value)}
+            placeholder="e.g. Principal Architect, Site Engineer"
+            className="text-sm"
           />
         </div>
 
@@ -258,6 +296,8 @@ export default function CustomerModal({ isOpen, onClose, onSaved, customer }: Cu
             ]}
           />
         </div>
+
+        <TagInput value={tags} onChange={setTags} suggestions={tagSuggestions} />
 
         <Textarea
           label="Internal Notes"

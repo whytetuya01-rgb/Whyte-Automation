@@ -28,6 +28,8 @@ export interface ILead extends SoftDeleteFields {
   priority: LeadPriority;
   notes: string | null;
   tags: string[];
+  probability: number | null;
+  referrerId: number | null;
   lastContactedAt: Date | null;
   nextFollowUpAt: Date | null;
   convertedQuotationId: string | null;
@@ -76,6 +78,8 @@ const LeadSchema = new Schema<ILeadDocument>(
     },
     notes: { type: String, default: null },
     tags: { type: [String], default: [] },
+    probability: { type: Number, default: null, min: 0, max: 100 },
+    referrerId: { type: Number, ref: "Customer", default: null, index: true },
     lastContactedAt: { type: Date, default: null },
     nextFollowUpAt: { type: Date, default: null, index: true },
     convertedQuotationId: { type: String, ref: "Quotation", default: null, index: true },
@@ -131,6 +135,14 @@ LeadSchema.virtual("assignedSales", {
 LeadSchema.virtual("dealer", {
   ref: "AdminUser",
   localField: "dealerId",
+  foreignField: "_id",
+  justOne: true,
+});
+
+// The architect / builder / contractor / dealer contact tied to this project
+LeadSchema.virtual("referrer", {
+  ref: "Customer",
+  localField: "referrerId",
   foreignField: "_id",
   justOne: true,
 });

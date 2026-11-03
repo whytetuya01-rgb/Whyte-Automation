@@ -34,7 +34,7 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
   if (peakValue === 0) {
     return (
       <div className="h-56 flex flex-col items-center justify-center text-center p-6 bg-[#F6F6F7]/60 rounded-xl border border-dashed border-[#E5E5E7]">
-        <p className="text-sm font-medium text-[#111111]">No activity recorded for this period</p>
+        <p className="text-sm font-semibold text-[#111111]">No activity recorded for this period</p>
         <p className="text-xs text-[#8A8A93] mt-1 max-w-sm">
           Periodic revenue and quotation volume trends will be graphed here as proposals are issued and approved.
         </p>
@@ -58,21 +58,21 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
         <div className="flex items-center gap-4 text-xs font-normal">
           <div className="flex items-center gap-1.5">
             <span className="text-[#8A8A93]">Period Won:</span>
-            <span className="font-semibold text-emerald-800 tracking-tight">{formatCurrency(totalRevenue)}</span>
+            <span className="font-bold text-emerald-800 tracking-tight tabular-nums">{formatCurrency(totalRevenue)}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <span className="text-[#8A8A93]">Quotations:</span>
-            <span className="font-semibold text-[#111111]">{totalVolume}</span>
+            <span className="font-bold text-[#111111] tabular-nums">{totalVolume}</span>
           </div>
         </div>
 
-        <div className="inline-flex bg-[#F6F6F7] p-0.5 rounded-lg border border-[#E5E5E7] text-xs self-start sm:self-auto">
+        <div className="inline-flex bg-[#F6F6F7] p-1 rounded-xl border border-[#E5E5E7] text-xs self-start sm:self-auto shadow-2xs">
           <button
             type="button"
             onClick={() => setMetricMode("revenue")}
-            className={`px-2.5 py-1 rounded-md transition cursor-pointer text-xs ${
+            className={`px-3 py-1 rounded-lg transition-all duration-200 cursor-pointer text-xs ${
               metricMode === "revenue"
-                ? "bg-white text-[#111111] font-semibold shadow-2xs"
+                ? "bg-white text-[#111111] font-bold shadow-xs scale-[1.02]"
                 : "text-[#5F5F68] hover:text-[#111111] font-medium"
             }`}
           >
@@ -81,9 +81,9 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
           <button
             type="button"
             onClick={() => setMetricMode("volume")}
-            className={`px-2.5 py-1 rounded-md transition cursor-pointer text-xs ${
+            className={`px-3 py-1 rounded-lg transition-all duration-200 cursor-pointer text-xs ${
               metricMode === "volume"
-                ? "bg-white text-[#111111] font-semibold shadow-2xs"
+                ? "bg-white text-[#111111] font-bold shadow-xs scale-[1.02]"
                 : "text-[#5F5F68] hover:text-[#111111] font-medium"
             }`}
           >
@@ -98,11 +98,22 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
         role="img"
         aria-label="Quotation activity trend"
       >
+        <defs>
+          <linearGradient id="revenueBarGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#10B981" />
+            <stop offset="100%" stopColor="#047857" />
+          </linearGradient>
+          <linearGradient id="volumeBarGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-admin-primary, #D85B83)" />
+            <stop offset="100%" stopColor="#8A2B4D" />
+          </linearGradient>
+        </defs>
+
         {/* Horizontal gridlines */}
         {ticks.map((tick) => (
           <g key={tick}>
             <line x1={PAD.left} x2={WIDTH - PAD.right} y1={y(tick)} y2={y(tick)} stroke="#F0F0F2" strokeWidth={1} />
-            <text x={PAD.left - 8} y={y(tick) + 3.5} textAnchor="end" fontSize={10} fill="#8A8A93" fontFamily="inherit">
+            <text x={PAD.left - 8} y={y(tick) + 3.5} textAnchor="end" fontSize={10} fill="#8A8A93" fontFamily="inherit" className="tabular-nums">
               {metricMode === "revenue"
                 ? tick >= 100000
                   ? `₹${(tick / 100000).toFixed(1)}L`
@@ -114,7 +125,7 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
           </g>
         ))}
 
-        {/* Bars */}
+        {/* Bars with Smooth Hover Transitions */}
         {trend.map((bucket, index) => {
           const x = PAD.left + slot * index + (slot - barW) / 2;
 
@@ -129,9 +140,9 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
                   y={top}
                   width={barW}
                   height={Math.max(barH, 2)}
-                  rx={3}
-                  fill="#10B981"
-                  className="transition-opacity hover:opacity-85"
+                  rx={4}
+                  fill="url(#revenueBarGrad)"
+                  className="transition-all duration-200 group-hover:brightness-110 group-hover:opacity-90"
                 >
                   <title>{`${bucket.label}: ${formatCurrency(rev)} (${bucket.total} quotations)`}</title>
                 </rect>
@@ -141,14 +152,15 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
                     y={Math.max(top - 4, PAD.top)}
                     textAnchor="middle"
                     fontSize={9}
-                    fontWeight={500}
+                    fontWeight={600}
                     fill="#059669"
                     fontFamily="inherit"
+                    className="tabular-nums"
                   >
                     {rev >= 100000 ? `${(rev / 100000).toFixed(1)}L` : rev >= 1000 ? `${(rev / 1000).toFixed(0)}k` : rev}
                   </text>
                 )}
-                <text x={x + barW / 2} y={HEIGHT - 8} textAnchor="middle" fontSize={10} fill="#8A8A93" fontFamily="inherit">
+                <text x={x + barW / 2} y={HEIGHT - 8} textAnchor="middle" fontSize={10} fill="#8A8A93" fontFamily="inherit" className="font-medium">
                   {bucket.label}
                 </text>
               </g>
@@ -158,7 +170,7 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
           // Volume mode: Stacked by status
           let cursor = 0;
           return (
-            <g key={bucket.key}>
+            <g key={bucket.key} className="group cursor-pointer">
               {STATUS_ORDER.map((status) => {
                 const count = bucket.byStatus[status] || 0;
                 if (count === 0) return null;
@@ -174,17 +186,13 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
                     height={Math.max(barH - 1, 1)}
                     rx={2}
                     fill={STATUS_STYLE[status].color}
+                    className="transition-opacity group-hover:opacity-90"
                   >
                     <title>{`${bucket.label} · ${STATUS_STYLE[status].label}: ${count}`}</title>
                   </rect>
                 );
               })}
-              {bucket.total > 0 && (
-                <text x={x + barW / 2} y={y(bucket.total) - 4} textAnchor="middle" fontSize={10} fontWeight={600} fill="#111111" fontFamily="inherit">
-                  {bucket.total}
-                </text>
-              )}
-              <text x={x + barW / 2} y={HEIGHT - 8} textAnchor="middle" fontSize={10} fill="#8A8A93" fontFamily="inherit">
+              <text x={x + barW / 2} y={HEIGHT - 8} textAnchor="middle" fontSize={10} fill="#8A8A93" fontFamily="inherit" className="font-medium">
                 {bucket.label}
               </text>
             </g>
@@ -192,25 +200,17 @@ export default function RevenueTrendChart({ trend }: RevenueTrendChartProps) {
         })}
       </svg>
 
-      {/* Legend */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#F0F0F2] text-[11px] text-[#5F5F68]">
-        {metricMode === "volume" ? (
-          <ul className="flex flex-wrap gap-x-4 gap-y-1">
-            {STATUS_ORDER.map((status) => (
-              <li key={status} className="inline-flex items-center gap-1.5 font-medium">
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_STYLE[status].color }} />
-                <span>{STATUS_STYLE[status].label}</span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <div className="inline-flex items-center gap-1.5 font-medium">
-            <span className="w-2.5 h-2.5 rounded-xs bg-emerald-500" />
-            <span>Approved Quotation Value (Revenue Inflow)</span>
-          </div>
-        )}
-        <span className="text-[10px] text-[#8A8A93]">Values in INR (₹)</span>
-      </div>
+      {/* Legend for Status in Volume Mode */}
+      {metricMode === "volume" && (
+        <div className="flex flex-wrap items-center justify-center gap-3 pt-2 text-[11px] text-[#5F5F68]">
+          {STATUS_ORDER.map((status) => (
+            <div key={status} className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full shadow-2xs" style={{ backgroundColor: STATUS_STYLE[status].color }} />
+              <span className="font-medium">{STATUS_STYLE[status].label}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

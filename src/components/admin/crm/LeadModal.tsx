@@ -7,6 +7,8 @@ import IndiaPhoneInput from "@/components/ui/IndiaPhoneInput";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import type { Customer, Lead, LeadPriority, LeadSource, LeadStatus } from "@/types/crm";
+import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
+import { STAGE_PROBABILITY } from "@/lib/pipelineProbability";
 import { TagInput } from "@/components/admin/crm/LeadTags";
 import type { TagCount } from "@/lib/leadTags";
 
@@ -56,6 +58,9 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
   const [dealerId, setDealerId] = useState("");
   const [notes, setNotes] = useState("");
   const [tags, setTags] = useState<string[]>([]);
+  const [probability, setProbability] = useState("");
+  const [referrerId, setReferrerId] = useState("");
+  const [contacts, setContacts] = useState<Array<{ id: number; label: string }>>([]);
   const [tagSuggestions, setTagSuggestions] = useState<TagCount[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -113,6 +118,21 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       .get<{ tags: TagCount[] }>("/api/crm/lead-tags")
       .then((res) => setTagSuggestions(Array.isArray(res?.tags) ? res.tags : []))
       .catch(() => setTagSuggestions([]));
+    // Architects, builders, contractors, dealers and designers a lead can be tied to (nothing is shown to roles that cannot read contacts).
+    apiJson
+      .get<{ data: Array<{ id: number; name: string; customerType: string; companyName?: string | null }> }>("/api/crm/customers?pageSize=100&sort=name")
+      .then((res) => {
+        const professional = new Set(["architect", "builder", "interior_designer", "contractor", "dealer"]);
+        setContacts(
+          (res?.data ?? [])
+            .filter((c) => professional.has(c.customerType))
+            .map((c) => ({
+              id: c.id,
+              label: `${c.name} (${(CUSTOMER_TYPE_LABELS as Record<string, string>)[c.customerType]?.split(" / ")[0] ?? c.customerType}${c.companyName ? ` · ${c.companyName}` : ""})`,
+            }))
+        );
+      })
+      .catch(() => setContacts([]));
     setOwnerTouched(false);
     setCurrentOwner(null);
 
@@ -138,6 +158,8 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setDealerId(lead.dealerId ? String(lead.dealerId) : "");
       setNotes(lead.notes || "");
       setTags(Array.isArray(lead.tags) ? lead.tags : []);
+      setProbability(lead.probability != null ? String(lead.probability) : "");
+      setReferrerId(lead.referrerId ? String(lead.referrerId) : "");
     } else {
       // Defaults for new lead (an existing customer's details when the lead is for them)
       setCustomerName(customer?.name ?? "");
@@ -158,6 +180,8 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
       setAssignedSalesId("");
       setDealerId("");
       setTags([]);
+      setProbability("");
+      setReferrerId("");
       setNotes("");
     }
   }, [isOpen, lead, customer]);
@@ -220,6 +244,9 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
         notes: notes.trim() || undefined,
         // Editing always sends the list so removing every tag clears them.
         tags: isEditing ? tags : tags.length ? tags : undefined,
+        // Empty = the stage's default chance (editing sends null so a set value clears).
+        probability: probability.trim() === "" ? (isEditing ? null : undefined) : Math.min(100, Math.max(0, Math.round(Number(probability)))),
+        referrerId: referrerId ? Number(referrerId) : isEditing ? null : undefined,
       };
 
       if (isEditing && lead) {
@@ -443,6 +470,37 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
                 ...dealersList.map((d) => ({ value: String(d.id), label: d.name })),
               ]}
             />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <Input
+                label="Win Probability (%)"
+                type="number"
+                min={0}
+                max={100}
+                step={5}
+                value={probability}
+                onChange={(e) => setProbability(e.target.value)}
+                placeholder={`Stage default: ${STAGE_PROBABILITY[status]}%`}
+                className="text-sm"
+              />
+              <p className="mt-1 text-[11px] text-neutral-400">Leave empty to use the stage's default chance. It resets when the lead moves to another stage.</p>
+            </div>
+            {(contacts.length > 0 || referrerId) && (
+              <Select
+                label="Architect / Builder / Contractor / Dealer"
+                value={referrerId}
+                onChange={(e) => setReferrerId(e.target.value)}
+                options={[
+                  { value: "", label: "— None —" },
+                  ...(referrerId && !contacts.some((c) => String(c.id) === referrerId)
+                    ? [{ value: referrerId, label: lead?.referrer ? `${lead.referrer.name}` : `Contact #${referrerId}` }]
+                    : []),
+                  ...contacts.map((c) => ({ value: String(c.id), label: c.label })),
+                ]}
+              />
+            )}
           </div>
 
           <TagInput value={tags} onChange={setTags} suggestions={tagSuggestions} />

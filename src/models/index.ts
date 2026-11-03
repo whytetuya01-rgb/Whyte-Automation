@@ -35,6 +35,13 @@ export {
   type ICalendarEventLinkDocument,
 } from "./CalendarEventLink";
 export {
+  FollowUpReminderDigest,
+  FOLLOW_UP_DIGEST_STATUSES,
+  type FollowUpDigestStatus,
+  type IFollowUpReminderDigest,
+  type IFollowUpReminderDigestDocument,
+} from "./FollowUpReminderDigest";
+export {
   FollowUpTask,
   FOLLOW_UP_TASK_STATUSES,
   FOLLOW_UP_TASK_ORIGINS,

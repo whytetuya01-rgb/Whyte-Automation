@@ -26,6 +26,8 @@ import { LEAD_PRIORITY_CONFIG, LEAD_STATUS_CONFIG } from "@/types/crm";
 import ActivityTimeline from "./ActivityTimeline";
 import { TagChips } from "./LeadTags";
 import { formatCurrency } from "@/lib/utils";
+import { effectiveProbability, weightedValue } from "@/lib/pipelineProbability";
+import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
 import { normalizeWhatsAppNumber } from "@/lib/quotationDeliveryShared";
 
 interface LeadDetailDrawerProps {
@@ -319,9 +321,27 @@ export default function LeadDetailDrawer({
               <p className="flex items-center justify-between text-neutral-600">
                 <span>Closing Target:</span>
                 <strong className="text-neutral-900">
-                  {lead.expectedClosingDate ? new Date(lead.expectedClosingDate).toLocaleDateString("en-IN") : "—"}
+                  {lead.expectedClosingDate ? new Date(lead.expectedClosingDate).toLocaleDateString("en-IN", { timeZone: "UTC" }) : "—"}
                 </strong>
               </p>
+              {lead.status !== "won" && lead.status !== "lost" && (
+                <p className="flex items-center justify-between text-neutral-600" data-testid="drawer-probability">
+                  <span>Win Probability:</span>
+                  <strong className="text-neutral-900">
+                    {effectiveProbability(lead.status, lead.probability)}%
+                    {lead.estimatedBudget ? ` · ≈ ${formatCurrency(weightedValue(lead.estimatedBudget, effectiveProbability(lead.status, lead.probability)))}` : ""}
+                  </strong>
+                </p>
+              )}
+              {lead.referrer && (
+                <p className="flex items-center justify-between gap-2 text-neutral-600" data-testid="drawer-referrer">
+                  <span className="shrink-0">Via:</span>
+                  <strong className="truncate text-right text-neutral-900">
+                    {lead.referrer.name}
+                    <span className="font-normal text-neutral-500"> ({CUSTOMER_TYPE_LABELS[lead.referrer.customerType]?.split(" / ")[0] ?? lead.referrer.customerType})</span>
+                  </strong>
+                </p>
+              )}
             </div>
 
             <div className="p-3.5 bg-neutral-50/60 rounded-xl border border-neutral-200 space-y-2">

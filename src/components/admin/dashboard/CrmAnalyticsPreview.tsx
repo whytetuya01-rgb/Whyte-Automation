@@ -286,14 +286,14 @@ export default function CrmAnalyticsPreview({ crm, canEnableDemo }: CrmAnalytics
                   <td className="py-2.5 px-4 text-right">
                     <span
                       className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold tabular-nums ${
-                        sp.targetAchievement >= 80
+                        (sp.targetAchievement ?? 0) >= 80
                           ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                          : sp.targetAchievement >= 60
+                          : (sp.targetAchievement ?? 0) >= 60
                           ? "bg-amber-50 text-amber-800 border border-amber-200"
                           : "bg-red-50 text-red-800 border border-red-200"
                       }`}
                     >
-                      {sp.targetAchievement}%
+                      {sp.targetAchievement !== undefined ? `${sp.targetAchievement}%` : "—"}
                     </span>
                   </td>
                 </tr>

@@ -936,3 +936,92 @@ html[data-density="compact"] .admin-theme :is(td, th) {
   padding-top: 0.375rem;
   padding-bottom: 0.375rem;
 }
+
+
+/* ── Premium Dashboard Motion & Animation System ── */
+@keyframes dashboardFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes kpiSheen {
+  0% {
+    transform: translateX(-150%) skewX(-20deg);
+  }
+  20%, 100% {
+    transform: translateX(250%) skewX(-20deg);
+  }
+}
+
+@keyframes radarBeacon {
+  0% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+  100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes trophyFloat {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-2px) rotate(4deg);
+  }
+}
+
+.dashboard-tab-panel {
+  animation: dashboardFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.kpi-sheen-effect {
+  position: relative;
+  overflow: hidden;
+}
+
+.kpi-sheen-effect::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.35),
+    transparent
+  );
+  transform: translateX(-150%) skewX(-20deg);
+  pointer-events: none;
+}
+
+.kpi-sheen-effect:hover::after {
+  animation: kpiSheen 1.3s ease-in-out infinite;
+}
+
+.trophy-bounce {
+  display: inline-block;
+  animation: trophyFloat 3s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-tab-panel,
+  .kpi-sheen-effect:hover::after,
+  .trophy-bounce {
+    animation: none !important;
+  }
+}

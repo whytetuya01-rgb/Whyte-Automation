@@ -9,6 +9,7 @@ import {
   Clock,
   AlertCircle,
   UserPlus,
+  CalendarClock,
 } from "lucide-react";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import type { NotificationType } from "@/models/Notification";
@@ -51,6 +52,8 @@ function getNotificationIcon(type: NotificationType) {
       return <Clock size={16} className="text-amber-400 shrink-0" />;
     case "follow_up_overdue":
       return <AlertCircle size={16} className="text-rose-400 shrink-0" />;
+    case "follow_up_assigned":
+      return <CalendarClock size={16} className="text-sky-400 shrink-0" />;
     default:
       return <Bell size={16} className="text-neutral-400 shrink-0" />;
   }

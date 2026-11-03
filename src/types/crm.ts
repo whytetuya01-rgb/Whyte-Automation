@@ -33,6 +33,7 @@ export type CustomerType =
   | "builder"
   | "interior_designer"
   | "contractor"
+  | "dealer"
   | "commercial"
   | "other";
 
@@ -42,6 +43,7 @@ export const CUSTOMER_TYPE_LABELS: Record<CustomerType, string> = {
   builder: "Builder / Developer",
   interior_designer: "Interior Designer",
   contractor: "Electrical Contractor",
+  dealer: "Dealer / Channel Partner",
   commercial: "Commercial Client",
   other: "Other",
 };
@@ -78,6 +80,10 @@ export interface Customer {
   siteAddress?: string | null;
   gstNumber?: string | null;
   customerType: CustomerType;
+  /** The firm an architect, builder, contractor or dealer works for. */
+  companyName?: string | null;
+  designation?: string | null;
+  tags?: string[];
   assignedSalesId?: number | null;
   assignedSales?: AdminUser | null;
   dealerId?: number | null;
@@ -112,6 +118,16 @@ export interface CustomerProfile extends Customer {
     expectedClosingDate?: string | null;
     lostReason?: string | null;
   }>;
+  /** Leads this contact brought in or is working on (the lead names them as its architect, builder, contractor or dealer). */
+  referredLeads?: Array<{
+    id: string;
+    referenceNumber: string;
+    customerName: string;
+    projectType?: string | null;
+    estimatedBudget?: number | null;
+    status: LeadStatus;
+    createdAt: string;
+  }>;
   activities: CrmActivity[];
 }
 
@@ -141,6 +157,11 @@ export interface Lead {
   priority: LeadPriority;
   notes?: string | null;
   tags?: string[];
+  /** The salesperson's own win probability (0-100); empty means the stage default. */
+  probability?: number | null;
+  /** The architect, builder, contractor, dealer or other contact tied to this project. */
+  referrerId?: number | null;
+  referrer?: Pick<Customer, "id" | "name" | "customerType" | "companyName" | "phone"> | null;
   lastContactedAt?: string | null;
   nextFollowUpAt?: string | null;
   convertedQuotationId?: string | null;
@@ -205,6 +226,13 @@ export interface OpportunityCard {
   isHotLead?: boolean;
   quotationViewCount?: number;
   tags?: string[];
+  /** Chance this deal closes, in percent (stage default or the lead's own override). */
+  probability: number;
+  probabilityOverridden?: boolean;
+  /** Value times probability. */
+  weightedValue: number;
+  referrerName?: string | null;
+  referrerType?: CustomerType | null;
 }
 
 export interface PipelineStageData {
@@ -213,5 +241,7 @@ export interface PipelineStageData {
   color: string;
   count: number;
   totalValue: number;
+  /** The stage's total value weighted by each deal's probability. */
+  weightedValue: number;
   items: OpportunityCard[];
 }

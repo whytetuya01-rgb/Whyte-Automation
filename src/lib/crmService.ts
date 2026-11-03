@@ -16,6 +16,7 @@ import {
 import { getNextSequence, getNextLeadSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { ApiError } from "@/lib/api-response";
+import { effectiveProbability, weightedValue as weightedDealValue } from "@/lib/pipelineProbability";
 import { hasPermission } from "@/lib/permissions";
 import { requireActiveDealer, requireActiveSalesExecutive } from "@/lib/quotationOwnership";
 import { aggregateQuotationRoomTotals, deriveQuotationFinancials, totalsForQuotation } from "@/lib/quotationTotals";
@@ -301,6 +302,24 @@ export async function resolveLeadReferences(params: {
   return { sourceName };
 }
 
+/**
+ * The contact a lead names as its architect, builder, contractor, dealer or other source. It must be a live contact of the
+ * caller's company that the caller may see, and not the lead's own customer.
+ */
+export async function assertValidReferrer(params: {
+  companyId: number;
+  role: string;
+  userId: number;
+  referrerId: number;
+  customerId?: number | null;
+}): Promise<void> {
+  if (params.customerId && params.customerId === params.referrerId) {
+    throw new ApiError("VALIDATION_ERROR", "The referring contact cannot be the lead's own customer.", { field: "referrerId" });
+  }
+  const found = await Customer.exists({ _id: params.referrerId, companyId: params.companyId, ...crmVisibilityFilter({ role: params.role, userId: params.userId }) });
+  if (!found) throw new ApiError("NOT_FOUND", "Contact not found.", { field: "referrerId" });
+}
+
 export interface LinkActor {
   role: string;
   userId: number;
@@ -574,6 +593,7 @@ export async function getPipelineBoardData(
   const leads = await Lead.find(finalQuery)
     .populate({ path: "assignedSales", select: "name firstName lastName email" })
     .populate({ path: "dealer", select: "name firstName lastName companyName" })
+    .populate({ path: "referrer", select: "name customerType companyName" })
     .sort({ createdAt: -1 })
     .lean();
 
@@ -638,6 +658,9 @@ export async function getPipelineBoardData(
     const salesName = assignedSales ? (assignedSales.name || `${assignedSales.firstName || ""} ${assignedSales.lastName || ""}`.trim() || assignedSales.email) : null;
     const dealerName = dealer ? (dealer.companyName || dealer.name || null) : null;
 
+    const probability = effectiveProbability(stageId, lead.probability);
+    const referrer = (lead as unknown as { referrer?: { name?: string; customerType?: CustomerType; companyName?: string | null } | null }).referrer;
+
     const card: OpportunityCard = {
       id: lead._id,
       leadId: lead._id,
@@ -661,6 +684,11 @@ export async function getPipelineBoardData(
       isHotLead,
       quotationViewCount: viewCount,
       tags: Array.isArray(lead.tags) ? lead.tags : [],
+      probability,
+      probabilityOverridden: lead.probability != null && stageId !== "won" && stageId !== "lost",
+      weightedValue: weightedDealValue(estimatedValue, probability),
+      referrerName: referrer?.name ?? null,
+      referrerType: referrer?.customerType ?? null,
     };
 
     const targetList = stageMap.get(stageId);
@@ -678,6 +706,7 @@ export async function getPipelineBoardData(
       color: s.color,
       count: items.length,
       totalValue,
+      weightedValue: items.reduce((acc, item) => acc + item.weightedValue, 0),
       items,
     };
   });

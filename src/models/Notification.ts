@@ -5,6 +5,7 @@ export const NOTIFICATION_TYPES = [
   "lead_assigned",
   "follow_up_due",
   "follow_up_overdue",
+  "follow_up_assigned",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];

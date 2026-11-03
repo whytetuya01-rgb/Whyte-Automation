@@ -182,6 +182,10 @@ export interface QuotationItem {
   unitPrice: string;
   isCustomPrice?: boolean;
   originalUnitPrice?: string | null;
+  /** Per-product discount, present only while it is still valid: the line's `unitPrice` is the price after it. */
+  discountType?: "percentage" | "fixed" | null;
+  discountValue?: number | null;
+  preDiscountUnitPrice?: string | null;
   priceWithoutTax?: string;
   taxPercent?: string;
   taxAmount?: string;

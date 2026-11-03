@@ -7,6 +7,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { normalizeWhatsAppNumber, whatsappShareUrl } from "@/lib/quotationDeliveryShared";
 import { SEGMENT_LABELS, followUpLabel, relativeTime, type CustomerSegment, type CustomerStats } from "@/lib/crmCustomerInsights";
 import { CUSTOMER_TYPE_LABELS, type CustomerProfile } from "@/types/crm";
+import { TagChips } from "@/components/admin/crm/LeadTags";
 import { useUserTimeZone } from "@/lib/useUserTimeZone";
 
 const SEGMENT_STYLE: Record<CustomerSegment, string> = {
@@ -80,6 +81,11 @@ export default function ProfileHeader({ customer, stats, newQuotationUrl, onEdit
                     {SEGMENT_LABELS[stats.segment]}
                   </span>
                 </div>
+                {(customer.companyName || customer.designation) && (
+                  <p className="mt-0.5 text-sm text-neutral-600" data-testid="customer-firm">
+                    {[customer.designation, customer.companyName].filter(Boolean).join(" · ")}
+                  </p>
+                )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-500">
                   <span className="font-mono font-semibold text-neutral-600">#CUST-{customer.id}</span>
                   <span>{typeLabel}</span>
@@ -89,6 +95,11 @@ export default function ProfileHeader({ customer, stats, newQuotationUrl, onEdit
                     Last activity {relativeTime(stats.lastActivityAt)}
                   </span>
                 </div>
+                {customer.tags && customer.tags.length > 0 && (
+                  <div className="mt-2">
+                    <TagChips tags={customer.tags} max={8} size="sm" />
+                  </div>
+                )}
               </div>
             </div>
 

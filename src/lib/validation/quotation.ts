@@ -218,6 +218,9 @@ export const updateQuotationItemSchema = strictObject({
     }),
   resetToDefaultPrice: booleanField.optional(),
   isCustomPrice: booleanField.optional(),
+  /** Per-product discount (Admin / Company Owner only, enforced by the route): "none" removes it. */
+  discountType: z.enum(["percentage", "fixed", "none"]).optional(),
+  discountValue: z.number().finite().min(0).max(100000000).optional().nullable(),
   sortOrder: intField(),
   quotationRoomId: numericIdSchema.optional(),
 });

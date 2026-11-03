@@ -16,7 +16,7 @@ import LeadModal from "@/components/admin/crm/LeadModal";
 import ProfileHeader from "@/components/admin/crm/customer/ProfileHeader";
 import OverviewTab from "@/components/admin/crm/customer/OverviewTab";
 import QuotationsTab from "@/components/admin/crm/customer/QuotationsTab";
-import LeadsTab from "@/components/admin/crm/customer/LeadsTab";
+import LeadsTab, { ReferredLeads } from "@/components/admin/crm/customer/LeadsTab";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 
 type TabId = "overview" | "quotations" | "leads" | "timeline";
@@ -197,7 +197,12 @@ export default function CustomerProfilePage({ params }: { params: Promise<{ id: 
 
         {activeTab === "quotations" && <QuotationsTab quotations={customer.quotations ?? []} statusCounts={stats.statusCounts} newQuotationUrl={newQuotationUrl} />}
 
-        {activeTab === "leads" && <LeadsTab leads={customer.leads ?? []} onOpen={(id) => void openLead(id)} onNewEnquiry={() => setEnquiryModalOpen(true)} />}
+        {activeTab === "leads" && (
+          <>
+            <LeadsTab leads={customer.leads ?? []} onOpen={(id) => void openLead(id)} onNewEnquiry={() => setEnquiryModalOpen(true)} />
+            <ReferredLeads leads={customer.referredLeads ?? []} onOpen={(id) => void openLead(id)} />
+          </>
+        )}
 
         {activeTab === "timeline" && (
           <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-xs sm:p-6" data-testid="timeline-tab">

@@ -10,6 +10,40 @@ import { EmptyState, formatDate } from "./shared";
 
 type ProfileLead = CustomerProfile["leads"][number];
 
+/** Projects this contact (an architect, builder, contractor or dealer) is named on, as the lead's referring contact. */
+export function ReferredLeads({ leads, onOpen }: { leads: NonNullable<CustomerProfile["referredLeads"]>; onOpen: (leadId: string) => void }) {
+  if (leads.length === 0) return null;
+  return (
+    <section className="mt-5 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xs" data-testid="referred-leads">
+      <header className="border-b border-neutral-100 bg-neutral-50/70 px-5 py-3">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-500">Projects brought in or shared by this contact</h3>
+      </header>
+      <ul className="divide-y divide-neutral-100">
+        {leads.map((lead) => {
+          const status = LEAD_STATUS_CONFIG[lead.status] || LEAD_STATUS_CONFIG.new;
+          return (
+            <li key={lead.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3" data-testid="referred-lead">
+              <div className="min-w-0">
+                <button type="button" onClick={() => onOpen(lead.id)} className="font-mono text-sm font-bold text-neutral-950 hover:text-accent hover:underline">
+                  {lead.referenceNumber}
+                </button>
+                <p className="truncate text-xs text-neutral-500">
+                  {lead.customerName}
+                  {lead.projectType ? ` · ${lead.projectType}` : ""}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold", status.bg, status.text, status.border)}>{status.label}</span>
+                <span className="text-sm font-bold text-neutral-950">{lead.estimatedBudget ? formatCurrency(lead.estimatedBudget) : "—"}</span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 interface Props {
   leads: CustomerProfile["leads"];
   onOpen: (leadId: string) => void;

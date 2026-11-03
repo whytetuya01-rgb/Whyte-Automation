@@ -60,6 +60,8 @@ export interface IAdminUser {
    * them and how follow-up times are shown. Absent = Asia/Kolkata, which every existing person keeps until they choose one.
    */
   timeZone?: string | null;
+  /** The morning email of follow-ups due today and overdue. Absent = on; false = the person turned it off in My account. */
+  followUpReminderEmails?: boolean | null;
   /**
    * Dealers only: the category the dealer has EARNED. Absent = Bronze, never evaluated. It only goes up automatically;
    * a Super Admin can correct it (always recorded in DealerCategoryEvent). The lifetime qualified count is NOT stored:
@@ -133,6 +135,7 @@ const AdminUserSchema = new Schema<IAdminUserDocument>(
       trim: true,
       validate: { validator: (value: string | null | undefined) => value == null || isValidTimeZone(value), message: "That is not a known time zone." },
     },
+    followUpReminderEmails: { type: Boolean, default: undefined },
     dealerTier: {
       type: new Schema(
         {
@@ -249,6 +252,12 @@ if (existingAdminUserModel) {
   if (!existingAdminUserModel.schema.path("timeZone")) {
     existingAdminUserModel.schema.add({
       timeZone: { type: String, default: undefined, trim: true },
+    });
+  }
+
+  if (!existingAdminUserModel.schema.path("followUpReminderEmails")) {
+    existingAdminUserModel.schema.add({
+      followUpReminderEmails: { type: Boolean, default: undefined },
     });
   }
 

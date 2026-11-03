@@ -10,7 +10,7 @@ import { getNextLeadSequence } from "@/lib/counter";
 import { withRequiredTransaction } from "@/lib/transaction";
 import { kickCalendarSync } from "@/lib/googleCalendar/kick";
 import { createLeadFollowUp } from "@/lib/followUpService";
-import { assertValidLeadAssignees, crmVisibilityFilter, findCustomerByContact, phoneMatchRegex, recordCrmActivity, resolveLeadReferences, scopedQuery } from "@/lib/crmService";
+import { assertValidLeadAssignees, assertValidReferrer, crmVisibilityFilter, findCustomerByContact, phoneMatchRegex, recordCrmActivity, resolveLeadReferences, scopedQuery } from "@/lib/crmService";
 import { determineLeadAssignee, notifyLeadAssigned } from "@/lib/leadAssignmentService";
 
 export const dynamic = "force-dynamic";
@@ -58,6 +58,7 @@ export async function GET(req: Request) {
         .populate({ path: "assignedSales", select: "name firstName lastName email" })
         .populate({ path: "dealer", select: "name firstName lastName companyName" })
         .populate({ path: "convertedQuotation", select: "quotationNumber status" })
+        .populate({ path: "referrer", select: "name customerType companyName phone" })
         .sort({ createdAt: -1 })
         .skip(pagination.skip)
         .limit(pagination.take)
@@ -118,6 +119,10 @@ export async function POST(req: Request) {
         assignedSalesName = assignment.salesExecutiveName ?? null;
       }
 
+      if (input.referrerId != null) {
+        await assertValidReferrer({ companyId, role, userId, referrerId: input.referrerId, customerId: input.customerId });
+      }
+
       const references = await resolveLeadReferences({ companyId, role, userId, customerId: input.customerId, sourceId: input.sourceId });
 
       const createdOn = new Date();
@@ -160,6 +165,8 @@ export async function POST(req: Request) {
               priority: input.priority,
               notes: input.notes ?? null,
               tags: input.tags ?? [],
+              probability: input.probability ?? null,
+              referrerId: input.referrerId ?? null,
               nextFollowUpAt: input.nextFollowUpAt ?? null,
               createdBy: userId,
               createdAt: createdOn,

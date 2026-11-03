@@ -16,6 +16,9 @@ export interface ICustomer extends SoftDeleteFields {
   siteAddress: string | null;
   gstNumber: string | null;
   customerType: CustomerType;
+  companyName: string | null;
+  designation: string | null;
+  tags: string[];
   assignedSalesId: number | null;
   dealerId: number | null;
   notes: string | null;
@@ -40,10 +43,13 @@ const CustomerSchema = new Schema<ICustomerDocument>(
     gstNumber: { type: String, default: null, trim: true, uppercase: true },
     customerType: {
       type: String,
-      enum: ["individual", "architect", "builder", "interior_designer", "contractor", "commercial", "other"],
+      enum: ["individual", "architect", "builder", "interior_designer", "contractor", "dealer", "commercial", "other"],
       default: "individual",
       index: true,
     },
+    companyName: { type: String, default: null, trim: true },
+    designation: { type: String, default: null, trim: true },
+    tags: { type: [String], default: [] },
     assignedSalesId: { type: Number, ref: "AdminUser", default: null, index: true },
     dealerId: { type: Number, ref: "AdminUser", default: null, index: true },
     notes: { type: String, default: null },
@@ -113,6 +119,7 @@ CustomerSchema.pre("save", function (this: ICustomerDocument) {
 // Indexing for search, filtering, and tenant isolation
 CustomerSchema.index({ companyId: 1, createdAt: -1 });
 CustomerSchema.index({ companyId: 1, name: 1 });
+CustomerSchema.index({ companyId: 1, tags: 1 });
 CustomerSchema.index(
   { companyId: 1, phone: 1 },
   {

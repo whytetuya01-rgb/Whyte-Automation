@@ -11,7 +11,8 @@ import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import Pagination from "@/components/shared/Pagination";
 import CustomDropdown, { DropdownOption } from "@/components/shared/CustomDropdown";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
-import { Trash2, ExternalLink, Search, RefreshCw, X, FileText, Plus } from "lucide-react";
+import { Trash2, ExternalLink, Search, RefreshCw, X, FileText, Plus, Copy } from "lucide-react";
+import CloneQuotationModal, { type CloneSource } from "@/components/admin/quotations/CloneQuotationModal";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError, safeMessage } from "@/lib/apiClient";
 import PageHeader from "@/components/admin/PageHeader";
@@ -76,6 +77,7 @@ function QuotationsPageContent() {
   const [dealerFilter, setDealerFilter] = useState<string>(initialDealerFilter);
   const dealerFilterRef = useRef<string>(initialDealerFilter);
   const [dealerOptions, setDealerOptions] = useState<DropdownOption[]>([]);
+  const [cloneSource, setCloneSource] = useState<CloneSource | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -523,6 +525,16 @@ function QuotationsPageContent() {
                             <ExternalLink size={16} />
                           </Link>
                           <button
+                            type="button"
+                            onClick={() => setCloneSource({ id: q.id, quotationNumber: q.quotationNumber, clientName: q.clientName })}
+                            className="p-1.5 text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg transition-colors"
+                            title="Clone quotation"
+                            aria-label={`Clone quotation ${q.quotationNumber}`}
+                            data-testid="clone-quotation"
+                          >
+                            <Copy size={16} />
+                          </button>
+                          <button
                             onClick={() => handleDelete(q)}
                             className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                             title="Delete quotation"
@@ -585,6 +597,15 @@ function QuotationsPageContent() {
                         <ExternalLink size={16} />
                       </Link>
                       <button
+                        type="button"
+                        onClick={() => setCloneSource({ id: q.id, quotationNumber: q.quotationNumber, clientName: q.clientName })}
+                        className="p-1.5 text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 rounded-lg"
+                        aria-label={`Clone quotation ${q.quotationNumber}`}
+                        data-testid="clone-quotation"
+                      >
+                        <Copy size={16} />
+                      </button>
+                      <button
                         onClick={() => handleDelete(q)}
                         className="p-1.5 text-gray-400 hover:text-red-600 rounded-lg"
                       >
@@ -615,6 +636,13 @@ function QuotationsPageContent() {
       )}
 
       {/* Delete confirmation is raised through the global ConfirmProvider portal. */}
+
+      <CloneQuotationModal
+        source={cloneSource}
+        dealerOptions={dealerOptions.map((option) => ({ value: String(option.value), label: String(option.label) }))}
+        canChooseOwner={sessionRole === "super_admin" || sessionRole === "company_owner" || sessionRole === "admin"}
+        onClose={() => setCloneSource(null)}
+      />
     </div>
   );
 }

@@ -127,7 +127,7 @@ export async function POST(req: Request) {
     if (callerRole === "super_admin" && !actor.hasCompanyContext && role !== "super_admin") {
       throw new ApiError("FORBIDDEN", "Select a company first: accounts for a company can only be created while acting as that company.");
     }
-    if (!canAssignRole(actor, role, callerRole === "company_owner" ? await getCompanyCustomRoleKeys() : [])) {
+    if (!canAssignRole(actor, role, callerRole === "company_owner" || callerRole === "admin" ? await getCompanyCustomRoleKeys() : [])) {
       throw new ApiError("FORBIDDEN", "You are not allowed to assign this role.", { field: "role" });
     }
 

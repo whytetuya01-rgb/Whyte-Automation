@@ -12,8 +12,21 @@ import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
+import { basePriceBeforeDiscount, canGiveItemDiscount, netUnitPrice, validateItemDiscount, intactItemDiscount } from "@/lib/itemDiscount";
 
 type RouteContext = { params: Promise<{ id: string; itemId: string }> };
+
+/** The stored price fields of an item as plain numbers (a lean document holds Decimal128 values, which Number() cannot read). */
+function storedItemPrice(item: unknown) {
+  const raw = item as { unitPrice?: unknown; discountType?: unknown; discountValue?: unknown; preDiscountUnitPrice?: unknown };
+  const asNumber = (value: unknown) => (value === null || value === undefined ? null : Number(String(value)));
+  return {
+    unitPrice: asNumber(raw.unitPrice),
+    discountType: raw.discountType ?? null,
+    discountValue: asNumber(raw.discountValue),
+    preDiscountUnitPrice: asNumber(raw.preDiscountUnitPrice),
+  };
+}
 
 /** Session required: editing and removing items are business operations. */
 export async function PATCH(req: Request, context: RouteContext) {
@@ -35,10 +48,21 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const parsed = updateQuotationItemSchema.parse(await readJsonBody(req));
-    const { unitPrice, resetToDefaultPrice, isCustomPrice, ...rest } = parsed;
+    const { unitPrice: requestedUnitPrice, resetToDefaultPrice, isCustomPrice, discountType, discountValue, ...rest } = parsed;
+    let unitPrice = requestedUnitPrice;
 
-    if (Object.keys(rest).length === 0 && unitPrice === undefined && !resetToDefaultPrice) {
+    if (Object.keys(rest).length === 0 && unitPrice === undefined && !resetToDefaultPrice && discountType === undefined) {
       throw new ApiError("VALIDATION_ERROR", "No editable fields were supplied.");
+    }
+
+    // A per-product discount is a commercial decision: only an Admin or a Company Owner may give or remove one.
+    if (discountType !== undefined) {
+      if (!canGiveItemDiscount(role)) {
+        throw new ApiError("FORBIDDEN", "Only an Admin or the Company Owner can give a discount on a product.");
+      }
+      if (unitPrice !== undefined || resetToDefaultPrice) {
+        throw new ApiError("VALIDATION_ERROR", "Set a discount or a custom price in separate requests.", { field: "discountType" });
+      }
     }
 
     // Ownership check: the item must belong to a room of THIS quotation.
@@ -52,6 +76,22 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const data: Record<string, unknown> = { ...rest };
+
+    // Per-product discount: the line's unit price becomes the price after the discount, worked out from the price before it.
+    // The discount is recorded beside it so the grid can show and change it.
+    let discountToStore: { type: "percentage" | "fixed"; value: number; pre: number } | null | undefined;
+    if (discountType !== undefined) {
+      const base = basePriceBeforeDiscount(storedItemPrice(existingItem));
+      if (discountType === "none") {
+        unitPrice = Math.round(base * 100) / 100;
+        discountToStore = null;
+      } else {
+        const message = validateItemDiscount(base, discountType, Number(discountValue));
+        if (message) throw new ApiError("VALIDATION_ERROR", message, { field: "discountValue" });
+        unitPrice = netUnitPrice(base, discountType, Number(discountValue));
+        discountToStore = { type: discountType, value: Number(discountValue), pre: Math.round(base * 100) / 100 };
+      }
+    }
 
     const getCatalogDefaultPricing = async () => {
       const variantId = (existingItem as any).productVariantId;
@@ -197,6 +237,21 @@ export async function PATCH(req: Request, context: RouteContext) {
 
         data.variantConfig = parsed.variantConfig ?? match.config ?? null;
       }
+    }
+
+    // Any other way of changing the price (a custom price, back to the catalogue price, another product or variant)
+    // ends a per-product discount: it no longer explains the price.
+    if (discountToStore !== undefined) {
+      data.discountType = discountToStore?.type ?? null;
+      data.discountValue = discountToStore?.value ?? null;
+      data.preDiscountUnitPrice = discountToStore ? mongoose.Types.Decimal128.fromString(discountToStore.pre.toFixed(2)) : null;
+    } else if (
+      intactItemDiscount(storedItemPrice(existingItem)) &&
+      (requestedUnitPrice !== undefined || resetToDefaultPrice || parsed.productId !== undefined || parsed.productVariantId !== undefined)
+    ) {
+      data.discountType = null;
+      data.discountValue = null;
+      data.preDiscountUnitPrice = null;
     }
 
     await QuotationItem.findByIdAndUpdate(itId, { $set: data });

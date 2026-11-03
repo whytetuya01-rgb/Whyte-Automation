@@ -35,6 +35,7 @@ export const customerTypeEnum = z.enum([
   "builder",
   "interior_designer",
   "contractor",
+  "dealer",
   "commercial",
   "other",
 ]);
@@ -86,6 +87,9 @@ export const createCustomerSchema = strictObject({
   siteAddress: optionalText(500),
   gstNumber: optionalGstinSchema,
   customerType: customerTypeEnum.default("individual"),
+  companyName: optionalText(160),
+  designation: optionalText(120),
+  tags: leadTagsSchema.optional(),
   assignedSalesId: numericIdSchema.optional().nullable(),
   dealerId: numericIdSchema.optional().nullable(),
   notes: optionalText(2000),
@@ -100,6 +104,9 @@ export const updateCustomerSchema = strictObject({
   siteAddress: optionalText(500),
   gstNumber: optionalGstinSchema,
   customerType: customerTypeEnum.optional(),
+  companyName: optionalText(160),
+  designation: optionalText(120),
+  tags: leadTagsSchema.optional(),
   assignedSalesId: numericIdSchema.optional().nullable(),
   dealerId: numericIdSchema.optional().nullable(),
   notes: optionalText(2000),
@@ -125,6 +132,10 @@ export const createLeadSchema = strictObject({
   priority: leadPriorityEnum.default("medium"),
   notes: optionalText(2000),
   tags: leadTagsSchema.optional(),
+  /** The salesperson's own win probability, 0-100; empty uses the stage default. */
+  probability: z.number().int().min(0).max(100).optional().nullable(),
+  /** The architect, builder, contractor, dealer or other contact tied to this project. */
+  referrerId: numericIdSchema.optional().nullable(),
   nextFollowUpAt: optionalDateField,
   /** Who owns the follow-up. Default: the person creating the lead. */
   followUpOwnerId: numericIdSchema.optional().nullable(),
@@ -150,6 +161,8 @@ export const updateLeadSchema = strictObject({
   priority: leadPriorityEnum.optional(),
   notes: optionalText(2000),
   tags: leadTagsSchema.optional(),
+  probability: z.number().int().min(0).max(100).optional().nullable(),
+  referrerId: numericIdSchema.optional().nullable(),
   nextFollowUpAt: optionalDateField,
   /** Hands the open follow-up to this person. */
   followUpOwnerId: numericIdSchema.optional().nullable(),

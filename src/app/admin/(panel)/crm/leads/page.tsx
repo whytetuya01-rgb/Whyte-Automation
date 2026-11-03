@@ -30,7 +30,8 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import type { Lead, LeadPriority, LeadStatus, PaginatedResponse } from "@/types/crm";
 import { LEAD_PRIORITY_CONFIG, LEAD_STATUS_CONFIG } from "@/types/crm";
 import LeadModal from "@/components/admin/crm/LeadModal";
-import { TagChips } from "@/components/admin/crm/LeadTags";
+import { TagChip, TagChips } from "@/components/admin/crm/LeadTags";
+import type { TagCount } from "@/lib/leadTags";
 import LeadDetailDrawer from "@/components/admin/crm/LeadDetailDrawer";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 
@@ -47,6 +48,8 @@ export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [priority, setPriority] = useState<string>("all");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
 
   // Modals & Drawers
   const [leadModalOpen, setLeadModalOpen] = useState(false);
@@ -64,8 +67,13 @@ export default function LeadsPage() {
       if (search.trim()) params.set("search", search.trim());
       if (status !== "all") params.set("status", status);
       if (priority !== "all") params.set("priority", priority);
+      if (tagFilter) params.set("tag", tagFilter);
 
-      const res = await apiJson.get<PaginatedResponse<Lead>>(`/api/crm/leads?${params.toString()}`);
+      const [res, tagRes] = await Promise.all([
+        apiJson.get<PaginatedResponse<Lead>>(`/api/crm/leads?${params.toString()}`),
+        apiJson.get<{ tags: TagCount[] }>("/api/crm/lead-tags").catch(() => null),
+      ]);
+      if (tagRes && Array.isArray(tagRes.tags)) setTagCounts(tagRes.tags);
       if (res) {
         setLeads(res.data || []);
         setTotal(res.pagination.total);
@@ -76,7 +84,7 @@ export default function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, status, priority]);
+  }, [page, pageSize, search, status, priority, tagFilter]);
 
   useEffect(() => {
     fetchLeads();
@@ -222,6 +230,24 @@ export default function LeadsPage() {
             </Button>
           </div>
         </div>
+        {tagCounts.length > 0 && (
+          <div className="mt-3 flex items-center gap-2 border-t border-neutral-100 pt-3" data-testid="tag-filter">
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Tags</span>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+              {tagCounts.slice(0, 20).map((entry) => (
+                <span key={entry.tag} className="inline-flex shrink-0 items-center gap-1">
+                  <TagChip tag={entry.tag} active={tagFilter?.toLowerCase() === entry.tag.toLowerCase()} onClick={() => { setTagFilter(tagFilter?.toLowerCase() === entry.tag.toLowerCase() ? null : entry.tag); setPage(1); }} />
+                  <span className="text-[10px] font-medium text-neutral-400">{entry.count}</span>
+                </span>
+              ))}
+            </div>
+            {tagFilter && (
+              <button type="button" onClick={() => { setTagFilter(null); setPage(1); }} className="shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800">
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Main Leads Table */}

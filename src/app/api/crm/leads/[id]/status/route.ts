@@ -43,6 +43,8 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
 
       lead.status = newStatus;
+      // A salesperson's own win probability belongs to the stage it was set in; the next stage starts from its default.
+      if (oldStatus !== newStatus) lead.probability = null;
       if (newStatus === "won") {
         lead.wonAt = new Date();
         lead.lostAt = null;

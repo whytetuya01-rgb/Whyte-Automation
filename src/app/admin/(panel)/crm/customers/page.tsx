@@ -25,6 +25,8 @@ import { apiJson, notifyApiError } from "@/lib/apiClient";
 import type { Customer, CustomerType, PaginatedResponse } from "@/types/crm";
 import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
 import CustomerModal from "@/components/admin/crm/CustomerModal";
+import { TagChip, TagChips } from "@/components/admin/crm/LeadTags";
+import type { TagCount } from "@/lib/leadTags";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 
 export default function CustomersPage() {
@@ -39,6 +41,8 @@ export default function CustomersPage() {
   // Filters
   const [search, setSearch] = useState("");
   const [customerType, setCustomerType] = useState<string>("all");
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+  const [tagCounts, setTagCounts] = useState<TagCount[]>([]);
 
   // Modal
   const [modalOpen, setModalOpen] = useState(false);
@@ -53,8 +57,13 @@ export default function CustomersPage() {
       });
       if (search.trim()) params.set("search", search.trim());
       if (customerType !== "all") params.set("customerType", customerType);
+      if (tagFilter) params.set("tag", tagFilter);
 
-      const res = await apiJson.get<PaginatedResponse<Customer>>(`/api/crm/customers?${params.toString()}`);
+      const [res, tagRes] = await Promise.all([
+        apiJson.get<PaginatedResponse<Customer>>(`/api/crm/customers?${params.toString()}`),
+        apiJson.get<{ tags: TagCount[] }>("/api/crm/customer-tags").catch(() => null),
+      ]);
+      if (tagRes && Array.isArray(tagRes.tags)) setTagCounts(tagRes.tags);
       if (res) {
         setCustomers(res.data || []);
         setTotal(res.pagination.total);
@@ -65,7 +74,7 @@ export default function CustomersPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, customerType]);
+  }, [page, pageSize, search, customerType, tagFilter]);
 
   useEffect(() => {
     fetchCustomers();
@@ -128,7 +137,7 @@ export default function CustomersPage() {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              placeholder="Search by customer name, phone, email, GST, or address..."
+              placeholder="Search by name, firm, phone, email, GST, or address..."
               className="text-xs"
             />
           </div>
@@ -150,6 +159,24 @@ export default function CustomersPage() {
             <span>Refresh</span>
           </Button>
         </div>
+        {tagCounts.length > 0 && (
+          <div className="flex items-center gap-2 border-t border-neutral-100 pt-3" data-testid="tag-filter">
+            <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider text-neutral-400">Tags</span>
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-0.5 [scrollbar-width:none]">
+              {tagCounts.slice(0, 20).map((entry) => (
+                <span key={entry.tag} className="inline-flex shrink-0 items-center gap-1">
+                  <TagChip tag={entry.tag} active={tagFilter?.toLowerCase() === entry.tag.toLowerCase()} onClick={() => { setTagFilter(tagFilter?.toLowerCase() === entry.tag.toLowerCase() ? null : entry.tag); setPage(1); }} />
+                  <span className="text-[10px] font-medium text-neutral-400">{entry.count}</span>
+                </span>
+              ))}
+            </div>
+            {tagFilter && (
+              <button type="button" onClick={() => { setTagFilter(null); setPage(1); }} className="shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800">
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Main Table */}
@@ -211,10 +238,20 @@ export default function CustomersPage() {
                         <span>{c.name}</span>
                         <ChevronRight size={14} className="text-neutral-400 group-hover:text-accent group-hover:translate-x-0.5 transition" />
                       </Link>
+                      {(c.companyName || c.designation) && (
+                        <span className="block text-[11px] text-neutral-500 mt-0.5" data-testid="customer-firm">
+                          {[c.designation, c.companyName].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
                       {c.gstNumber && (
                         <span className="font-mono text-[10px] text-neutral-400 font-medium block mt-0.5">
                           GST: {c.gstNumber}
                         </span>
+                      )}
+                      {c.tags && c.tags.length > 0 && (
+                        <div className="mt-1">
+                          <TagChips tags={c.tags} max={3} />
+                        </div>
                       )}
                     </td>
 

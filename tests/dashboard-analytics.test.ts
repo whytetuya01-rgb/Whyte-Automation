@@ -160,6 +160,47 @@ async function run() {
     assert.equal(result.earningAmount, 15000);
   });
 
+  // ── 5. Redesigned Dashboard Component & Contract Tests ──
+  test("dashboard page renders DashboardTabsLayout with modular domain tabs", () => {
+    const dashboardPagePath = join(__dirname, "../src/app/admin/(panel)/dashboard/page.tsx");
+    const pageContent = readFileSync(dashboardPagePath, "utf8");
+    assert.ok(pageContent.includes("DashboardTabsLayout"), "page.tsx must delegate to DashboardTabsLayout");
+
+    const layoutPath = join(__dirname, "../src/components/admin/dashboard/DashboardTabsLayout.tsx");
+    const layoutContent = readFileSync(layoutPath, "utf8");
+
+    // Verify tabs
+    assert.ok(layoutContent.includes("Overview"), "Must render Overview tab");
+    assert.ok(layoutContent.includes("CRM & Pipeline"), "Must render CRM & Pipeline tab");
+    assert.ok(layoutContent.includes("Quotations & Sales"), "Must render Quotations & Sales tab");
+    assert.ok(layoutContent.includes("Dealers & Partners"), "Must render Dealers & Partners tab");
+    assert.ok(layoutContent.includes("Catalog & Inventory"), "Must render Catalog & Inventory tab");
+
+    // Verify key analytics components (the opportunity funnel, lead sources and salesperson performance)
+    assert.ok(layoutContent.includes("<StageFunnel stages={crmData.stages}"), "Must render the opportunity funnel");
+    assert.ok(layoutContent.includes('title="Lead sources"') && layoutContent.includes("<BarList rows={sourceRows}"), "Must render the lead sources");
+    assert.ok(layoutContent.includes("<SalespersonLeaderboard people={crmData.salespeople}"), "Must render salesperson performance");
+
+    // Verify KPIs
+    assert.ok(layoutContent.includes('label="Total leads"'), "Must render Total leads KPI");
+    assert.ok(layoutContent.includes('label="Opportunities"'), "Must render Opportunities KPI");
+    assert.ok(layoutContent.includes('label="Quotation values"'), "Must render Quotation values KPI");
+    assert.ok(layoutContent.includes('label="Won revenue"'), "Must render Won revenue KPI");
+    assert.ok(layoutContent.includes('label="Conversion rate"'), "Must render Conversion rate KPI");
+  });
+
+  test("adminDashboardData.ts exposes leads and comprehensive quotation pipeline values", () => {
+    const libPath = join(__dirname, "../src/lib/adminDashboardData.ts");
+    const testContent = readFileSync(libPath, "utf8");
+
+    assert.ok(testContent.includes("leads?: {"), "DashboardData must declare leads metric");
+    assert.ok(testContent.includes("totalValue?: number"), "quotations must declare totalValue");
+    assert.ok(testContent.includes("averageValue?: number"), "quotations must declare averageValue");
+    assert.ok(testContent.includes("sentValue?: number"), "quotations must declare sentValue");
+    assert.ok(testContent.includes("draftValue?: number"), "quotations must declare draftValue");
+    assert.ok(testContent.includes("crm: CrmAnalyticsData"), "crm data must be typed as CrmAnalyticsData");
+  });
+
   console.log(`\nAll ${passed} tests passed successfully!`);
 }
 

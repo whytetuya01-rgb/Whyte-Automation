@@ -49,6 +49,14 @@ export async function GET(_req: Request, context: RouteContext) {
         .sort({ createdAt: -1 })
         .lean();
 
+      // Leads this contact brought in or is working on (they are named as the lead's architect, builder, contractor or dealer).
+      // Only leads the caller may see.
+      const referredLeads = await Lead.find({ referrerId: customerId, companyId, ...visibility })
+        .select("_id referenceNumber customerName projectType estimatedBudget status createdAt")
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean();
+
       // Find all activities for this customer
       const activities = await CrmActivity.find({ customerId, companyId })
         .sort({ performedAt: -1 })
@@ -60,6 +68,7 @@ export async function GET(_req: Request, context: RouteContext) {
         id: customer._id,
         quotations: quotations.map((q) => ({ ...q, id: q._id, grandTotal: totals.get(String(q._id))?.grandTotal ?? 0 })),
         leads: leads.map((l) => ({ ...l, id: l._id })),
+        referredLeads: referredLeads.map((l) => ({ ...l, id: l._id })),
         activities: activities.map((a) => ({ ...a, id: a._id })),
       });
     });
@@ -118,6 +127,9 @@ export async function PATCH(req: Request, context: RouteContext) {
       if (input.siteAddress !== undefined) customer.siteAddress = input.siteAddress;
       if (input.gstNumber !== undefined) customer.gstNumber = input.gstNumber;
       if (input.customerType) customer.customerType = input.customerType;
+      if (input.companyName !== undefined) customer.companyName = input.companyName;
+      if (input.designation !== undefined) customer.designation = input.designation;
+      if (input.tags !== undefined) customer.tags = input.tags;
       if (input.assignedSalesId !== undefined) customer.assignedSalesId = input.assignedSalesId;
       if (input.dealerId !== undefined && role !== "dealer") customer.dealerId = input.dealerId;
       if (input.notes !== undefined) customer.notes = input.notes;

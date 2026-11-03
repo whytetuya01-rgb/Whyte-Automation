@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import type { ClientSession } from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
-import { AdminUser, FollowUpTask, FOLLOW_UP_OWNER_HISTORY_LIMIT, type ILeadDocument, type IFollowUpTask, type IFollowUpOwnerChange, type FollowUpOwnerChangeReason } from "@/models";
+import { AdminUser, FollowUpTask, Lead, FOLLOW_UP_OWNER_HISTORY_LIMIT, type ILeadDocument, type IFollowUpTask, type IFollowUpOwnerChange, type FollowUpOwnerChangeReason } from "@/models";
 import { ApiError } from "@/lib/api-response";
 import { hasPermission } from "@/lib/permissions";
 import { assertIndexesDeployed } from "@/lib/mongoIndexPolicy";
@@ -9,6 +9,7 @@ import { queueCalendarSync } from "@/lib/googleCalendar/sync";
 import { getRolePermissions } from "@/lib/roleService";
 import { recordCrmActivity } from "@/lib/crmService";
 import { FOLLOW_UP_TIME_ZONE } from "@/lib/followUps";
+import { createNotification } from "@/lib/notificationService";
 
 /**
  * Every change to a lead's follow-up goes through here: the lead form (create, edit), "Done", "Reschedule", cancelling.
@@ -183,6 +184,29 @@ export async function openTasksByLead(companyId: number, leadIds: string[]): Pro
 
 // ── the open task of a lead ──────────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Tells a person that someone else gave them a follow-up (a new one, or one handed over to them). Nothing is sent when
+ * people give a follow-up to themselves. Written in the same transaction as the task, so a rolled-back change sends nothing;
+ * the key makes a repeat of the same change one notice, not two.
+ */
+async function notifyFollowUpAssigned(ctx: FollowUpContext, params: { taskId: string; version: number; ownerId: number; dueAt: Date | null; lead: { _id: string; referenceNumber?: string | null; customerName?: string | null } | null; handedOver: boolean }): Promise<void> {
+  if (params.ownerId === ctx.actor.userId) return;
+  const who = params.lead ? `${params.lead.customerName ?? "a lead"}${params.lead.referenceNumber ? ` (${params.lead.referenceNumber})` : ""}` : "a lead";
+  const due = params.dueAt ? ` It is due ${new Intl.DateTimeFormat("en-IN", { timeZone: FOLLOW_UP_TIME_ZONE, day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(params.dueAt)}.` : "";
+  await createNotification({
+    companyId: ctx.actor.companyId,
+    userId: params.ownerId,
+    type: "follow_up_assigned",
+    title: params.handedOver ? "Follow-up handed to you" : "New follow-up for you",
+    body: `${await nameOf(ctx, ctx.actor.userId)} ${params.handedOver ? "handed you the follow-up" : "set a follow-up for you"} on ${who}.${due}`,
+    link: "/admin/crm/follow-ups",
+    dedupeKey: `fu_assigned:${params.taskId}:${params.ownerId}:${params.version}`,
+    metadata: { taskId: params.taskId, leadId: params.lead?._id ?? null },
+    session: ctx.session ?? null,
+  });
+}
+
+
 export type OpenTask = Pick<IFollowUpTask, "_id" | "leadId" | "ownerId" | "originalOwnerId" | "dueAt" | "version">;
 
 async function createTask(ctx: FollowUpContext, lead: ILeadDocument, params: { ownerId: number; dueAt: Date; createdVia: IFollowUpTask["createdVia"]; scheduleChangedAt?: Date }): Promise<OpenTask> {
@@ -211,6 +235,7 @@ async function createTask(ctx: FollowUpContext, lead: ILeadDocument, params: { o
     throw error;
   }
   await queueCalendarSync(ctx.session, ctx.actor.companyId, doc._id, now); // outbox: saved with the task, or not at all
+  await notifyFollowUpAssigned(ctx, { taskId: doc._id, version: 1, ownerId: params.ownerId, dueAt: params.dueAt, lead, handedOver: false });
   return { _id: doc._id, leadId: doc.leadId, ownerId: doc.ownerId, originalOwnerId: doc.originalOwnerId, dueAt: doc.dueAt, version: 1 };
 }
 
@@ -247,6 +272,11 @@ export async function updateOpenTaskIfCurrent(ctx: FollowUpContext, task: Pick<O
   );
   if (result.modifiedCount !== 1) return false;
   await queueCalendarSync(ctx.session, ctx.actor.companyId, String(task._id), ctx.now);
+  if (ownerChange && ownerChange.toOwnerId !== ownerChange.fromOwnerId) {
+    const updated = await FollowUpTask.findById(task._id).select("leadId dueAt version").session(ctx.session ?? null).lean<Pick<IFollowUpTask, "leadId" | "dueAt" | "version">>();
+    const lead = updated ? await Lead.findOne({ _id: updated.leadId, companyId: ctx.actor.companyId }).select("referenceNumber customerName").session(ctx.session ?? null).lean<{ _id: string; referenceNumber?: string; customerName?: string }>() : null;
+    await notifyFollowUpAssigned(ctx, { taskId: String(task._id), version: updated?.version ?? task.version + 1, ownerId: ownerChange.toOwnerId, dueAt: updated?.dueAt ?? null, lead, handedOver: true });
+  }
   return true;
 }
 

@@ -14,6 +14,9 @@ export interface CrmLeadSource {
   count: number;
   percentage: number;
   wonRevenue: number;
+  opportunities?: number;
+  wonCount?: number;
+  conversionRate?: number;
 }
 
 export interface CrmOpportunityStage {
@@ -22,31 +25,39 @@ export interface CrmOpportunityStage {
   count: number;
   value: number;
   color: string;
+  percentage?: number;
 }
 
 export interface CrmSalespersonPerformance {
-  id: string;
+  id: string | number;
   name: string;
   email: string;
   role: string;
   leadsAssigned: number;
+  opportunitiesActive?: number;
   quotationsCreated: number;
   wonQuotations: number;
   wonRevenue: number;
   conversionRate: number;
-  targetQuota: number;
-  targetAchievement: number;
+  targetQuota?: number;
+  targetAchievement?: number;
 }
 
 export interface CrmAnalyticsData {
-  isDemo: true;
+  isDemo: boolean;
   summary: {
     totalLeads: number;
+    newLeads?: number;
     activeOpportunities: number;
     pipelineValue: number;
     leadToWonRate: number;
+    leadToOpportunityRate?: number;
+    quotationWinRate?: number;
     avgSalesCycleDays: number;
     wonRevenue: number;
+    totalQuotationValue?: number;
+    averageQuotationValue?: number;
+    pendingQuotationValue?: number;
   };
   stages: CrmOpportunityStage[];
   sources: CrmLeadSource[];

@@ -135,7 +135,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         throw new ApiError("VALIDATION_ERROR", "Cannot reassign an administrative account to dealer role.");
       }
       if (requestedRole !== existingUser.role) {
-        const customKeys = callerRole === "company_owner" ? await getCompanyCustomRoleKeys() : [];
+        const customKeys = callerRole === "company_owner" || callerRole === "admin" ? await getCompanyCustomRoleKeys() : [];
         if (!canAssignRole(actor, requestedRole, customKeys)) {
           throw new ApiError("FORBIDDEN", "You are not allowed to assign this role.", { field: "role" });
         }

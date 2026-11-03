@@ -30,3 +30,4 @@ export function resolveAdminLoginDestination(requestedCallback: string | null): 
 
   return "/admin/apps";
 }
+

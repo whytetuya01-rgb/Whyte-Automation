@@ -1,8 +1,8 @@
-import { AdminUser, Category, Product, Quotation, QuotationDelivery } from "@/models";
+import { AdminUser, Category, Product, Quotation, QuotationDelivery, Lead } from "@/models";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { getConfirmedEarningsTotal } from "@/lib/dealerEarningsService";
 import { calculateDealerEarning, resolveCustomerDiscountPercent, roundMoney, toPlainNumber } from "@/lib/dealerEarnings";
-import { aggregateQuotationRoomTotals, deriveQuotationFinancials, totalsForQuotation } from "@/lib/quotationTotals";
+import { aggregateQuotationRoomTotals, deriveQuotationFinancials, isProtectedQuotationStatus, totalsForQuotation } from "@/lib/quotationTotals";
 import { getDemoCrmAnalytics, isDemoModeAllowed, type CrmAnalyticsData } from "@/lib/dashboard/demoData";
 import type { QuotationStatus } from "@/types";
 import { getTenantContext } from "@/lib/tenant/context";
@@ -83,9 +83,20 @@ export interface DashboardData {
     approvedValueChangePercent: number | null;
     approvedValue: number;
     pendingValue: number;
+    sentValue?: number;
+    draftValue?: number;
+    totalValue?: number;
+    averageValue?: number;
     approvalRate: number;
     confirmedDealerEarnings: number;
     recent: RecentQuotationRow[];
+  };
+  leads?: {
+    total: number;
+    newLeads: number;
+    thisPeriod: number;
+    priorPeriod: number;
+    periodChangePercent: number | null;
   };
   pipeline: Array<{
     status: QuotationStatus;
@@ -248,6 +259,12 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
     categoryCount,
     seriesCount,
     productsByType,
+    rejectedDocs,
+    leadsInPeriod,
+    priorLeadsCount,
+    activeOpportunitiesDocs,
+    wonLeadsDocs,
+    salesPersonnel,
   ] = await Promise.all([
     // Current period counts
     Quotation.countDocuments(dateFilter),
@@ -294,7 +311,24 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
       { $group: { _id: "$type", count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]),
+
+    // Real CRM & Sales Data (tenant-scoped)
+    Quotation.find({ ...dateFilter, status: "rejected" }).lean({ virtuals: true }),
+    Lead.find(dateFilter).lean(),
+    priorFilter ? Lead.countDocuments(priorFilter) : Promise.resolve(0),
+    Lead.find({ status: { $in: ["contacted", "site_visit", "quoted", "negotiation"] } }).lean(),
+    Lead.find({ ...dateFilter, status: "won" }).lean(),
+    AdminUser.find({
+      role: { $in: ["sales_executive", "admin", "company_owner", "configurable_admin"] },
+      isActive: true,
+    }).select("id name email role").lean(),
   ]);
+
+  // A won lead's revenue is its accepted quotation's total; without one (or before it is approved), its estimated budget.
+  const wonConvertedIds = Array.from(new Set(leadsInPeriod.filter((l) => l.status === "won" && l.convertedQuotationId).map((l) => String(l.convertedQuotationId))));
+  const wonConvertedDocs = wonConvertedIds.length > 0
+    ? await Quotation.find({ _id: { $in: wonConvertedIds }, status: { $in: ["approved", "delivered"] } }).lean({ virtuals: true })
+    : [];
 
   // Status counts
   const statusCounts = emptyStatusMap();
@@ -307,11 +341,17 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
     new Set([
       ...approvedDocs.map((d) => String(d._id)),
       ...pendingDocs.map((d) => String(d._id)),
+      ...rejectedDocs.map((d) => String(d._id)),
       ...recentDocs.map((d) => String(d._id)),
       ...priorApprovedDocs.map((d) => String(d._id)),
+      ...wonConvertedDocs.map((d) => String(d._id)),
     ])
   );
-  const aggregatedTotals = await aggregateQuotationRoomTotals(subtotalSourceIds);
+  // Approved and delivered quotations keep their full value even if a product in them was deleted later.
+  const protectedIds = [...approvedDocs, ...recentDocs, ...priorApprovedDocs, ...wonConvertedDocs]
+    .filter((d) => isProtectedQuotationStatus(d.status))
+    .map((d) => String(d._id));
+  const aggregatedTotals = await aggregateQuotationRoomTotals(subtotalSourceIds, protectedIds);
 
   const grandTotalOf = (doc: {
     _id: unknown;
@@ -355,9 +395,19 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
   const pendingValue = roundMoney(pendingDocs.reduce((sum, doc) => sum + grandTotalOf(doc), 0));
   const priorApprovedValue = roundMoney(priorApprovedDocs.reduce((sum, doc) => sum + grandTotalOf(doc), 0));
 
+  const sentDocs = pendingDocs.filter((d) => d.status === "sent");
+  const draftDocs = pendingDocs.filter((d) => d.status === "draft");
+  const sentValue = roundMoney(sentDocs.reduce((sum, doc) => sum + grandTotalOf(doc), 0));
+  const draftValue = roundMoney(draftDocs.reduce((sum, doc) => sum + grandTotalOf(doc), 0));
+  const rejectedValue = roundMoney(rejectedDocs.reduce((sum, doc) => sum + grandTotalOf(doc), 0));
+  const totalQuotationValue = roundMoney(approvedValue + pendingValue + rejectedValue);
+  const averageValue = totalQuotations > 0 ? roundMoney(totalQuotationValue / totalQuotations) : 0;
+  const allPeriodDocs = [...approvedDocs, ...pendingDocs, ...rejectedDocs];
+
   // Time trend buckets
   const trendBuckets = generateTimeBuckets(range.key, range.start, range.end);
-  const allDocs = [...approvedDocs, ...pendingDocs, ...recentDocs];
+  // Every quotation of the period exactly once (approved, pending and rejected cover every status).
+  const allDocs = allPeriodDocs;
   for (const doc of allDocs) {
     const createdAt = new Date(doc.createdAt);
     let matchKey = "";
@@ -533,9 +583,164 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
     percent: totalProducts > 0 ? Math.round(((Number(row.count) || 0) / totalProducts) * 100) : 0,
   }));
 
-  // Demo CRM data if demo preview is explicitly requested and allowed
+  // CRM Analytics computation (real tenant metrics by default, synthetic preview when demo requested)
   const isDemo = Boolean(options.includeDemo && isDemoModeAllowed());
-  const crm = isDemo ? getDemoCrmAnalytics() : null;
+  let crm: CrmAnalyticsData;
+
+  if (isDemo) {
+    crm = getDemoCrmAnalytics();
+  } else {
+    // Real CRM data calculation from MongoDB collections
+    const totalLeads = leadsInPeriod.length;
+    const newLeads = leadsInPeriod.filter((l) => l.status === "new").length;
+    const activeOpportunities = activeOpportunitiesDocs.length;
+    const pipelineValue = roundMoney(activeOpportunitiesDocs.reduce((sum, l) => sum + (Number(l.estimatedBudget) || 0), 0));
+    const wonLeadsCount = wonLeadsDocs.length;
+    const lostLeadsCount = leadsInPeriod.filter((l) => l.status === "lost").length;
+    const decidedLeads = wonLeadsCount + lostLeadsCount;
+    const leadToWonRate = decidedLeads > 0
+      ? Math.round((wonLeadsCount / decidedLeads) * 100)
+      : (totalLeads > 0 ? Math.round((wonLeadsCount / totalLeads) * 100) : 0);
+    const leadToOpportunityRate = totalLeads > 0
+      ? Math.round(((totalLeads - newLeads) / totalLeads) * 100)
+      : 0;
+
+    // Average sales cycle in days
+    const wonDays = wonLeadsDocs
+      .filter((l) => l.wonAt && l.createdAt)
+      .map((l) => Math.max(1, Math.round((new Date(l.wonAt!).getTime() - new Date(l.createdAt).getTime()) / (1000 * 60 * 60 * 24))));
+    // 0 = no won deal to measure yet (the dashboard shows "—", never an invented figure).
+    const avgSalesCycleDays = wonDays.length > 0
+      ? Math.round(wonDays.reduce((a, b) => a + b, 0) / wonDays.length)
+      : 0;
+
+    // Opportunity Stages Breakdown
+    const STAGE_CONFIG: Array<{ id: string; name: string; color: string }> = [
+      { id: "new", name: "New Lead", color: "#3B82F6" },
+      { id: "contacted", name: "Contacted", color: "#6366F1" },
+      { id: "site_visit", name: "Site Visit", color: "#8B5CF6" },
+      { id: "quoted", name: "Quoted", color: "#D97706" },
+      { id: "negotiation", name: "Negotiation", color: "#EC4899" },
+      { id: "won", name: "Closed Won", color: "#10B981" },
+      { id: "lost", name: "Closed Lost", color: "#EF4444" },
+    ];
+
+    const stages = STAGE_CONFIG.map((stage) => {
+      const matching = leadsInPeriod.filter((l) => l.status === stage.id);
+      const count = matching.length;
+      const val = roundMoney(matching.reduce((sum, l) => sum + (Number(l.estimatedBudget) || 0), 0));
+      const percentage = totalLeads > 0 ? Math.round((count / totalLeads) * 100) : 0;
+      return {
+        id: stage.id,
+        name: stage.name,
+        count,
+        value: val,
+        color: stage.color,
+        percentage,
+      };
+    });
+
+    const wonQuotationValue = new Map(wonConvertedDocs.map((d) => [String(d._id), grandTotalOf(d)]));
+    const wonValueOf = (lead: { convertedQuotationId?: string | null; estimatedBudget?: number | null }): number => {
+      const accepted = lead.convertedQuotationId ? wonQuotationValue.get(String(lead.convertedQuotationId)) : undefined;
+      return accepted ?? (Number(lead.estimatedBudget) || 0);
+    };
+
+    // Lead Sources Breakdown
+    const sourceMap = new Map<string, { count: number; wonCount: number; wonRevenue: number; opportunities: number }>();
+    for (const lead of leadsInPeriod) {
+      const srcName = lead.sourceName?.trim() || "Direct / Inquiries";
+      const current = sourceMap.get(srcName) || { count: 0, wonCount: 0, wonRevenue: 0, opportunities: 0 };
+      current.count += 1;
+      if (lead.status === "won") {
+        current.wonCount += 1;
+        current.wonRevenue += wonValueOf(lead);
+      } else if (["contacted", "site_visit", "quoted", "negotiation"].includes(lead.status)) {
+        current.opportunities += 1;
+      }
+      sourceMap.set(srcName, current);
+    }
+
+    const sources = Array.from(sourceMap.entries()).map(([source, data]) => {
+      const pct = totalLeads > 0 ? Math.round((data.count / totalLeads) * 100) : 0;
+      const conv = data.count > 0 ? Math.round((data.wonCount / data.count) * 100) : 0;
+      return {
+        source,
+        count: data.count,
+        percentage: pct,
+        wonRevenue: roundMoney(data.wonRevenue),
+        opportunities: data.opportunities,
+        wonCount: data.wonCount,
+        conversionRate: conv,
+      };
+    }).sort((a, b) => b.count - a.count);
+
+    // Salesperson Performance
+    const salespeople = salesPersonnel.map((user) => {
+      const uId = Number(user.id ?? (user as any)._id);
+      const assignedLeads = leadsInPeriod.filter((l) => Number(l.assignedSalesId) === uId);
+      const activeDeals = activeOpportunitiesDocs.filter((l) => Number(l.assignedSalesId) === uId);
+      const quotesCreated = allPeriodDocs.filter((q) => Number(q.assignedSalesId) === uId || String(q.createdBy) === String(uId));
+      const wonQuotes = approvedDocs.filter((q) => Number(q.assignedSalesId) === uId || String(q.createdBy) === String(uId));
+      const wonRev = roundMoney(wonQuotes.reduce((sum, q) => sum + grandTotalOf(q), 0));
+      const decidedCount = assignedLeads.filter((l) => l.status === "won" || l.status === "lost").length;
+      const wonLeadsUser = assignedLeads.filter((l) => l.status === "won").length;
+      const convRate = decidedCount > 0 ? Math.round((wonLeadsUser / decidedCount) * 100) : 0;
+
+      const roleLabel =
+        user.role === "company_owner"
+          ? "Owner"
+          : user.role === "sales_executive"
+          ? "Sales Executive"
+          : user.role === "configurable_admin"
+          ? "Specialist"
+          : "Admin";
+
+      return {
+        id: uId,
+        name: user.name || ("User #" + uId),
+        email: user.email || "",
+        role: roleLabel,
+        leadsAssigned: assignedLeads.length,
+        opportunitiesActive: activeDeals.length,
+        quotationsCreated: quotesCreated.length,
+        wonQuotations: wonQuotes.length,
+        wonRevenue: wonRev,
+        conversionRate: convRate,
+      };
+    }).sort((a, b) => b.wonRevenue - a.wonRevenue || b.leadsAssigned - a.leadsAssigned);
+
+    const decidedQuotationsCount = statusCounts.approved + statusCounts.delivered + statusCounts.rejected;
+    const quoteWinRate = decidedQuotationsCount > 0
+      ? Math.round(((statusCounts.approved + statusCounts.delivered) / decidedQuotationsCount) * 100)
+      : 0;
+
+    crm = {
+      isDemo: false,
+      summary: {
+        totalLeads,
+        newLeads,
+        activeOpportunities,
+        pipelineValue,
+        leadToWonRate,
+        leadToOpportunityRate,
+        quotationWinRate: quoteWinRate,
+        avgSalesCycleDays,
+        wonRevenue: approvedValue,
+        totalQuotationValue,
+        averageQuotationValue: averageValue,
+        pendingQuotationValue: pendingValue,
+      },
+      stages,
+      sources,
+      salespeople,
+    };
+  }
+
+  const leadPeriodChangePercent =
+    priorLeadsCount > 0
+      ? Math.round(((leadsInPeriod.length - priorLeadsCount) / priorLeadsCount) * 100)
+      : null;
 
   // Dealer categories are real data from this company's dealers and history, never demo values.
   const tierCompanyId = getTenantContext()?.companyId ?? null;
@@ -565,9 +770,20 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
       approvedValueChangePercent,
       approvedValue,
       pendingValue,
+      sentValue,
+      draftValue,
+      totalValue: totalQuotationValue,
+      averageValue,
       approvalRate,
       confirmedDealerEarnings,
       recent,
+    },
+    leads: {
+      total: leadsInPeriod.length,
+      newLeads: leadsInPeriod.filter((l) => l.status === "new").length,
+      thisPeriod: leadsInPeriod.length,
+      priorPeriod: priorLeadsCount,
+      periodChangePercent: leadPeriodChangePercent,
     },
     pipeline,
     dealers: {
@@ -588,4 +804,65 @@ export async function getAdminDashboardData(options: DashboardOptions = {}): Pro
     dealerTiers,
     isDemoMode: isDemo,
   };
+}
+
+/** What the person looking at the dashboard may see. Anything else is removed before the data leaves the server. */
+export interface DashboardAccess {
+  /** leads:read: leads, pipeline, sources, salesperson performance. */
+  crm: boolean;
+  /** quotations:read_all: company-wide quotation values, won revenue, recent quotations and deliveries. */
+  sales: boolean;
+  /** dealers:read: the dealer table, dealer earnings and categories. */
+  dealers: boolean;
+}
+
+const EMPTY_CRM: CrmAnalyticsData = {
+  isDemo: false,
+  summary: { totalLeads: 0, newLeads: 0, activeOpportunities: 0, pipelineValue: 0, leadToWonRate: 0, leadToOpportunityRate: 0, quotationWinRate: 0, avgSalesCycleDays: 0, wonRevenue: 0, totalQuotationValue: 0, averageQuotationValue: 0, pendingQuotationValue: 0 },
+  stages: [],
+  sources: [],
+  salespeople: [],
+};
+
+/**
+ * Removes from the dashboard data what this person may not see, so it is never sent to their browser (hiding it on screen
+ * is not enough). Company Owners and Admins see everything; a custom role sees the parts its permissions cover.
+ */
+export function redactDashboardData(data: DashboardData, access: DashboardAccess): DashboardData {
+  const out: DashboardData = { ...data };
+  if (!access.crm) {
+    out.crm = data.crm?.isDemo ? data.crm : EMPTY_CRM;
+    out.leads = undefined;
+  }
+  if (!access.sales) {
+    out.quotations = {
+      ...data.quotations,
+      approvedValue: 0,
+      pendingValue: 0,
+      sentValue: 0,
+      draftValue: 0,
+      totalValue: 0,
+      averageValue: 0,
+      approvedValueChangePercent: null,
+      confirmedDealerEarnings: 0,
+      recent: [],
+      months: data.quotations.months.map((bucket) => ({ ...bucket, approvedValue: 0 })),
+      trend: data.quotations.trend.map((bucket) => ({ ...bucket, approvedValue: 0 })),
+    };
+    out.deliveries = { ...data.deliveries, recent: [] };
+    if (out.crm && !out.crm.isDemo) {
+      out.crm = {
+        ...out.crm,
+        summary: { ...out.crm.summary, wonRevenue: 0, totalQuotationValue: 0, averageQuotationValue: 0, pendingQuotationValue: 0 },
+        sources: out.crm.sources.map((source) => ({ ...source, wonRevenue: 0 })),
+        salespeople: out.crm.salespeople.map((person) => ({ ...person, wonRevenue: 0 })),
+      };
+    }
+  }
+  if (!access.dealers) {
+    out.dealers = { items: [], totalActiveDealers: 0 };
+    out.quotations = { ...out.quotations, confirmedDealerEarnings: 0 };
+    out.dealerTiers = null;
+  }
+  return out;
 }

@@ -24,7 +24,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
  */
 
 /** Why a query was deliberately run with no company filter. Every use is logged. */
-export type UnscopedReason = "platform-admin" | "migration" | "auth-lookup" | "public-registration" | "provider-webhook" | "public-quotation-link" | "public-calendar-feed" | "calendar-sync-worker";
+export type UnscopedReason = "platform-admin" | "migration" | "auth-lookup" | "public-registration" | "provider-webhook" | "public-quotation-link" | "public-calendar-feed" | "calendar-sync-worker" | "follow-up-reminder-worker";
 
 const KNOWN_UNSCOPED_REASONS: ReadonlySet<string> = new Set<UnscopedReason>([
   "platform-admin",
@@ -39,6 +39,8 @@ const KNOWN_UNSCOPED_REASONS: ReadonlySet<string> = new Set<UnscopedReason>([
   "public-calendar-feed",
   // The Google Calendar sync worker (cron): picks the next due sync items across companies, then works on each inside its own company.
   "calendar-sync-worker",
+  // The daily follow-up reminder email (cron): lists the companies that have open follow-ups, then works inside each company.
+  "follow-up-reminder-worker",
 ]);
 
 export interface TenantContextValue {

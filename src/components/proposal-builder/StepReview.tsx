@@ -21,6 +21,7 @@ import {
   Edit3,
   RotateCcw,
   Check,
+  Percent,
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, EditorCatalogProduct, Category } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
@@ -28,6 +29,7 @@ import UnavailabilityWarning from "./UnavailabilityWarning";
 import { eligibleItemsOfRoom } from "@/lib/quotationAvailability";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
+import { canGiveItemDiscount, itemDiscountLabel, previewItemDiscount, validateItemDiscount, type ItemDiscountType } from "@/lib/itemDiscount";
 import { useSession } from "next-auth/react";
 import { getRoomDisplayName, getRoomFloorLabel, getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
 import { Select } from "@/components/ui/Select";
@@ -118,6 +120,58 @@ export default function StepReview({
   const [editPriceInput, setEditPriceInput] = useState<string>("");
   const [editPriceError, setEditPriceError] = useState<string | null>(null);
   const [isSavingPrice, setIsSavingPrice] = useState<number | null>(null);
+
+  // Per-product discount editing state (Admin and Company Owner only)
+  const [discountEditId, setDiscountEditId] = useState<number | null>(null);
+  const [itemDiscType, setItemDiscType] = useState<ItemDiscountType>("percentage");
+  const [itemDiscValue, setItemDiscValue] = useState<string>("");
+  const [itemDiscError, setItemDiscError] = useState<string | null>(null);
+  const [savingItemDiscount, setSavingItemDiscount] = useState<number | null>(null);
+
+  /** The unit price before any per-product discount. */
+  const priceBeforeItemDiscount = (item: QuotationItem): number =>
+    item.discountType && item.preDiscountUnitPrice ? Number(item.preDiscountUnitPrice) : Number(item.unitPrice || 0);
+
+  const startItemDiscount = (item: QuotationItem) => {
+    setDiscountEditId(Number(item.id ?? (item as any)._id));
+    setItemDiscType(item.discountType ?? "percentage");
+    setItemDiscValue(item.discountType && item.discountValue ? String(item.discountValue) : "");
+    setItemDiscError(null);
+    setEditingItemId(null);
+  };
+
+  const cancelItemDiscount = () => {
+    setDiscountEditId(null);
+    setItemDiscValue("");
+    setItemDiscError(null);
+  };
+
+  const saveItemDiscount = async (item: QuotationItem) => {
+    const itemId = Number(item.id ?? (item as any)._id);
+    const typed = Number(itemDiscValue.trim());
+    const problem = itemDiscValue.trim() === "" ? "Enter a discount greater than zero." : validateItemDiscount(priceBeforeItemDiscount(item), itemDiscType, typed);
+    if (problem) {
+      setItemDiscError(problem);
+      return;
+    }
+    setSavingItemDiscount(itemId);
+    try {
+      const success = await onUpdateItem(itemId, { discountType: itemDiscType, discountValue: typed });
+      if (success !== false) cancelItemDiscount();
+    } finally {
+      setSavingItemDiscount(null);
+    }
+  };
+
+  const removeItemDiscount = async (itemId: number) => {
+    setSavingItemDiscount(itemId);
+    try {
+      const success = await onUpdateItem(itemId, { discountType: "none" });
+      if (success !== false) cancelItemDiscount();
+    } finally {
+      setSavingItemDiscount(null);
+    }
+  };
 
   const getCatalogDefaultPrice = useCallback(
     (item: QuotationItem): number | null => {
@@ -284,6 +338,8 @@ export default function StepReview({
   const actorRole = (session?.user as { role?: string } | undefined)?.role;
   const isSalesExecutive = actorRole === "sales_executive";
   const actorIsDealer = actorRole === "dealer";
+  // Only an Admin or the Company Owner may give a discount on a single product (the server enforces it too).
+  const canDiscountItems = canGiveItemDiscount(actorRole) && !isLocked;
 
   // Earning uses the same shared formula as the server (allocated% - customer%).
   const { earningPercent, earningAmount: estimatedEarning } = calculateDealerEarning({
@@ -836,8 +892,146 @@ export default function StepReview({
                                               <span>Reset to Default</span>
                                             </button>
                                           )}
+
+                                          {item.discountType && item.discountValue ? (
+                                            <>
+                                              <span
+                                                className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold tracking-wide uppercase bg-emerald-50 text-emerald-800 border border-emerald-200/80 shadow-2xs"
+                                                data-testid="item-discount-badge"
+                                              >
+                                                <Percent size={9} aria-hidden="true" />
+                                                {itemDiscountLabel(item.discountType, item.discountValue)}
+                                              </span>
+                                              <span className="text-[11px] text-gray-400 font-mono line-through" title="Price before the discount">
+                                                {formatCurrency(priceBeforeItemDiscount(item))}
+                                              </span>
+                                            </>
+                                          ) : null}
+
+                                          {canDiscountItems && (
+                                            <button
+                                              type="button"
+                                              onClick={() => startItemDiscount(item)}
+                                              className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 underline hover:no-underline transition"
+                                              title="Give a discount on this product (Admin and Company Owner)"
+                                              data-testid="item-discount-open"
+                                            >
+                                              <Percent size={11} aria-hidden="true" />
+                                              <span>{item.discountType ? "Change Discount" : "Discount"}</span>
+                                            </button>
+                                          )}
                                         </div>
                                       )}
+
+                                      {canDiscountItems && discountEditId === itemId && (() => {
+                                        const base = priceBeforeItemDiscount(item);
+                                        const typed = Number(itemDiscValue.trim());
+                                        const problem = itemDiscValue.trim() === "" ? null : validateItemDiscount(base, itemDiscType, typed);
+                                        const preview = itemDiscValue.trim() !== "" && !problem ? previewItemDiscount(base, qty, itemDiscType, typed) : null;
+                                        return (
+                                          <div className="mt-2 p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-2 max-w-sm" data-testid="item-discount-editor">
+                                            <div className="flex items-center justify-between">
+                                              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-900">Product Discount</span>
+                                              <span className="text-[10px] text-emerald-700 font-medium">Per unit · Admin &amp; Owner</span>
+                                            </div>
+                                            <div className="text-[11px] text-gray-500 font-mono">
+                                              Price before discount: <span className="font-semibold text-gray-800">{formatCurrency(base)}</span> each
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                              <div className="flex items-center rounded-lg border border-emerald-200 bg-white p-0.5" role="group" aria-label="Discount type">
+                                                {(["percentage", "fixed"] as const).map((type) => (
+                                                  <button
+                                                    key={type}
+                                                    type="button"
+                                                    aria-pressed={itemDiscType === type}
+                                                    onClick={() => {
+                                                      setItemDiscType(type);
+                                                      setItemDiscError(null);
+                                                    }}
+                                                    className={`px-2.5 py-1 rounded-md text-xs font-bold transition ${itemDiscType === type ? "bg-gray-950 text-white" : "text-gray-600 hover:bg-gray-100"}`}
+                                                    data-testid={`item-discount-type-${type}`}
+                                                  >
+                                                    {type === "percentage" ? "%" : "₹"}
+                                                  </button>
+                                                ))}
+                                              </div>
+                                              <input
+                                                type="number"
+                                                step="0.01"
+                                                min="0"
+                                                value={itemDiscValue}
+                                                onChange={(e) => {
+                                                  setItemDiscValue(e.target.value);
+                                                  if (itemDiscError) setItemDiscError(null);
+                                                }}
+                                                onKeyDown={(e) => {
+                                                  if (e.key === "Enter") {
+                                                    e.preventDefault();
+                                                    void saveItemDiscount(item);
+                                                  } else if (e.key === "Escape") {
+                                                    cancelItemDiscount();
+                                                  }
+                                                }}
+                                                autoFocus
+                                                disabled={savingItemDiscount === itemId}
+                                                aria-label={itemDiscType === "percentage" ? "Discount percentage" : "Discount amount per unit in rupees"}
+                                                placeholder={itemDiscType === "percentage" ? "e.g. 10" : "e.g. 500"}
+                                                className="w-full min-w-0 flex-1 px-2 py-1 text-xs font-mono font-bold bg-white text-gray-950 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                                data-testid="item-discount-input"
+                                              />
+                                              <button
+                                                type="button"
+                                                disabled={savingItemDiscount === itemId}
+                                                onClick={() => void saveItemDiscount(item)}
+                                                className="px-2.5 py-1 bg-gray-950 text-white rounded-lg text-xs font-semibold hover:bg-black transition disabled:opacity-50 active:scale-95 shadow-2xs"
+                                                data-testid="item-discount-apply"
+                                              >
+                                                {savingItemDiscount === itemId ? "Saving..." : "Apply"}
+                                              </button>
+                                              <button
+                                                type="button"
+                                                disabled={savingItemDiscount === itemId}
+                                                onClick={cancelItemDiscount}
+                                                className="px-2 py-1 bg-white border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 transition active:scale-95"
+                                              >
+                                                Cancel
+                                              </button>
+                                            </div>
+
+                                            {preview && (
+                                              <div className="grid grid-cols-2 gap-x-3 gap-y-1 rounded-lg bg-white/80 border border-emerald-100 px-2.5 py-2 text-[11px] font-mono" data-testid="item-discount-preview">
+                                                <span className="text-gray-500">Off each unit</span>
+                                                <span className="text-right font-semibold text-emerald-700">−{formatCurrency(preview.perUnit)}</span>
+                                                <span className="text-gray-500">New price each</span>
+                                                <span className="text-right font-semibold text-gray-950">{formatCurrency(preview.netUnit)}</span>
+                                                <span className="text-gray-500">Line ({qty} {qty === 1 ? "unit" : "units"})</span>
+                                                <span className="text-right text-gray-700">
+                                                  <span className="line-through text-gray-400">{formatCurrency(preview.lineBefore)}</span> {formatCurrency(preview.lineAfter)}
+                                                </span>
+                                                <span className="text-gray-500">Customer saves</span>
+                                                <span className="text-right font-bold text-emerald-700">{formatCurrency(preview.saving)}</span>
+                                              </div>
+                                            )}
+
+                                            {(itemDiscError || problem) && <p className="text-[11px] font-semibold text-red-600" role="alert">{itemDiscError || problem}</p>}
+
+                                            {item.discountType && (
+                                              <div className="pt-1 border-t border-emerald-200/60 flex justify-end">
+                                                <button
+                                                  type="button"
+                                                  disabled={savingItemDiscount === itemId}
+                                                  onClick={() => void removeItemDiscount(itemId)}
+                                                  className="text-[11px] font-semibold text-emerald-800 hover:text-emerald-950 underline flex items-center gap-1"
+                                                  data-testid="item-discount-remove"
+                                                >
+                                                  <RotateCcw size={10} aria-hidden="true" />
+                                                  <span>Remove discount</span>
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        );
+                                      })()}
                                     </div>
                                   </div>
 
