@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "@/lib/auth";
 import { ArrowLeft, Clock } from "lucide-react";
 import { findLauncherApp } from "@/lib/appLauncher";
 
@@ -10,6 +12,14 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 }
 
 export default async function AppComingSoonPage({ params }: { params: Promise<{ slug: string }> }) {
+  const session = await getServerSession(authOptions);
+  const role = (session?.user as { role?: string } | undefined)?.role;
+
+  // The Apps Launcher is strictly hidden for the Dealer role — redirect to their Quotations landing page.
+  if (role === "dealer") {
+    redirect("/");
+  }
+
   const { slug } = await params;
   const app = findLauncherApp(slug);
 
@@ -52,4 +62,3 @@ export default async function AppComingSoonPage({ params }: { params: Promise<{ 
     </div>
   );
 }
-

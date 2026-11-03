@@ -72,7 +72,12 @@ function UserLoginForm() {
         return;
       }
       let destination = safeUserCallback(searchParams.get("callbackUrl")) ?? "/";
-      if (destination === "/dealer/access" || destination.startsWith("/admin") || destination === "/dealers") {
+      if (
+        destination === "/dealer/access" ||
+        destination.startsWith("/admin") ||
+        destination === "/dealers" ||
+        (role === "dealer" && (destination === "/apps" || destination.startsWith("/apps/")))
+      ) {
         destination = "/";
       }
       toast.success("Welcome back.");

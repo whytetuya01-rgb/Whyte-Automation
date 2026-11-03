@@ -40,6 +40,8 @@ const PUBLIC_VERIFICATION_APIS: ReadonlySet<string> = new Set(["/api/company/reg
 const PUBLIC_QUOTATION_LINK_PDF = /^\/api\/public\/quotation-links\/[A-Za-z0-9_-]+\/pdf$/;
 const PUBLIC_QUOTATION_LINK_VIEW_API = "/api/public/quotation-links/view";
 /** A person's private calendar link for their follow-ups (opened by a calendar app, no session). The route checks the secret. */
+// The Google Calendar sync worker: called by a scheduler, not a person. The route itself demands the CRON_SECRET bearer token.
+const PUBLIC_CRON_WORKER = "/api/cron/google-calendar-sync";
 const PUBLIC_CALENDAR_FEED = /^\/api\/calendar\/follow-ups\/[A-Za-z0-9_-]+\.ics$/;
 const DEALER_LANDING_PAGE = "/dealer/access";
 const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
@@ -84,9 +86,13 @@ export async function proxy(request: NextRequest) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
 
+  if (pathname === PUBLIC_CRON_WORKER && (request.method === "GET" || request.method === "POST")) {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+
   const role = await getVerifiedSessionRole(request);
   if (role === "dealer") {
-    if (pathname.startsWith("/api/admin")) {
+    if (pathname.startsWith("/api/admin") || pathname.startsWith("/api/crm") || pathname.startsWith("/api/platform")) {
       return NextResponse.json(
         { success: false, error: { code: "FORBIDDEN", message: "You do not have permission to access this resource." } },
         { status: 403 }
@@ -97,7 +103,9 @@ export async function proxy(request: NextRequest) {
         isAdminPage(pathname) ||
         pathname === "/dealers" ||
         pathname.startsWith("/dealers/") ||
-        pathname === "/dealer/access"
+        pathname === "/dealer/access" ||
+        pathname === "/apps" ||
+        pathname.startsWith("/apps/")
       ) {
         return redirectTo(request, "/");
       }
@@ -127,7 +135,9 @@ export async function proxy(request: NextRequest) {
         isAdminPage(pathname) ||
         pathname === "/dealers" ||
         pathname.startsWith("/dealers/") ||
-        pathname === "/dealer/access"
+        pathname === "/dealer/access" ||
+        pathname === "/apps" ||
+        pathname.startsWith("/apps/")
       ) {
         return redirectTo(request, "/");
       }

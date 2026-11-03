@@ -58,13 +58,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
             {/* Desktop nav */}
             <nav className="hidden sm:flex items-center gap-1">
-              <Link
-                href="/apps"
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-gray-950 hover:bg-gray-100 transition"
-              >
-                <LayoutGrid size={14} />
-                <span>Apps</span>
-              </Link>
+              {role !== "dealer" && (
+                <Link
+                  href="/apps"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-gray-950 hover:bg-gray-100 transition"
+                >
+                  <LayoutGrid size={14} />
+                  <span>Apps</span>
+                </Link>
+              )}
               <Link
                 href="/"
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-gray-600 hover:text-gray-950 hover:bg-gray-100 transition"
@@ -172,13 +174,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
         {/* Mobile secondary nav */}
         <div className="sm:hidden flex items-center gap-1.5 px-3 py-1.5 border-t border-gray-100 bg-gray-50/70 overflow-x-auto touch-pan-x [scrollbar-width:none] [-webkit-overflow-scrolling:touch]">
-          <Link
-            href="/apps"
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-gray-700 hover:text-gray-950 hover:bg-gray-200/60 transition shrink-0"
-          >
-            <LayoutGrid size={13} />
-            <span>Apps</span>
-          </Link>
+          {role !== "dealer" && (
+            <Link
+              href="/apps"
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-gray-700 hover:text-gray-950 hover:bg-gray-200/60 transition shrink-0"
+            >
+              <LayoutGrid size={13} />
+              <span>Apps</span>
+            </Link>
+          )}
           <Link
             href="/"
             className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-gray-700 hover:text-gray-950 hover:bg-gray-200/60 transition shrink-0"

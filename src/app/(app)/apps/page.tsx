@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getServerSession } from "next-auth/next";
+import { redirect } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { authOptions } from "@/lib/auth";
 import { LAUNCHER_APPS, launcherHref } from "@/lib/appLauncher";
@@ -10,6 +11,12 @@ export default async function AppsPage() {
   const session = await getServerSession(authOptions);
   const user = session?.user as { role?: string; name?: string | null } | undefined;
   const role = user?.role;
+
+  // The Apps Launcher is strictly hidden for the Dealer role — redirect to their Quotations landing page.
+  if (role === "dealer") {
+    redirect("/");
+  }
+
   const firstName = user?.name?.trim().split(/\s+/)[0];
 
   return (
@@ -62,4 +69,3 @@ export default async function AppsPage() {
     </section>
   );
 }
-
