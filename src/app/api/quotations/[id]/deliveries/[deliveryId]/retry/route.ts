@@ -1,4 +1,5 @@
 import { connectMongoDB } from "@/lib/mongodb";
+import { adoptDeliveryPdf } from "@/lib/quotationRevisionService";
 import { AdminUser, Company, Quotation, QuotationDelivery, QuotationDeliveryFile, DELIVERY_MAX_ATTEMPTS } from "@/models";
 import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
@@ -39,10 +40,15 @@ export async function POST(_req: Request, context: RouteContext) {
         throw new ApiError("FORBIDDEN", "You do not have permission to send this quotation.");
       }
 
-      const existing = await QuotationDelivery.findOne({ _id: deliveryId, quotationId }).select("status attempts channel").lean();
+      const existing = await QuotationDelivery.findOne({ _id: deliveryId, quotationId }).select("status attempts channel revision").lean();
       if (!existing) throw new ApiError("NOT_FOUND", "Delivery not found.");
       if (existing.channel !== "email") throw new ApiError("CONFLICT", "Only an email delivery can be retried; share on WhatsApp again instead.");
       if (existing.status !== "failed") throw new ApiError("CONFLICT", "Only a failed delivery can be retried.");
+      // A failed send of an older revision must not go out (or become the PDF of) the revision the quotation is on now.
+      const sentRevision = existing.revision && existing.revision > 0 ? existing.revision : 1;
+      if (sentRevision !== (quotation.revision ?? 1)) {
+        throw new ApiError("CONFLICT", `This send was for Revision ${sentRevision}; the quotation is now Revision ${quotation.revision ?? 1}. Send the current revision from the Send window instead.`);
+      }
       if (existing.attempts >= DELIVERY_MAX_ATTEMPTS) {
         throw new ApiError("CONFLICT", `This delivery has already been tried ${DELIVERY_MAX_ATTEMPTS} times. Send it again as a new delivery.`);
       }
@@ -81,7 +87,10 @@ export async function POST(_req: Request, context: RouteContext) {
         viewUrl: linkState(delivery) === "active" ? linkUrlFor(delivery) : null,
       });
       await delivery.save();
-      if (accepted) await markQuotationSentIfDraft(quotation, userId);
+      if (accepted) {
+        await markQuotationSentIfDraft(quotation, userId);
+        await adoptDeliveryPdf(quotationId, { _id: deliveryId }); // the revision being sent keeps this exact PDF
+      }
 
       return apiSuccess(deliveryDto(delivery.toObject()));
     });

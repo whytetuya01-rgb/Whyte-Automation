@@ -55,7 +55,17 @@ try {
   const addItem = (cookie, q, productId, variantId, quantity = 1) => api(cookie, "POST", `/api/quotations/${q.id}/items`, { quotationRoomId: q.roomId, productId, productVariantId: variantId, quantity });
   const quotationRow = (id) => db.collection("quotations").findOne({ _id: id });
   const records = (id) => db.collection("quotationrevisions").find({ quotationId: id }).sort({ revision: 1 }).toArray();
-  const send = (cookie, q) => api(cookie, "POST", `/api/quotations/${q.id}/mark-sent`);
+  let sends = 0;
+  /** Marks a quotation sent together with its PDF (as Download PDF / Print / Share / Send do). */
+  const send = async (cookie, q, pdf = fakePdf(`issued ${(sends += 1)}`)) => {
+    const form = new FormData();
+    form.append("pdf", new Blob([pdf], { type: "application/pdf" }), "q.pdf");
+    const res = await fetch(`${baseUrl}/api/quotations/${q.id}/mark-sent`, { method: "POST", headers: { Cookie: cookie }, body: form });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not json */ }
+    return { status: res.status, json, data: json?.data, text };
+  };
   const uploadPdf = async (cookie, q, buffer) => {
     const form = new FormData();
     form.append("pdf", new Blob([buffer], { type: "application/pdf" }), "q.pdf");
@@ -75,17 +85,31 @@ try {
   assert.equal((await records(q1.id)).length, 0, "nothing is frozen while it is a draft");
   assert.equal((await api(c.dealer, "PATCH", `/api/quotations/${q1.id}`, { notes: "draft note" })).status, 200, "a draft can be edited");
 
-  const sent = await send(c.dealer, q1);
+  // a draft is never "sent" without its PDF: not through mark-sent, not through a plain edit
+  const bare = await api(c.dealer, "POST", `/api/quotations/${q1.id}/mark-sent`);
+  assert.equal(bare.status, 400, bare.text?.slice(0, 200));
+  assert.equal(bare.json.error.details.reason, "PDF_REQUIRED");
+  assert.match(bare.json.error.message, /together with its PDF/);
+  const viaEdit = await api(c.owner, "PATCH", `/api/quotations/${q1.id}`, { status: "sent" });
+  assert.equal(viaEdit.status, 409, viaEdit.text?.slice(0, 200));
+  assert.equal((await send(c.dealer, q1, Buffer.from("not a pdf at all"))).status, 415, "not a PDF");
+  assert.deepEqual([(await quotationRow(q1.id)).status, (await records(q1.id)).length], ["draft", 0], "still a draft, nothing issued");
+  pass("a draft cannot become sent without its PDF (mark-sent without one, a non-PDF, or a plain edit are refused and change nothing)");
+
+  const pdf1 = fakePdf("revision one");
+  const sent = await send(c.dealer, q1, pdf1);
   assert.equal(sent.status, 200, sent.text?.slice(0, 300));
   assert.deepEqual([sent.data.status, sent.data.revision], ["sent", 1]);
   const [rev1] = await records(q1.id);
-  assert.deepEqual([rev1.revision, rev1.quotationNumber, rev1.issuedBy, rev1.issuedByName, rev1.reconstructed, rev1.pdf, rev1.supersededAt], [1, q1.number, 2, "Dealer A", false, null, null]);
+  assert.deepEqual([rev1.revision, rev1.quotationNumber, rev1.issuedBy, rev1.issuedByName, rev1.reconstructed, rev1.supersededAt], [1, q1.number, 2, "Dealer A", false, null]);
+  assert.deepEqual([rev1.pdf?.source, rev1.pdf?.sha256], ["revision_file", sha(pdf1)], "issued together with the PDF that was sent");
   assert.equal(rev1.snapshot.quotation.clientName, "Client One");
   assert.equal(rev1.snapshot.quotation.notes, "draft note");
   assert.deepEqual(rev1.snapshot.rooms.map((r) => [r.name, r.items.map((i) => [i.productName, i.productCode, i.quantity, i.unitPrice])]), [["Living Room", [["Smart Switch", "P-2001", 2, 1180], ["Switch Frame", "P-2002", 1, 300]]]], "the room, products, quantities and prices the client saw");
   assert.equal(rev1.snapshot.totals.subtotal, 2660, "2 x 1180 + 300");
   assert.ok(rev1.snapshot.totals.grandTotal > 0);
-  assert.equal((await send(c.dealer, q1)).status, 200, "sending twice is harmless");
+  assert.equal((await send(c.dealer, q1, fakePdf("downloaded again"))).status, 200, "sending twice is harmless (a later PDF never replaces the kept one)");
+  assert.equal((await records(q1.id))[0].pdf.sha256, sha(pdf1));
   assert.equal((await records(q1.id)).length, 1, "and does not create a second record");
   pass("sending a quotation freezes revision 1: the details, rooms, products, quantities, prices and totals as the client saw them");
 
@@ -109,10 +133,6 @@ try {
 
   // ═══ the PDF of a version ═══
   assert.equal((await uploadPdf(c.dealer, q1, Buffer.from("not a pdf at all"))).status, 415, "not a PDF");
-  const pdf1 = fakePdf("revision one");
-  const stored = await uploadPdf(c.dealer, q1, pdf1);
-  assert.equal(stored.status, 200, stored.text?.slice(0, 300));
-  assert.deepEqual([stored.data.revision, stored.data.stored, stored.data.sha256], [1, true, sha(pdf1)]);
   const again = await uploadPdf(c.dealer, q1, pdf1);
   assert.deepEqual([again.status, again.data.stored], [200, false], "the same PDF again changes nothing");
   const different = await uploadPdf(c.dealer, q1, fakePdf("a different one"));
@@ -150,8 +170,8 @@ try {
   // ═══ edit, issue revision 2, both versions stay ═══
   const itemId = (await db.collection("quotationitems").find({}).sort({ _id: 1 }).toArray())[0]._id;
   assert.equal((await api(c.dealer, "PATCH", `/api/quotations/${q1.id}/items/${itemId}`, { quantity: 4 })).status, 200, "editable again");
-  assert.equal((await send(c.dealer, q1)).data.revision, 2);
   const pdf2 = fakePdf("revision two");
+  assert.equal((await send(c.dealer, q1, pdf2)).data.revision, 2);
   assert.equal((await uploadPdf(c.dealer, q1, pdf2)).data.revision, 2);
   const [r1, r2] = await records(q1.id);
   assert.equal(r2.reason, "Client asked for two more switches");

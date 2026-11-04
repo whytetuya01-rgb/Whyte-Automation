@@ -278,36 +278,67 @@ export async function decideRevisionRequest(quotationId: string, input: { actor:
  * Stores the PDF of the quotation's CURRENT issued revision. Write-once: the same bytes again are accepted (nothing changes), a
  * different PDF for a revision that already has one is refused.
  */
-export async function attachRevisionPdf(quotationId: string, buffer: Buffer): Promise<{ revision: number; sha256: string; stored: boolean }> {
-  await connectMongoDB();
+/** Refuses, before anything is changed, a file that cannot be kept as a revision's PDF. */
+export function assertStorablePdf(buffer: Buffer): void {
   if (buffer.length === 0 || buffer.length > DELIVERY_MAX_PDF_BYTES) throw new ApiError("FILE_TOO_LARGE", `The PDF must be between 1 byte and ${DELIVERY_MAX_PDF_BYTES / (1024 * 1024)} MB.`, { field: "pdf" });
   if (!isPdf(buffer)) throw new ApiError("INVALID_FILE_TYPE", "The file must be a PDF.", { field: "pdf" });
-  const quotation = await Quotation.findById(quotationId);
+}
+
+export async function attachRevisionPdf(quotationId: string, buffer: Buffer, session?: ClientSession): Promise<{ revision: number; sha256: string; stored: boolean }> {
+  await connectMongoDB();
+  assertStorablePdf(buffer);
+  const quotation = await Quotation.findById(quotationId).session(session ?? null);
   if (!quotation) throw new ApiError("NOT_FOUND", "Quotation not found.");
   if (quotation.status === "draft") throw new ApiError("CONFLICT", "This quotation has not been issued yet: send or download it first.");
-  const record = await ensureIssuedRecord(quotation);
+  const record = await ensureIssuedRecord(quotation, session);
   if (!record) throw new ApiError("CONFLICT", "This quotation has not been issued yet.");
   const digest = sha256(buffer);
   if (record.pdf) {
     if (record.pdf.sha256 === digest) return { revision: record.revision, sha256: digest, stored: false };
     throw new ApiError("CONFLICT", `Revision ${record.revision} already has its PDF. An issued PDF is never replaced: create a new revision instead.`, { details: { reason: "PDF_ALREADY_STORED" } });
   }
-  await QuotationRevisionFile.create([{ _id: record._id, companyId: record.companyId, mime: "application/pdf", size: buffer.length, sha256: digest, data: buffer }]).catch((error: { code?: number }) => {
+  await QuotationRevisionFile.create([{ _id: record._id, companyId: record.companyId, mime: "application/pdf", size: buffer.length, sha256: digest, data: buffer }], { session }).catch((error: { code?: number }) => {
     if (error?.code !== 11000) throw error;
   });
-  await QuotationRevision.updateOne({ _id: record._id, pdf: null }, { $set: { pdf: { source: "revision_file", fileId: record._id, sha256: digest, size: buffer.length, attachedAt: new Date() } } });
+  await QuotationRevision.updateOne({ _id: record._id, pdf: null }, { $set: { pdf: { source: "revision_file", fileId: record._id, sha256: digest, size: buffer.length, attachedAt: new Date() } } }, { session });
   return { revision: record.revision, sha256: digest, stored: true };
 }
 
 /** A sent delivery already stores its PDF; if the current revision has none, that PDF becomes the revision's (no copy is made). */
-export async function adoptDeliveryPdf(quotationId: string, delivery: { _id: string; sha256?: string; size?: number; attachmentSize?: number }): Promise<void> {
+export async function adoptDeliveryPdf(quotationId: string, delivery: { _id: string }): Promise<void> {
+  await connectMongoDB();
   const quotation = await Quotation.findById(quotationId);
   if (!quotation || quotation.status === "draft") return;
   const record = await ensureIssuedRecord(quotation);
   if (!record || record.pdf) return;
+  const sent = await QuotationDelivery.findOne({ _id: delivery._id, quotationId }).select("revision").lean<{ revision?: number | null }>();
+  // Only a send OF this revision may become its PDF (a delivery from before revisions were recorded counts as revision 1).
+  if (!sent || (sent.revision && sent.revision > 0 ? sent.revision : 1) !== record.revision) return;
   const file = await QuotationDeliveryFile.findById(delivery._id).select("sha256 size").lean<{ sha256: string; size: number }>();
   if (!file) return;
   await QuotationRevision.updateOne({ _id: record._id, pdf: null }, { $set: { pdf: { source: "delivery", fileId: String(delivery._id), sha256: file.sha256, size: file.size, attachedAt: new Date() } } });
+}
+
+/**
+ * The current issued revision has no PDF, but the quotation was successfully sent (email or WhatsApp) AS this revision: that
+ * sent PDF, stored with the delivery, becomes the revision's PDF. It is the very document the client received, so nothing is
+ * regenerated. Returns what happened; `null` when there was no such send.
+ */
+export async function recoverCurrentRevisionPdf(quotationId: string): Promise<{ revision: number; stored: boolean } | null> {
+  await connectMongoDB();
+  const quotation = await Quotation.findById(quotationId);
+  if (!quotation || quotation.status === "draft") return null;
+  const record = await ensureIssuedRecord(quotation);
+  if (!record) return null;
+  if (record.pdf) return { revision: record.revision, stored: false };
+  const revisionMatch = record.revision === 1 ? { $or: [{ revision: 1 }, { revision: { $exists: false } }, { revision: null }] } : { revision: record.revision };
+  const sends = await QuotationDelivery.find({ quotationId, status: { $in: ["sent", "delivered", "read"] }, ...revisionMatch }).sort({ createdAt: -1 }).select("_id").limit(5).lean<Array<{ _id: string }>>();
+  for (const send of sends) {
+    await adoptDeliveryPdf(quotationId, { _id: String(send._id) });
+    const after = await QuotationRevision.findById(record._id).select("pdf").lean<{ pdf: IRevisionPdf | null }>();
+    if (after?.pdf) return { revision: record.revision, stored: true };
+  }
+  return null;
 }
 
 export async function loadRevisionPdf(quotationId: string, revision: number): Promise<{ data: Buffer; filename: string; sha256: string } | null> {
@@ -341,7 +372,11 @@ export async function listRevisions(quotationId: string): Promise<{ currentRevis
   await connectMongoDB();
   const quotation = await Quotation.findById(quotationId);
   if (!quotation) throw new ApiError("NOT_FOUND", "Quotation not found.");
-  if (quotation.status !== "draft") await ensureIssuedRecord(quotation);
+  if (quotation.status !== "draft") {
+    await ensureIssuedRecord(quotation);
+    // A revision sent by email / WhatsApp keeps the PDF that was sent, even if storing it was missed at the time.
+    await recoverCurrentRevisionPdf(quotationId).catch(() => null);
+  }
   const records = await QuotationRevision.find({ quotationId }).sort({ revision: -1 }).lean<IQuotationRevision[]>();
   return {
     currentRevision: quotation.revision ?? 1,

@@ -1,4 +1,4 @@
-import { assertQuotationEditable, issueRevision } from "@/lib/quotationRevisionService";
+import { assertQuotationEditable } from "@/lib/quotationRevisionService";
 import { NextResponse } from "next/server";
 import mongoose from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
@@ -150,6 +150,11 @@ export async function PATCH(req: Request, context: RouteContext) {
       } = parsed;
 
       const normRole = (role || "").trim().toLowerCase();
+
+      // A draft becomes "sent" only together with its PDF (mark-sent, or a send by email / WhatsApp), never by a plain edit.
+      if (nextStatus === "sent" && existing.status === "draft") {
+        throw new ApiError("CONFLICT", "A quotation is marked sent together with its PDF. Use Download PDF, Print or Send on the Proposal Preview.", { details: { reason: "PDF_REQUIRED" } });
+      }
 
       // Dealers and Sales Executives cannot change status directly
       if ((normRole === "dealer" || normRole === "sales_executive") && nextStatus && nextStatus !== existing.status) {
@@ -383,10 +388,6 @@ export async function PATCH(req: Request, context: RouteContext) {
         throw new ApiError("NOT_FOUND", "Quotation not found.");
       }
 
-      if (nextStatus === "sent" && existing.status === "draft") {
-        const issued = await Quotation.findById(quotationId);
-        if (issued) await issueRevision(issued, { userId });
-      }
 
       if (nextStatus && nextStatus !== existing.status) {
         await recordQuotationEvent({

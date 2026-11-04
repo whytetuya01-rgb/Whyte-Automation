@@ -26,6 +26,16 @@ try {
     { _id: 8, email: "owner2@example.com", role: "company_owner", name: "Owner Two", companyId: 20 },
   ], { production: true });
   const { db, login, api, baseUrl } = server;
+  // A quotation is marked sent together with its PDF (multipart "pdf").
+  const markSent = async (cookie, id, label = id) => {
+    const form = new FormData();
+    form.append("pdf", new Blob([Buffer.from(`%PDF-1.4\n% ${label}\n%%EOF\n`)], { type: "application/pdf" }), "q.pdf");
+    const res = await fetch(`${baseUrl}/api/quotations/${id}/mark-sent`, { method: "POST", headers: { Cookie: cookie }, body: form });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not json */ }
+    return { status: res.status, json, data: json?.data, text };
+  };
   const now = new Date();
   for (const [cid, base, name] of [[10, 100, "Acme Homes"], [20, 200, "Other Co"]]) {
     await db.collection("companies").insertOne({ _id: cid, name, slug: `c${cid}`, status: "active", phone: "1111111111", address: "St", gstNumber: null, email: null, logoUrl: null, tagline: null, createdAt: now, updatedAt: now });
@@ -209,7 +219,7 @@ try {
     return { lead, qid: cv.data.quotationId };
   };
   const a = await flow("Sync Approve", "9876500201");
-  assert.equal((await api(c.owner, "POST", `/api/quotations/${a.qid}/mark-sent`)).status, 200);
+  assert.equal((await markSent(c.owner, a.qid)).status, 200);
   assert.equal((await leadDoc(a.lead.id)).status, "quoted", "sending the quotation moves an early lead to Quoted");
   assert.ok((await api(c.owner, "GET", `/api/crm/leads/${a.lead.id}`)).data.activities.some((x) => x.type === "quotation_sent"));
   assert.equal((await api(c.owner, "POST", `/api/quotations/${a.qid}/transition`, { action: "approve" })).status, 200);
@@ -218,13 +228,13 @@ try {
   assert.ok(won.wonAt);
   assert.equal(await stageOf(a.lead.id), "won");
   const b = await flow("Sync Reject", "9876500202");
-  await api(c.owner, "POST", `/api/quotations/${b.qid}/mark-sent`);
+  await markSent(c.owner, b.qid);
   assert.equal((await api(c.owner, "POST", `/api/quotations/${b.qid}/transition`, { action: "reject" })).status, 200);
   const lost = await leadDoc(b.lead.id);
   assert.deepEqual([lost.status, lost.lostReason], ["lost", "Quotation rejected"], "rejecting it loses the lead, with the reason");
   assert.ok(lost.lostAt);
   const keep = await flow("Sync Won Stays", "9876500203");
-  await api(c.owner, "POST", `/api/quotations/${keep.qid}/mark-sent`);
+  await markSent(c.owner, keep.qid);
   await api(c.owner, "PATCH", `/api/crm/leads/${keep.lead.id}/status`, { status: "won" });
   await api(c.owner, "POST", `/api/quotations/${keep.qid}/transition`, { action: "reject" });
   assert.equal((await leadDoc(keep.lead.id)).status, "won", "a deal already marked won is not undone by a rejection");

@@ -30,6 +30,16 @@ try {
     { _id: 8, email: "adminb@example.com", role: "admin", name: "Admin B", companyId: 20 },
   ], { production: true });
   const { db, login, api, baseUrl } = server;
+  // A quotation is marked sent together with its PDF (multipart "pdf").
+  const markSent = async (cookie, id, label = id) => {
+    const form = new FormData();
+    form.append("pdf", new Blob([Buffer.from(`%PDF-1.4\n% ${label}\n%%EOF\n`)], { type: "application/pdf" }), "q.pdf");
+    const res = await fetch(`${baseUrl}/api/quotations/${id}/mark-sent`, { method: "POST", headers: { Cookie: cookie }, body: form });
+    const text = await res.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* not json */ }
+    return { status: res.status, json, data: json?.data, text };
+  };
   const now = new Date();
   for (const [cid, base, name] of [[10, 100, "Acme Homes"], [20, 200, "Other Co"]]) {
     await db.collection("companies").insertOne({ _id: cid, name, slug: `c${cid}`, status: "active", phone: "1111111111", address: "St", gstNumber: null, email: null, logoUrl: null, tagline: null, createdAt: now, updatedAt: now });
@@ -133,12 +143,12 @@ try {
   };
 
   const sentOnly = await ready(c.dealerD, 100, "Sent only");
-  assert.equal((await api(c.dealerD, "POST", `/api/quotations/${sentOnly}/mark-sent`)).status, 200);
+  assert.equal((await markSent(c.dealerD, sentOnly)).status, 200);
   const approvedOnly = await ready(c.dealerD, 100, "Approved only");
-  await api(c.dealerD, "POST", `/api/quotations/${approvedOnly}/mark-sent`);
+  await markSent(c.dealerD, approvedOnly);
   assert.equal((await transition(c.admin, approvedOnly, "approve")).status, 200);
   const rejected = await ready(c.dealerD, 100, "Rejected");
-  await api(c.dealerD, "POST", `/api/quotations/${rejected}/mark-sent`);
+  await markSent(c.dealerD, rejected);
   assert.equal((await transition(c.admin, rejected, "reject")).status, 200);
   const before = await tierOf(c.admin, 4);
   assert.deepEqual([before.category, before.qualifiedCount, before.nextCategory, before.quotationsRequiredForNextCategory], ["bronze", 0, "silver", 5], "draft, sent, approved-only and rejected quotations do not count");
@@ -146,7 +156,7 @@ try {
   const deliveredIds = [];
   for (let i = 1; i <= 5; i += 1) {
     const qid = await ready(c.dealerD, 100, `Delivered ${i}`);
-    await api(c.dealerD, "POST", `/api/quotations/${qid}/mark-sent`);
+    await markSent(c.dealerD, qid);
     assert.equal((await transition(c.admin, qid, "approve")).status, 200);
     const afterApprove = await tierOf(c.admin, 4);
     assert.equal(afterApprove.qualifiedCount, i - 1, `approving ${i} does not count yet`);
@@ -173,7 +183,7 @@ try {
   assert.equal((await tierOf(c.admin, 5)).qualifiedCount, 0, "another dealer of the same company is unaffected");
   for (let i = 1; i <= 5; i += 1) {
     const qid = await ready(c.dealerX, 200, `X delivered ${i}`);
-    await api(c.dealerX, "POST", `/api/quotations/${qid}/mark-sent`);
+    await markSent(c.dealerX, qid);
     await transition(c.adminB, qid, "approve");
     assert.equal((await transition(c.adminB, qid, "deliver")).status, 200);
   }
@@ -221,22 +231,21 @@ try {
   pass("manual correction: Super Admin only, acting as the company, with a valid category and written reason; refused for admins, owners, dealers and other companies; audited");
 
   // ═══ the dashboard shows real numbers ═══
-  const dashboardResponse = await fetch(`${baseUrl}/admin/dashboard`, { headers: { Cookie: c.admin } });
+  // The admin area draws its pages in the browser, so the HTML the server sends holds the dashboard's DATA (the page payload),
+  // not its markup. The dealer category card is fed by `dealerTiers.dealersByCategory` in that payload.
+  const dashboardResponse = await fetch(`${baseUrl}/admin/dashboard?tab=dealers`, { headers: { Cookie: c.admin } });
   const html = await dashboardResponse.text();
-  const diagnostics = `status ${dashboardResponse.status}, url ${dashboardResponse.url}, ${html.length} bytes, leaderboard:${html.includes("Partner Dealer Leaderboard")}, tierCard:${html.includes("dealer-tier-summary")}, tierTitle:${html.includes("Dealer Categories")}`;
-  // The number inside a category tile, however the markup is wrapped (plain HTML, or escaped inside the page payload).
-  const countIn = (source, key) =>
-    Number(
-      source.match(new RegExp(`dealer-tier-${key}[\\s\\S]*?text-2xl[^}]*?children[^:]*:(\\d+)`))?.[1] ?? // the page's component payload
-        source.match(new RegExp(`dealer-tier-${key}[\\s\\S]*?text-2xl[^>]*>(?:<!-- -->)?\\s*(\\d+)`))?.[1] // plain HTML
-    );
-  const tile = (key) => countIn(html, key);
-  assert.deepEqual(["bronze", "silver", "gold", "platinum", "diamond"].map(tile), [1, 0, 1, 0, 0], `company 1: dealer E Bronze, dealer D Gold (corrected) [${diagnostics}]`);
-  assert.match(html, /dealer-tier-upgrades/);
+  const payload = html.replace(/\\"/g, '"');
+  const categoriesIn = (source) => {
+    const block = source.match(/"dealersByCategory":\{([^}]*)\}/)?.[1] ?? "";
+    return ["bronze", "silver", "gold", "platinum", "diamond"].map((key) => Number(block.match(new RegExp(`"${key}":(\\d+)`))?.[1]));
+  };
+  const diagnostics = `status ${dashboardResponse.status}, ${html.length} bytes, dealersByCategory:${payload.includes("dealersByCategory")}`;
+  assert.deepEqual(categoriesIn(payload), [1, 0, 1, 0, 0], `company 1: dealer E Bronze, dealer D Gold (corrected) [${diagnostics}]`);
+  assert.match(payload, /"upgradesInPeriod":\d+/);
   assert.ok(!html.includes("Illustrative preview"), "the dealer category card is real data: no demo fixtures on the page");
-  const htmlB = await (await fetch(`${baseUrl}/admin/dashboard`, { headers: { Cookie: c.adminB } })).text();
-  const tileB = (key) => countIn(htmlB, key);
-  assert.deepEqual(["bronze", "silver", "gold", "platinum", "diamond"].map(tileB), [0, 1, 0, 0, 0], "company 2 sees only its own dealer");
+  const htmlB = (await (await fetch(`${baseUrl}/admin/dashboard?tab=dealers`, { headers: { Cookie: c.adminB } })).text()).replace(/\\"/g, '"');
+  assert.deepEqual(categoriesIn(htmlB), [0, 1, 0, 0, 0], "company 2 sees only its own dealer");
   pass("the dashboard's dealer category card shows each company's own real numbers");
 
   console.log(`\n${count} passed`);

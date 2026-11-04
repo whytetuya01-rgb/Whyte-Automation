@@ -65,10 +65,9 @@ try {
     const id = created.data.id ?? created.data._id;
     const roomId = (await api(c.dealer, "GET", `/api/quotations/${id}`)).data.rooms[0].id;
     assert.equal((await api(c.dealer, "POST", `/api/quotations/${id}/items`, { quotationRoomId: roomId, productId: 2001, productVariantId: 1, quantity: 2 })).status, 201);
-    assert.equal((await api(c.dealer, "POST", `/api/quotations/${id}/mark-sent`)).status, 200);
     const form = new FormData();
     form.append("pdf", new Blob([pdf(`first ${client}`)], { type: "application/pdf" }), "q.pdf");
-    assert.equal((await fetch(`${baseUrl}/api/quotations/${id}/revisions/current/pdf`, { method: "POST", headers: { Cookie: c.dealer }, body: form })).status, 200);
+    assert.equal((await fetch(`${baseUrl}/api/quotations/${id}/mark-sent`, { method: "POST", headers: { Cookie: c.dealer }, body: form })).status, 200, "sent together with its PDF");
     return id;
   };
   const row = (id) => db.collection("quotations").findOne({ _id: id });

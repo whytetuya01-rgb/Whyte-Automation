@@ -2,6 +2,7 @@
 
 import { useState, useRef, useMemo, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import {
   Printer,
@@ -1102,7 +1103,8 @@ export default function StepProposalPreview({
       }
 
       toast.success("Proposal PDF downloaded!");
-      markQuotationSent(pdfBlob);
+      madePdf.current = pdfBlob;
+      void markSentWithPdf(pdfBlob);
     } catch (err: unknown) {
       console.error("PDF generation failed:", err);
       toast.error(
@@ -1114,38 +1116,129 @@ export default function StepProposalPreview({
     }
   };
 
-  const markQuotationSent = async (pdfBlob?: Blob) => {
-    if (!quotation?.id) return;
+  /**
+   * Marks the quotation sent TOGETHER WITH the PDF just produced: one request, in which the server freezes the revision and keeps
+   * this PDF, or changes nothing. A quotation is never "sent" without its PDF. For an already-issued quotation the PDF is kept if
+   * its current revision has none yet (one already kept is never replaced).
+   */
+  const markQuotationSent = async (pdfBlob: Blob): Promise<boolean> => {
+    if (!quotation?.id) return false;
+    const limit = 8 * 1024 * 1024;
+    if (pdfBlob.size > limit) {
+      toast.error(`This PDF is ${(pdfBlob.size / (1024 * 1024)).toFixed(1)} MB, more than the 8 MB that can be kept with the quotation, so it was not marked sent. Use fewer or smaller images and try again.`, { duration: 9000 });
+      return false;
+    }
+    const form = new FormData();
+    form.append("pdf", pdfBlob, `${quotation.quotationNumber ?? "quotation"}.pdf`);
     try {
-      await apiJson.post(`/api/quotations/${quotation.id}/mark-sent`);
-      // The PDF just produced is kept with the version being issued. Stored once: if this version already has its PDF the
-      // server says so and nothing changes, which is fine.
-      if (pdfBlob) {
-        const form = new FormData();
-        form.append("pdf", pdfBlob, `${quotation.quotationNumber ?? "quotation"}.pdf`);
-        await fetch(`/api/quotations/${quotation.id}/revisions/current/pdf`, { method: "POST", body: form }).catch(() => undefined);
-      }
-    } catch (err: unknown) {
-      console.warn("Failed to mark quotation as sent:", err);
-      toast.error(toErrorMessage(err, "Could not mark this quotation as sent."));
+      const response = await fetch(`/api/quotations/${quotation.id}/mark-sent`, { method: "POST", body: form });
+      if (response.ok) return true;
+      const body = (await response.json().catch(() => null)) as { error?: { message?: string } } | null;
+      toast.error(`Not marked as sent: ${body?.error?.message ?? "the server refused it."}`, { duration: 9000 });
+      return false;
+    } catch {
+      toast.error("Not marked as sent: there is no connection. Try again.", { duration: 9000 });
+      return false;
     }
   };
 
-  const handlePrint = () => {
+  /** Whether the quotation's current issued revision already keeps its PDF (unknown counts as yes: nothing is re-created). */
+  const currentRevisionHasPdf = async (): Promise<boolean> => {
+    if (!quotation?.id) return true;
+    try {
+      const list = await apiJson.get<{ revisions: Array<{ current: boolean; hasPdf: boolean }> }>(`/api/quotations/${quotation.id}/revisions`);
+      return list.revisions.some((entry) => entry.current && entry.hasPdf);
+    } catch {
+      return true;
+    }
+  };
+
+  /** Waits until the document pages are on screen with their fonts, so they can be drawn into the PDF. */
+  const waitForPages = async () => {
+    for (let i = 0; i < 60 && pageRefs.current.filter(Boolean).length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 250));
+    await document.fonts?.ready;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  };
+
+  // The PDF made on this page (reused, so Share / Send / Print / Download never build it twice) and whether it was marked sent here.
+  const madePdf = useRef<Blob | null>(null);
+  const [sentHere, setSentHere] = useState(false);
+  const [issuing, setIssuing] = useState(false);
+  const pdfForThisPage = async (): Promise<Blob> => {
+    if (!madePdf.current) madePdf.current = await buildPdfBlob();
+    return madePdf.current;
+  };
+
+  /**
+   * Share, Send, Print and Download PDF all mark the quotation sent and keep its PDF with the revision: a draft is marked sent
+   * together with the PDF (nothing is "sent" without it); an issued quotation whose revision has no PDF yet gets this one. Returns
+   * the PDF it used (or null when there was nothing to do). If the PDF cannot be made, nothing is marked sent.
+   */
+  const markSentWithPdf = async (pdf?: Blob): Promise<Blob | null> => {
+    if (!quotation?.id || invalidGstinReason) return null;
+    const isDraft = quotation.status === "draft" && !sentHere;
+    if (!isDraft && (await currentRevisionHasPdf())) return pdf ?? null;
+    setIssuing(true);
+    const working = pdf ? null : toast.loading("Creating the PDF and marking this quotation as sent…");
+    try {
+      const blob = pdf ?? (await pdfForThisPage());
+      madePdf.current = blob;
+      if (await markQuotationSent(blob)) setSentHere(true);
+      return blob;
+    } catch (err: unknown) {
+      console.warn("PDF generation failed while marking sent:", err);
+      toast.error("The PDF could not be created, so the quotation was not marked sent.", { duration: 9000 });
+      return null;
+    } finally {
+      if (working) toast.dismiss(working);
+      setIssuing(false);
+    }
+  };
+
+  const handlePrint = async () => {
     if (invalidGstinReason) {
       toast.error(`Cannot print/export: ${invalidGstinReason}`);
       return;
     }
-    markQuotationSent();
+    if (issuing) return;
+    await markSentWithPdf();
     window.print();
   };
+
+  const handleSend = async () => {
+    if (issuing) return;
+    await markSentWithPdf();
+    setDeliveryOpen(true);
+  };
+
+  // Opened from the admin list with "Sent" (?issue=1): make the PDF here and mark the quotation sent with it.
+  const searchParams = useSearchParams();
+  const autoIssueRequested = searchParams?.get("issue") === "1";
+  const autoIssueStarted = useRef(false);
+  useEffect(() => {
+    if (!autoIssueRequested || autoIssueStarted.current || !quotation?.id || quotation.status !== "draft") return;
+    autoIssueStarted.current = true;
+    if (renderableRooms.length === 0 || invalidGstinReason) {
+      toast.error(invalidGstinReason ? `Cannot mark as sent: ${invalidGstinReason}` : "Add at least one product before the quotation can be sent.", { duration: 9000 });
+      return;
+    }
+    void (async () => {
+      await waitForPages();
+      const pdf = await markSentWithPdf();
+      if (pdf) {
+        toast.success("Marked as sent. Its PDF is kept with the revision.");
+        window.location.replace(`/quotation/${quotation.id}?step=5`);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once, when the page has what it needs
+  }, [autoIssueRequested, quotation?.id, quotation?.status, renderableRooms.length, invalidGstinReason]);
 
   const handleShare = () => {
     if (typeof window !== "undefined") {
       navigator.clipboard.writeText(window.location.href);
       setCopied(true);
       toast.success("Proposal link copied to clipboard!");
-      markQuotationSent();
+      void markSentWithPdf();
       setTimeout(() => setCopied(false), 2500);
     }
   };
@@ -1224,7 +1317,7 @@ export default function StepProposalPreview({
               {quotation.id && !String(quotation.id).startsWith("draft_") && (
                 <button
                   type="button"
-                  onClick={() => setDeliveryOpen(true)}
+                  onClick={() => void handleSend()}
                   disabled={renderableRooms.length === 0 || !!invalidGstinReason}
                   title={invalidGstinReason ?? "Send this quotation by email or WhatsApp and track it"}
                   className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs disabled:opacity-50"
@@ -1296,7 +1389,7 @@ export default function StepProposalPreview({
             {quotation.id && !String(quotation.id).startsWith("draft_") && (
               <button
                 type="button"
-                onClick={() => setDeliveryOpen(true)}
+                onClick={() => void handleSend()}
                 disabled={renderableRooms.length === 0 || !!invalidGstinReason}
                 title={invalidGstinReason ?? "Send this quotation by email or WhatsApp and track it"}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
@@ -1341,7 +1434,8 @@ export default function StepProposalPreview({
           clientEmail={quotation.clientEmail ?? null}
           clientPhone={quotation.clientPhone ?? null}
           companyName={content.brandName}
-          buildPdfBlob={buildPdfBlob}
+          buildPdfBlob={pdfForThisPage}
+          onSent={() => setSentHere(true)}
         />
       )}
 

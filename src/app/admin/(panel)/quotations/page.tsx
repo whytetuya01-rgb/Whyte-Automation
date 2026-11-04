@@ -271,10 +271,24 @@ function QuotationsPageContent() {
   const handleStatusChange = async (q: Quotation, targetStatus: QuotationStatus) => {
     if (q.status === targetStatus) return;
 
+    if (q.status === "draft" && targetStatus === "sent") {
+      // A quotation is marked sent together with its PDF, and the PDF is made from the Proposal Preview: open it there.
+      await confirm({
+        title: "Mark as sent",
+        message: `${q.quotationNumber} opens in the Proposal Preview, its PDF is created and kept with the revision, and it is marked sent.`,
+        detail: "A quotation is never marked sent without the PDF of what was sent.",
+        confirmText: "Open and mark sent",
+        cancelText: "Cancel",
+        variant: "primary",
+        onConfirm: async () => {
+          router.push(`/quotation/${q.id}?step=5&issue=1`);
+        },
+      });
+      return;
+    }
+
     try {
-      if (q.status === "draft" && targetStatus === "sent") {
-        await apiJson.post(`/api/quotations/${q.id}/mark-sent`);
-      } else if (q.status === "sent" && targetStatus === "approved") {
+      if (q.status === "sent" && targetStatus === "approved") {
         await apiJson.post(`/api/quotations/${q.id}/transition`, { action: "approve" });
       } else if (q.status === "sent" && targetStatus === "rejected") {
         await apiJson.post(`/api/quotations/${q.id}/transition`, { action: "reject" });

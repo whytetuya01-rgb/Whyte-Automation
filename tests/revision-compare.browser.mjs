@@ -99,8 +99,11 @@ try {
     assert.equal(res.status, 200, await res.text());
   };
   const issue = async (id, pdf) => {
-    ok(await api(c.dealer, "POST", `/api/quotations/${id}/mark-sent`), "mark sent");
-    await upload(id, pdf);
+    const form = new FormData();
+    form.append("pdf", new Blob([pdf], { type: "application/pdf" }), "q.pdf");
+    const res = await fetch(`${baseUrl}/api/quotations/${id}/mark-sent`, { method: "POST", headers: { Cookie: c.dealer }, body: form });
+    assert.equal(res.status, 200, await res.text());
+    await upload(id, pdf); // the same PDF again: accepted, nothing changes
   };
   const revise = async (id, reason) => ok(await api(c.dealer, "POST", `/api/quotations/${id}/revisions`, { reason }), "revise");
 

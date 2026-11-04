@@ -6,7 +6,7 @@ import { Columns2, Download, Eye, FileClock, History, Lock, PenLine } from "luci
 import Modal from "@/components/shared/Modal";
 import { Button, Textarea } from "@/components/ui";
 import notify from "@/lib/notify";
-import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { ApiClientError, apiJson, notifyApiError } from "@/lib/apiClient";
 import { useUserTimeZone } from "@/lib/useUserTimeZone";
 
 interface RevisionSummary {
@@ -54,6 +54,7 @@ export default function QuotationRevisionBar({ quotationId, status, revision }: 
   const [reason, setReason] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [missingPdfHelp, setMissingPdfHelp] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -89,6 +90,22 @@ export default function QuotationRevisionBar({ quotationId, status, revision }: 
       }
     } catch (err) {
       notifyApiError(err, "Could not create the revision");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** "Store PDF now": the PDF of a successful email / WhatsApp send of this revision becomes its PDF. */
+  const storePdfNow = async () => {
+    setBusy(true);
+    try {
+      const result = await apiJson.post<{ revision: number; stored: boolean }>(`/api/quotations/${quotationId}/revisions/current/pdf/recover`);
+      notify.success("PDF stored", `Revision ${result.revision} now keeps the PDF that was sent to the client.`);
+      setMissingPdfHelp(false);
+      await load();
+    } catch (err) {
+      if (err instanceof ApiClientError && err.details?.reason === "NO_SENT_PDF") setMissingPdfHelp(true);
+      else notifyApiError(err, "Could not store the PDF");
     } finally {
       setBusy(false);
     }
@@ -208,6 +225,18 @@ export default function QuotationRevisionBar({ quotationId, status, revision }: 
                               <Download className="h-3.5 w-3.5" aria-hidden /> Download PDF
                             </a>
                           </>
+                        ) : entry.current ? (
+                          <span className="flex flex-col items-end gap-1">
+                            <button type="button" onClick={() => void storePdfNow()} disabled={busy} className="inline-flex items-center gap-1.5 rounded-lg border border-accent/30 bg-accent/5 px-2.5 py-1.5 text-xs font-semibold text-accent hover:bg-accent/10 disabled:opacity-50" data-testid="revision-store-pdf">
+                              <Download className="h-3.5 w-3.5" aria-hidden /> Store PDF now
+                            </button>
+                            {missingPdfHelp && (
+                              <span className="max-w-[16rem] text-right text-[11px] text-gray-600" data-testid="revision-store-pdf-help">
+                                No sent copy of this revision was found.{" "}
+                                <a href={`/quotation/${quotationId}?step=5`} className="font-semibold text-accent underline">Open the Proposal Preview</a> and click Download PDF to store it.
+                              </span>
+                            )}
+                          </span>
                         ) : (
                           <span className="text-xs text-gray-400" data-testid="revision-no-pdf">No PDF stored</span>
                         )}
