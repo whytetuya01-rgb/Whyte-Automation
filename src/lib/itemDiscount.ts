@@ -13,9 +13,21 @@ export type ItemDiscountType = "percentage" | "fixed";
 
 export const ITEM_DISCOUNT_ROLES: readonly string[] = ["admin", "company_owner"];
 
-/** Only an Admin or a Company Owner may give a per-product discount. */
-export function canGiveItemDiscount(role: string | null | undefined): boolean {
-  return ITEM_DISCOUNT_ROLES.includes((role ?? "").trim().toLowerCase());
+/**
+ * Only an Admin or a Company Owner may give a per-product discount. A Super Admin may too, but only while explicitly
+ * acting within a selected company (the "act as company" grant): outside one it has no company's quotation to discount.
+ */
+export function canGiveItemDiscount(role: string | null | undefined, actingAsCompany = false): boolean {
+  const normalized = (role ?? "").trim().toLowerCase();
+  if (normalized === "super_admin") return actingAsCompany;
+  return ITEM_DISCOUNT_ROLES.includes(normalized);
+}
+
+/** Roles that may set a custom unit price (an override of the catalogue price). Sales executives and dealers may not. */
+export const PRICE_OVERRIDE_ROLES: readonly string[] = ["admin", "company_owner"];
+
+export function canOverrideItemPrice(role: string | null | undefined): boolean {
+  return PRICE_OVERRIDE_ROLES.includes((role ?? "").trim().toLowerCase());
 }
 
 export const round2 = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100;

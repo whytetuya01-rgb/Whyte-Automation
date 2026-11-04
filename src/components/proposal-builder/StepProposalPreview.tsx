@@ -2159,6 +2159,10 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                 const item = row.item;
                                 const isGrouped = row.entries.length > 1;
                                 const unitPrice = Number(item.unitPrice || 0);
+                                // A per-product discount (Admin / Company Owner): show original price, discount and final price.
+                                // Absent on every quotation without one, so those keep the plain layout.
+                                const originalUnitPrice = item.discountType ? Number(item.preDiscountUnitPrice || 0) : 0;
+                                const hasItemDiscount = Boolean(item.discountType) && originalUnitPrice > unitPrice;
                                 const formattedName = formatProposalProductName(item.product?.name);
                                 const moduleSize = getItemModuleSize(item);
                                 const finish = getItemFinish(item, quotation);
@@ -2284,6 +2288,19 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                       <p className="font-mono font-bold text-gray-500 text-sm leading-none">
                                         Qty <span className="text-gray-950 text-lg font-extrabold">{row.quantity}</span>
                                       </p>
+                                      {hasItemDiscount && (
+                                        <div className="space-y-0.5" data-testid="proposal-item-discount">
+                                          <p className="font-mono text-[11px] leading-none text-gray-400">
+                                            <span className="text-[9px] uppercase tracking-wider font-semibold">Original </span>
+                                            <span className="line-through">{formatCurrency(originalUnitPrice)}</span>
+                                          </p>
+                                          <p className="font-mono text-[11px] font-bold leading-none text-emerald-700">
+                                            <span className="text-[9px] uppercase tracking-wider font-semibold">Discount </span>
+                                            −{formatCurrency(originalUnitPrice - unitPrice)}
+                                            {item.discountType === "percentage" && item.discountValue ? ` (${item.discountValue}%)` : ""}
+                                          </p>
+                                        </div>
+                                      )}
                                       <p
                                         className={`font-mono font-extrabold text-lg leading-none ${
                                           excluded ? "text-gray-400 line-through" : "text-gray-950"
@@ -2291,7 +2308,10 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                       >
                                         {formatCurrency(unitPrice)}
                                       </p>
-                                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">{content.text.perUnit}</p>
+                                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">
+                                        {hasItemDiscount ? "Final · " : ""}
+                                        {content.text.perUnit}
+                                      </p>
                                       {/* Grouped entries: the sum of each entry's own line total. */}
                                       {isGrouped && (
                                         <p

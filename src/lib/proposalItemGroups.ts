@@ -70,6 +70,9 @@ export function proposalGroupKey(item: QuotationItem, options: ProposalGroupingO
     (item.sbNumber ?? "").trim(),
     entryUnitPrice(item),
     Boolean(item.isCustomPrice),
+    // Lines at the same final price merge only if they carry the same discount (always null for an undiscounted line).
+    item.discountType ?? null,
+    item.discountType ? Number(item.preDiscountUnitPrice || 0) : null,
     Boolean(item.isUnavailable),
   ]);
 }

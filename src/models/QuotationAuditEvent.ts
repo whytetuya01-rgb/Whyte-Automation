@@ -23,6 +23,11 @@ export const QUOTATION_AUDIT_ACTIONS = [
   "revision_created",
   "revision_requested",
   "revision_request_decided",
+  // Pricing overrides: every custom unit price and per-product discount is recorded (who, what, before and after).
+  "item_price_overridden",
+  "item_price_reset",
+  "item_discount_applied",
+  "item_discount_removed",
 ] as const;
 
 export type QuotationAuditAction = (typeof QUOTATION_AUDIT_ACTIONS)[number];

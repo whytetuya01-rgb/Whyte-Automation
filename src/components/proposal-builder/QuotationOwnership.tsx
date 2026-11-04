@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ChevronDown, History } from "lucide-react";
 import type { Quotation, QuotationActivityEvent } from "@/types";
 import { cn } from "@/lib/utils";
+import { describeItemPricingEvent } from "@/lib/itemPricingAudit";
 
 /** "07 Oct 2026, 10:30" in the viewer's own time zone. */
 function formatDateTime(value: string | Date | null | undefined): string {
@@ -51,8 +52,10 @@ function describeEvent(event: QuotationActivityEvent): string {
       return `Quotation rejected${by}`;
     case "quotation_delivered":
       return `Marked as delivered${by}`;
-    default:
-      return "Quotation updated";
+    default: {
+      const pricing = describeItemPricingEvent(event.action, event.previousValue, event.newValue, event.metadata);
+      return pricing ? `${pricing}${by}` : "Quotation updated";
+    }
   }
 }
 

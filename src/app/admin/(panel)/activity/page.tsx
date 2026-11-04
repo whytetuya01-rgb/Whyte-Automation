@@ -22,6 +22,7 @@ import StatusBadge from "@/components/shared/StatusBadge";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { Select } from "@/components/ui/Select";
 import { QuotationStatus } from "@/types";
+import { describeItemPricingEvent } from "@/lib/itemPricingAudit";
 
 type AuditAction =
   | "quotation_created"
@@ -32,7 +33,11 @@ type AuditAction =
   | "status_changed"
   | "quotation_approved"
   | "quotation_rejected"
-  | "quotation_delivered";
+  | "quotation_delivered"
+  | "item_price_overridden"
+  | "item_price_reset"
+  | "item_discount_applied"
+  | "item_discount_removed";
 
 interface ActivityEvent {
   id: string;
@@ -65,6 +70,10 @@ const ACTION_OPTIONS = [
   { value: "quotation_approved", label: "Approved" },
   { value: "quotation_rejected", label: "Rejected" },
   { value: "quotation_delivered", label: "Delivered" },
+  { value: "item_price_overridden", label: "Custom price" },
+  { value: "item_price_reset", label: "Price reset" },
+  { value: "item_discount_applied", label: "Discount given" },
+  { value: "item_discount_removed", label: "Discount removed" },
 ];
 
 const ROLE_OPTIONS = [
@@ -115,7 +124,7 @@ function describeActivity(event: ActivityEvent): string {
     case "quotation_delivered":
       return "Marked this quotation as delivered";
     default:
-      return "Updated this quotation";
+      return describeItemPricingEvent(event.action, event.previousValue, event.newValue, event.metadata) ?? "Updated this quotation";
   }
 }
 

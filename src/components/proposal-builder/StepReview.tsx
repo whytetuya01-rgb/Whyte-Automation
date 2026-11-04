@@ -29,7 +29,7 @@ import UnavailabilityWarning from "./UnavailabilityWarning";
 import { eligibleItemsOfRoom } from "@/lib/quotationAvailability";
 import { calculateQuotationGst } from "@/lib/pricing";
 import { calculateDealerEarning, customerDiscountError } from "@/lib/dealerEarnings";
-import { canGiveItemDiscount, itemDiscountLabel, previewItemDiscount, validateItemDiscount, type ItemDiscountType } from "@/lib/itemDiscount";
+import { canGiveItemDiscount, canOverrideItemPrice, itemDiscountLabel, previewItemDiscount, validateItemDiscount, type ItemDiscountType } from "@/lib/itemDiscount";
 import { useSession } from "next-auth/react";
 import { getRoomDisplayName, getRoomFloorLabel, getRoomFullTitle, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
 import { Select } from "@/components/ui/Select";
@@ -338,8 +338,10 @@ export default function StepReview({
   const actorRole = (session?.user as { role?: string } | undefined)?.role;
   const isSalesExecutive = actorRole === "sales_executive";
   const actorIsDealer = actorRole === "dealer";
-  // Only an Admin or the Company Owner may give a discount on a single product (the server enforces it too).
-  const canDiscountItems = canGiveItemDiscount(actorRole) && !isLocked;
+  // Only an Admin or the Company Owner may give a discount on a single product or set a custom unit price (the server
+  // enforces both). A Super Admin reaches a quotation only while acting within its company, which is what allows a discount.
+  const canDiscountItems = canGiveItemDiscount(actorRole, true) && !isLocked;
+  const canEditItemPrice = canOverrideItemPrice(actorRole) && !isLocked;
 
   // Earning uses the same shared formula as the server (allocated% - customer%).
   const { earningPercent, earningAmount: estimatedEarning } = calculateDealerEarning({
@@ -868,7 +870,7 @@ export default function StepReview({
                                             ) : null;
                                           })()}
 
-                                          {!isLocked && (
+                                          {canEditItemPrice && (
                                             <button
                                               type="button"
                                               onClick={() => handleStartEditPrice(item)}

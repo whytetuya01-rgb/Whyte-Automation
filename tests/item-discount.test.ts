@@ -3,7 +3,7 @@
  *   npx ts-node -T -P tsconfig.testrun.json -r tsconfig-paths/register tests/item-discount.test.ts
  */
 import assert from "node:assert/strict";
-import { basePriceBeforeDiscount, canGiveItemDiscount, discountPerUnit, intactItemDiscount, itemDiscountLabel, netUnitPrice, previewItemDiscount, validateItemDiscount } from "../src/lib/itemDiscount";
+import { basePriceBeforeDiscount, canGiveItemDiscount, canOverrideItemPrice, discountPerUnit, intactItemDiscount, itemDiscountLabel, netUnitPrice, previewItemDiscount, validateItemDiscount } from "../src/lib/itemDiscount";
 import { updateQuotationItemSchema } from "../src/lib/validation/quotation";
 
 let count = 0;
@@ -12,6 +12,16 @@ const pass = (name: string) => { count += 1; console.log(`  ✓ ${name}`); };
 for (const role of ["admin", "company_owner", " Admin ", "COMPANY_OWNER"]) assert.equal(canGiveItemDiscount(role), true, role);
 for (const role of ["dealer", "sales_executive", "super_admin", "configurable_admin", "sales", "", null, undefined]) assert.equal(canGiveItemDiscount(role), false, String(role));
 pass("only an Admin or a Company Owner may give a per-product discount");
+
+assert.equal(canGiveItemDiscount("super_admin", true), true, "a Super Admin acting within a company may");
+assert.equal(canGiveItemDiscount("super_admin", false), false);
+assert.equal(canGiveItemDiscount("dealer", true), false, "acting-as never helps anyone but a Super Admin");
+assert.equal(canGiveItemDiscount("sales_executive", true), false);
+pass("a Super Admin may give a discount only while acting within a selected company");
+
+for (const role of ["admin", "company_owner", " Admin "]) assert.equal(canOverrideItemPrice(role), true, role);
+for (const role of ["dealer", "sales_executive", "super_admin", "configurable_admin", "sales", "", null, undefined]) assert.equal(canOverrideItemPrice(role), false, String(role));
+pass("only the Company Owner and an Admin may set a custom unit price");
 
 assert.equal(netUnitPrice(1000, "percentage", 10), 900);
 assert.equal(netUnitPrice(1000, "percentage", 12.5), 875);

@@ -317,7 +317,11 @@ export type QuotationAuditAction =
   | "quotation_delivered"
   | "revision_created"
   | "revision_requested"
-  | "revision_request_decided";
+  | "revision_request_decided"
+  | "item_price_overridden"
+  | "item_price_reset"
+  | "item_discount_applied"
+  | "item_discount_removed";
 
 export interface QuotationActivityEvent {
   id: string;

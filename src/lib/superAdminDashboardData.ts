@@ -120,6 +120,10 @@ function formatAuditAction(action: string): string {
       return "Rejected proposal";
     case "quotation_delivered":
       return "Marked quotation delivered";
+    case "item_price_overridden":
+      return "Set a custom unit price";
+    case "item_discount_applied":
+      return "Gave a product discount";
     default:
       return action.replace(/_/g, " ");
   }

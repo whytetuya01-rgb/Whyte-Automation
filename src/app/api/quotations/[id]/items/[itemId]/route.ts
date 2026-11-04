@@ -12,7 +12,8 @@ import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
 import { canModifyQuotation } from "@/lib/quotationAccess";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
-import { basePriceBeforeDiscount, canGiveItemDiscount, netUnitPrice, validateItemDiscount, intactItemDiscount } from "@/lib/itemDiscount";
+import { basePriceBeforeDiscount, canGiveItemDiscount, canOverrideItemPrice, netUnitPrice, validateItemDiscount, intactItemDiscount } from "@/lib/itemDiscount";
+import { recordQuotationEvent } from "@/lib/quotationAudit";
 
 type RouteContext = { params: Promise<{ id: string; itemId: string }> };
 
@@ -31,7 +32,7 @@ function storedItemPrice(item: unknown) {
 /** Session required: editing and removing items are business operations. */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, actingAsCompany }) => {
     const { id, itemId } = await context.params;
     const quotationId = parseQuotationId(id);
     const itId = parseNumericId(itemId, "itemId");
@@ -55,9 +56,10 @@ export async function PATCH(req: Request, context: RouteContext) {
       throw new ApiError("VALIDATION_ERROR", "No editable fields were supplied.");
     }
 
-    // A per-product discount is a commercial decision: only an Admin or a Company Owner may give or remove one.
+    // A per-product discount is a commercial decision: only an Admin or a Company Owner may give or remove one
+    // (a Super Admin only while acting within a selected company).
     if (discountType !== undefined) {
-      if (!canGiveItemDiscount(role)) {
+      if (!canGiveItemDiscount(role, actingAsCompany)) {
         throw new ApiError("FORBIDDEN", "Only an Admin or the Company Owner can give a discount on a product.");
       }
       if (unitPrice !== undefined || resetToDefaultPrice) {
@@ -76,6 +78,9 @@ export async function PATCH(req: Request, context: RouteContext) {
     }
 
     const data: Record<string, unknown> = { ...rest };
+    const currentUnitPrice = storedItemPrice(existingItem).unitPrice ?? 0;
+    // What the audit trail records for this edit (set below only when the price or discount actually changes).
+    let auditAction: "item_price_overridden" | "item_price_reset" | "item_discount_applied" | "item_discount_removed" | null = null;
 
     // Per-product discount: the line's unit price becomes the price after the discount, worked out from the price before it.
     // The discount is recorded beside it so the grid can show and change it.
@@ -128,7 +133,7 @@ export async function PATCH(req: Request, context: RouteContext) {
           data.originalUnitPrice = null;
         }
       }
-    } else if (unitPrice !== undefined) {
+    } else if (unitPrice !== undefined && Math.abs(unitPrice - currentUnitPrice) > 0.001) {
       const defaultPricing = await getCatalogDefaultPricing();
       const existingTax = (existingItem as any)?.taxPercent;
       const taxPercent = defaultPricing?.taxPercent ?? (existingTax ? Number(String(existingTax)) : 18);
@@ -144,9 +149,16 @@ export async function PATCH(req: Request, context: RouteContext) {
           : Number(String((existingItem as any).unitPrice || 0)));
 
       if (Math.abs(unitPrice - catalogPrice) > 0.001) {
+        // A custom unit price overrides the catalogue price: Company Owner and Admin only. Putting the catalogue price
+        // back is not an override, so anyone who may edit the quotation can do that.
+        if (discountType === undefined && !canOverrideItemPrice(role)) {
+          throw new ApiError("FORBIDDEN", "Only the Company Owner or an Admin can set a custom unit price.");
+        }
+        if (discountType === undefined) auditAction = "item_price_overridden";
         data.isCustomPrice = true;
         data.originalUnitPrice = mongoose.Types.Decimal128.fromString(catalogPrice.toFixed(2));
       } else {
+        if (discountType === undefined && (existingItem as any).isCustomPrice) auditAction = "item_price_reset";
         data.isCustomPrice = false;
         data.originalUnitPrice = null;
       }
@@ -254,7 +266,32 @@ export async function PATCH(req: Request, context: RouteContext) {
       data.preDiscountUnitPrice = null;
     }
 
+    if (discountToStore !== undefined) {
+      auditAction = discountToStore ? "item_discount_applied" : (intactItemDiscount(storedItemPrice(existingItem)) ? "item_discount_removed" : null);
+    } else if (resetToDefaultPrice && (existingItem as any).isCustomPrice) {
+      auditAction = "item_price_reset";
+    }
+
     await QuotationItem.findByIdAndUpdate(itId, { $set: data });
+
+    if (auditAction) {
+      const before = storedItemPrice(existingItem);
+      const after = Number(String(data.unitPrice ?? before.unitPrice));
+      const product = await Product.findById((existingItem as unknown as { productId: number }).productId).select("name code").lean<{ name?: string; code?: string | null }>();
+      await recordQuotationEvent({
+        quotationId,
+        action: auditAction,
+        performedBy: userId,
+        previousValue: { itemId: itId, unitPrice: before.unitPrice, discountType: intactItemDiscount(before)?.type ?? null, discountValue: intactItemDiscount(before)?.value ?? null },
+        newValue: {
+          itemId: itId,
+          unitPrice: after,
+          discountType: discountToStore === undefined ? null : discountToStore?.type ?? null,
+          discountValue: discountToStore === undefined ? null : discountToStore?.value ?? null,
+        },
+        metadata: { productName: product?.name ?? null, productCode: product?.code ?? null, quantity: (existingItem as unknown as { quantity?: number }).quantity ?? null, role, actingAsCompany },
+      });
+    }
 
     // Response-only populate: just the fields the editor/proposal/PDF render
     // for this item (see `AGENTS.md`/Phase 3 audit and
