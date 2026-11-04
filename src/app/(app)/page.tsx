@@ -170,6 +170,7 @@ export default async function HomePage(props: PageProps) {
           clientAddress: (q.clientAddress as string | null) ?? null,
           houseTypeId: (q.houseTypeId as number | null) ?? null,
           houseType: houseType ? { id: Number(houseType.id ?? houseType._id ?? 0), name: String(houseType.name ?? "") } : null,
+          premisesName: (q.premisesName as string | null) ?? null,
           status: (q.status as QuotationRowData["status"]) || "draft",
           notes: (q.notes as string | null) ?? null,
           discountType: (q.discountType as string | null) ?? null,

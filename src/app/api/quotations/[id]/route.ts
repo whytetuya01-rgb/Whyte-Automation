@@ -288,6 +288,9 @@ export async function PATCH(req: Request, context: RouteContext) {
         }
         data.houseTypeId = houseTypeId;
       }
+      // A saved premises type and a custom premises name are alternatives: choosing one clears the other.
+      if (data.houseTypeId) data.premisesName = null;
+      else if (typeof data.premisesName === "string") data.houseTypeId = null;
 
       data.updatedAt = new Date();
 

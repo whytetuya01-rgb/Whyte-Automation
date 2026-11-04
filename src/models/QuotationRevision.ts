@@ -49,6 +49,8 @@ export interface RevisionSnapshot {
     clientEmail: string | null;
     clientAddress: string | null;
     houseTypeId: number | null;
+    /** Absent on snapshots taken before custom premises names existed. */
+    premisesName?: string | null;
     notes: string | null;
     terms: string | null;
     validUntil: string | null;

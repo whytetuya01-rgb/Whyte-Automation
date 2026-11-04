@@ -429,6 +429,7 @@ export function normalizeQuotation(quotation: any): Quotation & {
     _id: id,
     houseTypeId,
     houseType,
+    premisesName: typeof quotation.premisesName === "string" && quotation.premisesName.trim() ? quotation.premisesName.trim() : null,
     rooms,
     subtotal: gst.grossSubtotal,
     productsCount,
@@ -502,6 +503,7 @@ export function serializeQuotationForClient(q: any): any {
     rejectedAt: toIso(q.rejectedAt),
     validUntil: toIso(q.validUntil),
     houseType: q.houseType ? { id: Number(q.houseType.id ?? q.houseType._id ?? 0), name: String(q.houseType.name ?? '') } : null,
+    premisesName: typeof q.premisesName === 'string' && q.premisesName.trim() ? q.premisesName.trim() : null,
   };
 }
 

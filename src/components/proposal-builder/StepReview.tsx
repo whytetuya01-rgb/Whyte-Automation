@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Quotation, QuotationRoom, QuotationItem, EditorCatalogProduct, Category } from "@/types";
 import { formatCurrency, getRoomIcon } from "@/lib/utils";
+import { premisesLabel } from "@/lib/premises";
 import UnavailabilityWarning from "./UnavailabilityWarning";
 import { eligibleItemsOfRoom } from "@/lib/quotationAvailability";
 import { calculateQuotationGst } from "@/lib/pricing";
@@ -481,7 +482,7 @@ export default function StepReview({
               <div>
                 <p className="text-gray-400 uppercase font-semibold text-[10px]">Project Type</p>
                 <p className="font-semibold text-gray-800 text-sm mt-0.5">
-                  {quotation.houseType?.name ?? "Residential / Smart Home"}
+                  {premisesLabel(quotation) ?? "Residential / Smart Home"}
                 </p>
               </div>
 

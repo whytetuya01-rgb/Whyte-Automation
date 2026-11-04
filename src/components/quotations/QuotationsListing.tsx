@@ -23,6 +23,7 @@ import {
   Database,
 } from "lucide-react";
 import { formatCurrency, formatDate } from "@/lib/utils";
+import { premisesLabel } from "@/lib/premises";
 import { apiJson, toErrorMessage } from "@/lib/apiClient";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import { QuotationStatus, HouseType } from "@/types";
@@ -56,6 +57,7 @@ export interface QuotationRowData {
   clientAddress: string | null;
   houseTypeId: number | null;
   houseType?: { id: number; name: string } | null;
+  premisesName?: string | null;
   status: QuotationStatus;
   notes: string | null;
   discountType: string | null;
@@ -609,10 +611,10 @@ export default function QuotationsListing({
                           <span className="font-mono font-black text-gray-950 text-sm tracking-tight block">
                             {q.quotationNumber}
                           </span>
-                          {q.houseType && (
+                          {premisesLabel(q) && (
                             <span className="inline-flex items-center gap-1 text-[10px] text-gray-400 mt-0.5 font-medium">
                               <Building size={9} />
-                              {q.houseType.name}
+                              {premisesLabel(q)}
                             </span>
                           )}
                         </td>

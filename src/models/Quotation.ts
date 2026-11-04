@@ -31,6 +31,8 @@ export interface IQuotation extends SoftDeleteFields {
   customerId?: number | null;
   leadId?: string | null;
   houseTypeId: number | null;
+  /** A premises name typed for this quotation when none of the saved premises types fits (null when one is chosen). */
+  premisesName: string | null;
   status: QuotationStatus;
   notes: string | null;
   discountType: DiscountType | null;
@@ -96,6 +98,7 @@ const QuotationSchema = new Schema<IQuotationDocument>(
     customerId: { type: Number, ref: "Customer", default: null, index: true },
     leadId: { type: String, ref: "Lead", default: null, index: true },
     houseTypeId: { type: Number, ref: "HouseType", default: null, index: true },
+    premisesName: { type: String, default: null, trim: true, maxlength: 80 },
     status: {
       type: String,
       enum: ["draft", "sent", "approved", "rejected", "delivered"],

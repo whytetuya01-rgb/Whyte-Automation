@@ -49,7 +49,7 @@ export function assertQuotationEditable(quotation: { status: string; revision?: 
 
 // ── snapshots ────────────────────────────────────────────────────────────────────────────────────────────────────
 
-export async function buildSnapshot(quotation: Pick<IQuotationDocument, "_id" | "quotationNumber" | "clientName" | "clientGstNumber" | "clientPhone" | "clientEmail" | "clientAddress" | "houseTypeId" | "notes" | "terms" | "validUntil" | "discountType" | "discountValue" | "customerDiscountPercent" | "allocatedDiscountPercent" | "dealerId">, session?: ClientSession): Promise<RevisionSnapshot> {
+export async function buildSnapshot(quotation: Pick<IQuotationDocument, "_id" | "quotationNumber" | "clientName" | "clientGstNumber" | "clientPhone" | "clientEmail" | "clientAddress" | "houseTypeId" | "premisesName" | "notes" | "terms" | "validUntil" | "discountType" | "discountValue" | "customerDiscountPercent" | "allocatedDiscountPercent" | "dealerId">, session?: ClientSession): Promise<RevisionSnapshot> {
   const s = session ?? null;
   const rooms = await QuotationRoom.find({ quotationId: quotation._id }).sort({ sortOrder: 1, _id: 1 }).session(s).lean<Array<{ _id: number; roomTypeId: number | null; customName: string | null; subArea: string | null; notes: string | null }>>();
   const roomIds = rooms.map((room) => room._id);
@@ -103,6 +103,7 @@ export async function buildSnapshot(quotation: Pick<IQuotationDocument, "_id" | 
       clientEmail: quotation.clientEmail ?? null,
       clientAddress: quotation.clientAddress ?? null,
       houseTypeId: quotation.houseTypeId ?? null,
+      premisesName: quotation.premisesName ?? null,
       notes: quotation.notes ?? null,
       terms: quotation.terms ?? null,
       validUntil: quotation.validUntil ? new Date(quotation.validUntil).toISOString() : null,

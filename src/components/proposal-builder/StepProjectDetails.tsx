@@ -5,6 +5,7 @@ import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { ArrowLeft, ArrowRight, Building, User, Mail, FileText } from "lucide-react";
 import { HouseType, Quotation } from "@/types";
+import { CUSTOM_PREMISES_VALUE, PREMISES_NAME_MAX } from "@/lib/premises";
 import { Select, SelectOption } from "@/components/ui/Select";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
 import { RadioGroup } from "@/components/ui/Radio";
@@ -25,6 +26,8 @@ export interface ProjectFormData {
   projectName: string;
   projectType: string;
   houseTypeId: number | null;
+  /** The custom premises name typed for this quotation (used when `projectType` is the custom choice). */
+  premisesName: string;
   location: string;
   clientPhone: string;
   clientEmail: string;
@@ -72,8 +75,9 @@ export default function StepProjectDetails({
   const [form, setForm] = useState<ProjectFormData>({
     clientName: initialData?.clientName ?? "",
     projectName: initialProjectName,
-    projectType: initialData?.houseTypeId ? String(initialData.houseTypeId) : "",
+    projectType: initialData?.houseTypeId ? String(initialData.houseTypeId) : initialData?.premisesName ? CUSTOM_PREMISES_VALUE : "",
     houseTypeId: initialData?.houseTypeId ?? null,
+    premisesName: initialData?.houseTypeId ? "" : initialData?.premisesName ?? "",
     location: initialData?.clientAddress ?? "",
     clientPhone: initialData?.clientPhone ?? "",
     clientEmail: initialData?.clientEmail ?? "",
@@ -196,6 +200,9 @@ export default function StepProjectDetails({
     }
     if (!form.location.trim()) {
       errs.location = "City / Project Location is required";
+    }
+    if (form.projectType === CUSTOM_PREMISES_VALUE && !form.premisesName.trim()) {
+      errs.premisesName = "Type the premises name, or pick one from the list";
     }
     if (form.clientPhone.trim()) {
       const nationalDigits = extractNationalDigits(form.clientPhone);
@@ -385,12 +392,15 @@ export default function StepProjectDetails({
                       onChange={(e) => {
                         const val = e.target.value;
                         const num = Number(val);
-                        const isNum = val !== "" && !isNaN(num);
+                        const isNum = val !== "" && val !== CUSTOM_PREMISES_VALUE && !isNaN(num);
                         setForm({
                           ...form,
                           houseTypeId: isNum ? num : null,
                           projectType: val,
+                          // A saved premises type replaces a typed name; "Custom" keeps what was typed so far.
+                          premisesName: val === CUSTOM_PREMISES_VALUE ? form.premisesName : "",
                         });
+                        if (errors.premisesName) setErrors({ ...errors, premisesName: "" });
                       }}
                       placeholder="— Select Project Type (Optional) —"
                       options={[
@@ -399,10 +409,40 @@ export default function StepProjectDetails({
                           value: String(ht.id ?? (ht as any)._id),
                           label: `${ht.name}${ht.description ? ` (${ht.description})` : ""}`,
                         })),
+                        { value: CUSTOM_PREMISES_VALUE, label: "+ Custom premises (type a name)" },
                       ]}
                       triggerClassName="h-11 rounded-xl text-sm"
+                      ariaLabel="Project type or premises"
                     />
-                    <p className="text-[11px] text-gray-400 mt-1">Pre-populates template room presets in Step 2</p>
+                    {form.projectType === CUSTOM_PREMISES_VALUE ? (
+                      <div className="mt-2">
+                        <label htmlFor="custom-premises-name" className="sr-only">
+                          Custom premises name
+                        </label>
+                        <input
+                          id="custom-premises-name"
+                          type="text"
+                          value={form.premisesName}
+                          maxLength={PREMISES_NAME_MAX}
+                          autoFocus
+                          onChange={(e) => {
+                            setForm({ ...form, premisesName: e.target.value });
+                            if (errors.premisesName) setErrors({ ...errors, premisesName: "" });
+                          }}
+                          placeholder="e.g. Farmhouse, Dental clinic, Showroom"
+                          aria-invalid={Boolean(errors.premisesName)}
+                          data-testid="custom-premises-name"
+                          className={`w-full h-11 px-3.5 border rounded-xl text-sm focus:outline-none focus:ring-2 transition bg-white text-gray-900 ${errors.premisesName ? "border-red-300 focus:border-red-400 focus:ring-red-100" : "border-gray-200 focus:border-accent focus:ring-accent/20"}`}
+                        />
+                        {errors.premisesName ? (
+                          <p className="text-xs text-red-500 mt-1 font-medium">{errors.premisesName}</p>
+                        ) : (
+                          <p className="text-[11px] text-gray-400 mt-1">Shown on this quotation only. You choose its rooms in Step 2.</p>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-gray-400 mt-1">Pre-populates template room presets in Step 2</p>
+                    )}
                   </div>
 
                   {/* Location / City */}
@@ -647,7 +687,7 @@ export default function StepProjectDetails({
                 <span className="text-gray-400">Project Type</span>
                 <span className="font-semibold text-gray-800">
                   {houseTypes.find((h) => h.id === form.houseTypeId)?.name ??
-                    (form.projectType || "Standard")}
+                    (form.projectType === CUSTOM_PREMISES_VALUE ? form.premisesName.trim() || "Custom" : "Standard")}
                 </span>
               </div>
 

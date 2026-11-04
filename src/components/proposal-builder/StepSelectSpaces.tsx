@@ -16,6 +16,7 @@ import {
 import Image from "next/image";
 import { RoomType, HouseType, Quotation, QuotationRoom } from "@/types";
 import { getRoomIcon } from "@/lib/utils";
+import { premisesLabel } from "@/lib/premises";
 import { getRoomDisplayName, groupRoomsByFloor, isMultiFloorHouseType } from "@/lib/roomUtils";
 import { getRoomImage, roomImageSrc } from "@/lib/roomImageMap";
 import FloorLocationSelect from "@/components/ui/FloorLocationSelect";
@@ -562,9 +563,9 @@ export default function StepSelectSpaces({
           </h2>
           <p className="text-gray-500 text-sm mt-0.5">
             {activeSubTab === "rooms" ? (
-              selectedHouseType ? (
+              selectedHouseType || quotation.premisesName ? (
                 <span>
-                  Selecting spaces for <strong className="text-gray-900">{selectedHouseType.name}</strong>. Choose required rooms or add custom spaces.
+                  Selecting spaces for <strong className="text-gray-900">{selectedHouseType?.name ?? premisesLabel(quotation)}</strong>. Choose required rooms or add custom spaces.
                 </span>
               ) : (
                 "Choose the rooms and spaces in this property to automate with smart devices."

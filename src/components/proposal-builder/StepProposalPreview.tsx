@@ -50,6 +50,7 @@ import { isValidGstin } from "@/lib/validation/fields";
 import { eligibleItemsOfRoom, isProtectedQuotationStatus } from "@/lib/quotationAvailability";
 import { groupProposalItems, type ProposalGroupingOptions, type ProposalProductRow } from "@/lib/proposalItemGroups";
 import UnavailabilityWarning from "./UnavailabilityWarning";
+import { premisesLabel } from "@/lib/premises";
 
 interface Props {
   quotation: Quotation;
@@ -1546,7 +1547,7 @@ className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9
                                 {content.text.projectType}
                               </span>
                               <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
-                                {quotation.houseType?.name ?? content.text.projectTypeFallback}
+                                {premisesLabel(quotation) ?? content.text.projectTypeFallback}
                               </span>
                             </div>
 

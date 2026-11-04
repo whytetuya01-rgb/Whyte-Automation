@@ -138,6 +138,7 @@ export async function POST(req: Request, context: RouteContext) {
         clientEmail: origDoc.clientEmail ?? null,
         clientAddress: origDoc.clientAddress ?? null,
         houseTypeId: origDoc.houseTypeId ?? null,
+        premisesName: origDoc.premisesName ?? null,
         status: "draft",
         clonedFromQuotationId: quotationId,
         notes: overrides.notes ?? origDoc.notes ?? null,

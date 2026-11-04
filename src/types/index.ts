@@ -246,6 +246,8 @@ export interface Quotation {
   clientAddress: string | null;
   houseTypeId: number | null;
   houseType?: { id: number; name: string };
+  /** A custom premises name for this quotation (when no saved premises type was chosen). */
+  premisesName?: string | null;
   status: QuotationStatus;
   notes: string | null;
   discountType: DiscountType | null;

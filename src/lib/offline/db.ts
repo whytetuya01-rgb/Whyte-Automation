@@ -90,6 +90,7 @@ export interface OfflineQuotationDraft {
   clientAddress?: string;
   clientGstNumber?: string;
   houseTypeId: number;
+  premisesName?: string | null;
   houseTypeName?: string;
   projectName?: string;
   notes?: string;

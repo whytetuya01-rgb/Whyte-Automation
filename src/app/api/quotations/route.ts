@@ -443,6 +443,8 @@ async function createQuotation(
         customerId: resolvedCustomerId,
         quotationNumber,
         houseTypeId: houseTypeId ?? null,
+        // A saved premises type and a custom premises name are alternatives; the saved type wins.
+        premisesName: houseTypeId ? null : rest.premisesName ?? null,
         status: "draft",
         discountType: finalDiscountType,
         discountValue: finalDiscountValue,
