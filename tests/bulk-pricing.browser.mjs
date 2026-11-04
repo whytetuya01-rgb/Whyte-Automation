@@ -60,6 +60,11 @@ try {
     page.setDefaultTimeout(30000);
     const noScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1);
 
+    /** The themed dropdown: open it, then choose the option. */
+    const choose = async (testId, label) => {
+      await page.getByTestId(testId).click();
+      await page.getByRole("option", { name: label, exact: true }).click();
+    };
     await page.goto(`${baseUrl}/admin/pricing`, { waitUntil: "load" });
     await page.getByTestId("pricing-note").waitFor();
     await page.getByTestId("pricing-history-empty").waitFor();
@@ -68,17 +73,17 @@ try {
 
     // a rule that makes no sense is explained, not sent
     await page.getByTestId("pricing-value").fill("150");
-    await page.getByTestId("pricing-direction").selectOption("decrease");
+    await choose("pricing-direction", "Decrease");
     await page.getByText("cannot be decreased by more than 100%").waitFor();
     assert.equal(await page.getByTestId("pricing-preview").isDisabled(), true);
-    await page.getByTestId("pricing-direction").selectOption("increase");
+    await choose("pricing-direction", "Increase");
 
     // categories: Tactus with its sub-category
     await page.getByTestId("pricing-scope-categories").check();
     assert.equal(await page.getByTestId("pricing-preview").isDisabled(), true, "choosing categories needs at least one");
     await page.getByTestId("pricing-category-201").check();
     await page.getByTestId("pricing-value").fill("10");
-    await page.getByTestId("pricing-rounding").selectOption("10");
+    await choose("pricing-rounding", "To the nearest ₹10");
     await page.getByTestId("pricing-preview").click();
     const summary = page.getByTestId("pricing-preview-summary");
     await summary.waitFor();
@@ -130,10 +135,10 @@ try {
 
     // everything, a fixed amount
     await page.getByTestId("pricing-scope-all").check();
-    await page.getByTestId("pricing-mode").selectOption("amount");
-    await page.getByTestId("pricing-direction").selectOption("decrease");
+    await choose("pricing-mode", "Amount (₹)");
+    await choose("pricing-direction", "Decrease");
     await page.getByTestId("pricing-value").fill("100");
-    await page.getByTestId("pricing-rounding").selectOption("none");
+    await choose("pricing-rounding", "Not at all (to the paisa)");
     await page.getByTestId("pricing-preview").click();
     await page.getByTestId("pricing-apply").waitFor();
     assert.match(await page.getByTestId("pricing-preview-summary").innerText(), /Decrease by ₹100/);

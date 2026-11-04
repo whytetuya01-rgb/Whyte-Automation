@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import CustomDropdown from "@/components/shared/CustomDropdown";
+import PageHeader from "@/components/admin/PageHeader";
 import {
   Workflow,
   Check,
@@ -168,35 +170,21 @@ export default function LeadAssignmentRulesPage() {
   }
 
   return (
-    <div className="w-full max-w-5xl mx-auto space-y-6 pb-20">
+    <div className="w-full max-w-5xl space-y-6 pb-20">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-neutral-200">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="p-2 rounded-xl bg-accent-light text-accent border border-accent-border">
-              <Workflow size={20} />
-            </span>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-neutral-900">
-              Automatic Lead Assignment
-            </h1>
-          </div>
-          <p className="mt-1 text-xs sm:text-sm text-neutral-500 max-w-2xl">
-            Configure how incoming leads are distributed among your sales representatives. User-selected assignees always take precedence.
-          </p>
-        </div>
-
-        {canManage && (
-          <Button
-            type="button"
-            onClick={handleSave}
-            disabled={saving}
-            className="self-start sm:self-auto shrink-0 inline-flex items-center gap-2"
-          >
-            {saving ? <LoadingSpinner size="sm" /> : <Save size={16} />}
-            <span>Save Rules</span>
-          </Button>
-        )}
-      </div>
+      <PageHeader
+        title="Automatic Lead Assignment"
+        icon={Workflow}
+        subtitle="Configure how incoming leads are distributed among your sales representatives. User-selected assignees always take precedence."
+        actions={
+          canManage ? (
+            <Button type="button" onClick={handleSave} disabled={saving} className="inline-flex items-center gap-2">
+              {saving ? <LoadingSpinner size="sm" /> : <Save size={16} />}
+              <span>Save Rules</span>
+            </Button>
+          ) : undefined
+        }
+      />
 
       {!canManage && (
         <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm flex items-center gap-2">
@@ -433,19 +421,15 @@ export default function LeadAssignmentRulesPage() {
         </div>
 
         <div className="max-w-md">
-          <select
-            value={fallbackSalesId ?? ""}
+          <CustomDropdown
+            value={fallbackSalesId === null || fallbackSalesId === undefined ? "" : String(fallbackSalesId)}
             disabled={!canManage}
-            onChange={(e) => setFallbackSalesId(e.target.value ? Number(e.target.value) : null)}
-            className="w-full text-xs sm:text-sm rounded-xl border border-neutral-300 px-3.5 py-2.5 bg-white text-neutral-900 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent"
-          >
-            <option value="">None (Leave unassigned and flagged)</option>
-            {salesReps.map((rep) => (
-              <option key={rep.id} value={rep.id}>
-                {rep.name} ({rep.email})
-              </option>
-            ))}
-          </select>
+            onChange={(value) => setFallbackSalesId(value ? Number(value) : null)}
+            options={[{ value: "", label: "None (Leave unassigned and flagged)" }, ...salesReps.map((rep) => ({ value: String(rep.id), label: `${rep.name} (${rep.email})` }))]}
+            ariaLabel="Fallback lead owner"
+            className="block w-full"
+            triggerClassName="w-full text-xs sm:text-sm"
+          />
         </div>
       </div>
 
@@ -494,18 +478,16 @@ export default function LeadAssignmentRulesPage() {
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1">
                     When Lead Source Is
                   </label>
-                  <select
-                    value={mapping.sourceId}
+                  <CustomDropdown
+                    value={String(mapping.sourceId)}
                     disabled={!canManage}
-                    onChange={(e) => handleUpdateSourceMapping(idx, "sourceId", e.target.value)}
-                    className="w-full text-xs rounded-lg border border-neutral-300 px-3 py-1.5 bg-white text-neutral-900 focus:outline-none focus:ring-1 focus:ring-accent"
-                  >
-                    {leadSources.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => handleUpdateSourceMapping(idx, "sourceId", value)}
+                    options={leadSources.map((s) => ({ value: String(s.id), label: s.name }))}
+                    placeholder="Choose a source"
+                    ariaLabel="When lead source is"
+                    className="block w-full"
+                    triggerClassName="h-9 w-full rounded-lg px-3 text-xs"
+                  />
                 </div>
 
                 <div className="hidden sm:flex items-center justify-center pt-5 text-neutral-400">
@@ -517,18 +499,16 @@ export default function LeadAssignmentRulesPage() {
                   <label className="block text-[10px] font-bold uppercase tracking-wider text-neutral-500 mb-1">
                     Route Directly To
                   </label>
-                  <select
-                    value={mapping.salesId}
+                  <CustomDropdown
+                    value={String(mapping.salesId)}
                     disabled={!canManage}
-                    onChange={(e) => handleUpdateSourceMapping(idx, "salesId", e.target.value)}
-                    className="w-full text-xs rounded-lg border border-neutral-300 px-3 py-1.5 bg-white text-neutral-900 focus:outline-none focus:ring-1 focus:ring-accent"
-                  >
-                    {salesReps.map((rep) => (
-                      <option key={rep.id} value={rep.id}>
-                        {rep.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(value) => handleUpdateSourceMapping(idx, "salesId", value)}
+                    options={salesReps.map((rep) => ({ value: String(rep.id), label: rep.name }))}
+                    placeholder="Choose a person"
+                    ariaLabel="Route directly to"
+                    className="block w-full"
+                    triggerClassName="h-9 w-full rounded-lg px-3 text-xs"
+                  />
                 </div>
 
                 {/* Delete action */}

@@ -63,6 +63,11 @@ try {
   const shot = async (page, name) => { if (process.env.SCREENSHOT_DIR) await page.screenshot({ path: `${process.env.SCREENSHOT_DIR}/${name}.png`, fullPage: true }); };
   const column = (page, stage) => page.locator(`[data-testid="pipeline-column"][data-stage="${stage}"]`);
   const stageOf = async (id) => (await db.collection("leads").findOne({ _id: id })).status;
+  /** The stage selector is the app's themed dropdown: open it on the card, then choose the stage. */
+  const pickStage = async (page, card, label) => {
+    await card.getByTestId("pipeline-stage-select").click();
+    await page.getByRole("option", { name: label, exact: true }).click();
+  };
 
   // ── desktop board ──
   const { page, context, dialogCount } = await open({ width: 1280, height: 900 });
@@ -103,7 +108,17 @@ try {
   pass("dragging a card to another stage moves it at once and saves the new status");
 
   // ── stage selector ──
-  await column(page, "site_visit").getByTestId("pipeline-card").filter({ hasText: "Dev Interiors" }).getByTestId("pipeline-stage-select").selectOption("won");
+  assert.equal(await page.getByTestId("pipeline-board").locator("select").count(), 0, "no browser-styled dropdown on the board");
+  const devCard = column(page, "site_visit").getByTestId("pipeline-card").filter({ hasText: "Dev Interiors" });
+  await devCard.getByTestId("pipeline-stage-select").click();
+  await page.getByRole("listbox").waitFor();
+  assert.equal(await page.getByRole("option", { name: "Site Visit", exact: true }).getAttribute("aria-selected"), "true", "the current stage is marked");
+  await shot(page, "pipeline-stage-menu-1280");
+  await page.keyboard.press("Escape");
+  await page.getByRole("listbox").waitFor({ state: "hidden" });
+  assert.equal(await stageOf("l4"), "site_visit", "closing the menu moves nothing");
+  await pickStage(page, devCard, "Closed Won");
+  assert.equal(await page.getByRole("dialog").count(), 0, "choosing a stage does not also open the card");
   await column(page, "won").getByTestId("pipeline-card").filter({ hasText: "Dev Interiors" }).waitFor();
   for (let i = 0; i < 100 && (await stageOf("l4")) !== "won"; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(await stageOf("l4"), "won");
@@ -111,7 +126,7 @@ try {
   pass("the stage selector moves a card (the touch-friendly alternative) and the summary follows");
 
   // ── lost asks for a reason in a dialog ──
-  await column(page, "new").getByTestId("pipeline-card").filter({ hasText: "Brightway" }).getByTestId("pipeline-stage-select").selectOption("lost");
+  await pickStage(page, column(page, "new").getByTestId("pipeline-card").filter({ hasText: "Brightway" }), "Closed Lost");
   const form = page.getByTestId("lost-reason-form");
   await form.waitFor();
   assert.equal(await stageOf("l2"), "new", "nothing is saved until the reason is confirmed");
@@ -126,7 +141,7 @@ try {
   await form.waitFor({ state: "hidden" });
   // cancelling leaves the card where it was
   await column(page, "new").getByTestId("pipeline-card").filter({ hasText: "Asha Patel" }).count();
-  await column(page, "contacted").getByTestId("pipeline-card").filter({ hasText: "Chirag" }).getByTestId("pipeline-stage-select").selectOption("lost");
+  await pickStage(page, column(page, "contacted").getByTestId("pipeline-card").filter({ hasText: "Chirag" }), "Closed Lost");
   await form.waitFor();
   await form.getByRole("button", { name: "Cancel" }).click();
   await form.waitFor({ state: "hidden" });
@@ -136,12 +151,24 @@ try {
 
   // ── a failed move is rolled back ──
   await page.route("**/api/crm/leads/*/status", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ success: false, error: { code: "INTERNAL_ERROR", message: "Simulated failure" } }) }));
-  await column(page, "quoted").getByTestId("pipeline-card").filter({ hasText: "Esha" }).getByTestId("pipeline-stage-select").selectOption("contacted");
+  await pickStage(page, column(page, "quoted").getByTestId("pipeline-card").filter({ hasText: "Esha" }), "Contacted");
   await page.locator("text=Failed to move opportunity").first().waitFor();
   await column(page, "quoted").getByTestId("pipeline-card").filter({ hasText: "Esha" }).waitFor();
   assert.equal(await stageOf("l5"), "quoted");
   await page.unroute("**/api/crm/leads/*/status");
   pass("a failed move puts the card back and says so");
+
+  // ── the lead drawer's stage dropdown ──
+  await column(page, "quoted").getByTestId("pipeline-card").filter({ hasText: "Esha" }).locator("h4").click();
+  const drawer = page.getByRole("dialog");
+  await drawer.waitFor();
+  await drawer.getByTestId("lead-status-select").click();
+  await page.getByRole("option", { name: "5. Negotiation", exact: true }).click();
+  for (let i = 0; i < 100 && (await stageOf("l5")) !== "negotiation"; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await stageOf("l5"), "negotiation", "the drawer's dropdown saves the stage");
+  assert.equal(await drawer.count(), 1, "choosing an option does not close the drawer");
+  assert.equal(await drawer.locator("select").count(), 0, "no browser-styled dropdown in the drawer");
+  pass("the lead drawer's themed stage dropdown saves the stage and keeps the drawer open");
   await context.close();
 
   // ── phone ──
@@ -157,6 +184,12 @@ try {
     const select = column(phone, "new").getByTestId("pipeline-stage-select").first();
     const box = await select.boundingBox();
     assert.ok(box && box.x >= 0 && box.x + box.width <= 375, "the stage selector is on screen");
+    await select.click();
+    const menu = await phone.getByRole("listbox").boundingBox();
+    assert.ok(menu && menu.x >= 0 && menu.x + menu.width <= 375, `the stage menu stays on screen (x ${menu?.x}, width ${menu?.width})`);
+    await shot(phone, "pipeline-stage-menu-375");
+    await phone.keyboard.press("Escape");
+    await phone.getByRole("listbox").waitFor({ state: "hidden" });
     await column(phone, "new").getByTestId("pipeline-card").first().click();
     await phone.locator("text=Opportunity details, text=Lead").first().waitFor({ timeout: 5000 }).catch(() => {});
     await shot(phone, "pipeline-375");

@@ -71,7 +71,7 @@ pass("company stage probabilities: own values over the built-in defaults, bad va
 
 for (const role of ["company_owner", "admin"]) assert.equal(canConfigureStageProbabilities(role, []), true, role);
 assert.equal(canConfigureStageProbabilities("configurable_admin", ["crm:manage"]), true);
-for (const [role, perms] of [["configurable_admin", ["crm:read"]], ["dealer", ["crm:manage"]], ["sales_executive", ["crm:manage"]], ["super_admin", []], ["", []]] as const) assert.equal(canConfigureStageProbabilities(role, perms as string[]), false, role);
+for (const [role, perms] of [["configurable_admin", ["crm:read"]], ["dealer", ["crm:manage"]], ["sales_executive", ["crm:manage"]], ["super_admin", []], ["", []]] as const) assert.equal(canConfigureStageProbabilities(role, perms as unknown as string[]), false, role);
 pass("only the Company Owner, an Admin or a CRM-managing custom admin may configure stage probabilities");
 
 console.log(`\nALL ${count} PIPELINE PROBABILITY AND CONTACT TESTS PASSED`);

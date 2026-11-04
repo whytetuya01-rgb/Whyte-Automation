@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import EmptyState from "@/components/admin/EmptyState";
 import useSWR from "swr";
 import { History, Info, Percent, Undo2 } from "lucide-react";
 import PageHeader from "@/components/admin/PageHeader";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import { Button, Checkbox, Input } from "@/components/ui";
+import CustomDropdown from "@/components/shared/CustomDropdown";
 import { useConfirm } from "@/components/providers/ConfirmProvider";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
@@ -46,7 +48,11 @@ const rupees = (value: number) => new Intl.NumberFormat("en-IN", { style: "curre
 const when = (iso: string) => new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
 const describeRule = (rule: BulkPriceRule) => `${rule.direction === "increase" ? "Increase" : "Decrease"} by ${rule.mode === "percent" ? `${rule.value}%` : rupees(rule.value)}, rounded ${rule.rounding === "none" ? "to the paisa" : `to ${rule.rounding === "1" ? "₹1" : "₹10"}`}`;
 
-const FIELD = "mt-1 h-10 w-full rounded-xl border border-neutral-200 bg-white px-3 text-sm text-neutral-900 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15";
+const FIELD = "mt-1 block w-full";
+const FIELD_TRIGGER = "w-full font-normal text-neutral-900";
+const DIRECTION_OPTIONS = [{ value: "increase", label: "Increase" }, { value: "decrease", label: "Decrease" }];
+const MODE_OPTIONS = [{ value: "percent", label: "Percent (%)" }, { value: "amount", label: "Amount (₹)" }];
+const ROUNDING_OPTIONS = ROUNDINGS.map((option) => ({ value: option, label: option === "none" ? "Not at all (to the paisa)" : option === "1" ? "To the nearest ₹1" : "To the nearest ₹10" }));
 
 /**
  * Bulk pricing (#3, batch 5): raise or lower catalogue prices for everything, some categories or some products, by a
@@ -205,20 +211,14 @@ export default function BulkPricingPage() {
           <div>
             <h2 className="text-sm font-bold text-neutral-900">2. How much</h2>
             <div className="mt-2 grid grid-cols-2 gap-3">
-              <label className="text-xs font-semibold text-neutral-700">
-                Change
-                <select className={FIELD} value={direction} onChange={(e) => { setDirection(e.target.value as BulkPriceRule["direction"]); changed(); }} data-testid="pricing-direction">
-                  <option value="increase">Increase</option>
-                  <option value="decrease">Decrease</option>
-                </select>
-              </label>
-              <label className="text-xs font-semibold text-neutral-700">
-                By
-                <select className={FIELD} value={mode} onChange={(e) => { setMode(e.target.value as BulkPriceRule["mode"]); changed(); }} data-testid="pricing-mode">
-                  <option value="percent">Percent (%)</option>
-                  <option value="amount">Amount (₹)</option>
-                </select>
-              </label>
+              <div className="text-xs font-semibold text-neutral-700">
+                <span>Change</span>
+                <CustomDropdown value={direction} onChange={(next) => { setDirection(next as BulkPriceRule["direction"]); changed(); }} options={DIRECTION_OPTIONS} ariaLabel="Increase or decrease" testId="pricing-direction" className={FIELD} triggerClassName={FIELD_TRIGGER} />
+              </div>
+              <div className="text-xs font-semibold text-neutral-700">
+                <span>By</span>
+                <CustomDropdown value={mode} onChange={(next) => { setMode(next as BulkPriceRule["mode"]); changed(); }} options={MODE_OPTIONS} ariaLabel="Change by percent or amount" testId="pricing-mode" className={FIELD} triggerClassName={FIELD_TRIGGER} />
+              </div>
               <div className="col-span-2">
                 <Input
                   label={mode === "percent" ? "Percentage" : "Amount in rupees"}
@@ -233,14 +233,10 @@ export default function BulkPricingPage() {
                   data-testid="pricing-value"
                 />
               </div>
-              <label className="col-span-2 text-xs font-semibold text-neutral-700">
-                Round the new price
-                <select className={FIELD} value={rounding} onChange={(e) => { setRounding(e.target.value as BulkPriceRule["rounding"]); changed(); }} data-testid="pricing-rounding">
-                  {ROUNDINGS.map((option) => (
-                    <option key={option} value={option}>{option === "none" ? "Not at all (to the paisa)" : option === "1" ? "To the nearest ₹1" : "To the nearest ₹10"}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="col-span-2 text-xs font-semibold text-neutral-700">
+                <span>Round the new price</span>
+                <CustomDropdown value={rounding} onChange={(next) => { setRounding(next as BulkPriceRule["rounding"]); changed(); }} options={ROUNDING_OPTIONS} ariaLabel="Round the new price" testId="pricing-rounding" className={FIELD} triggerClassName={FIELD_TRIGGER} />
+              </div>
               <div className="col-span-2">
                 <Input label="Note (optional)" value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} placeholder="e.g. Festival price list" data-testid="pricing-note-input" />
               </div>
@@ -312,7 +308,7 @@ export default function BulkPricingPage() {
         {historyLoading && !history ? (
           <div className="py-8"><LoadingSpinner /></div>
         ) : !history || history.batches.length === 0 ? (
-          <p className="mt-3 text-sm text-neutral-500" data-testid="pricing-history-empty">No bulk price changes yet.</p>
+          <EmptyState compact icon={History} title="No bulk price changes yet." text="Each bulk change is listed here with what it changed, and can be undone." data-testid="pricing-history-empty" />
         ) : (
           <ul className="mt-3 divide-y divide-neutral-100" data-testid="pricing-history">
             {history.batches.map((batch) => (

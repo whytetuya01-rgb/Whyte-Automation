@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { StatGrid, StatTile, type StatTone } from "@/components/admin/StatTiles";
 import { useSession } from "next-auth/react";
 import {
   Users as UsersIcon,
@@ -403,12 +404,12 @@ export default function UsersPage() {
 
   const totalUsersCount = Math.max(total, stats.totalAccounts, users.length);
 
-  const summaryCards: Array<{ label: string; value: number; icon: typeof UsersIcon; tone: string }> = [
+  const summaryCards: Array<{ label: string; value: number; icon: typeof UsersIcon; tone: StatTone }> = [
     {
       label: "Total Users",
       value: totalUsersCount,
       icon: UsersIcon,
-      tone: "bg-neutral-100 text-neutral-700 border-neutral-200",
+      tone: "neutral",
     },
   ];
 
@@ -417,14 +418,14 @@ export default function UsersPage() {
       label: "Super Admins",
       value: roleMeta("super_admin")?.userCount ?? 0,
       icon: ShieldCheck,
-      tone: "bg-[var(--color-admin-primary-soft)] text-[var(--color-admin-primary-foreground)] border-[var(--color-admin-primary-border)]",
+      tone: "accent",
     });
   } else {
     summaryCards.push({
       label: "Company Owners",
       value: roleMeta("company_owner")?.userCount ?? users.filter((u) => u.role === "company_owner").length,
       icon: ShieldCheck,
-      tone: "bg-rose-50 text-rose-700 border-rose-100",
+      tone: "rose",
     });
   }
 
@@ -433,13 +434,13 @@ export default function UsersPage() {
       label: "Admins",
       value: roleMeta("admin")?.userCount ?? 0,
       icon: Shield,
-      tone: "bg-blue-50 text-blue-700 border-blue-100",
+      tone: "sky",
     },
     {
       label: "Dealers",
       value: roleMeta("dealer")?.userCount ?? 0,
       icon: Store,
-      tone: "bg-amber-50 text-amber-700 border-amber-100",
+      tone: "amber",
     }
   );
 
@@ -448,7 +449,7 @@ export default function UsersPage() {
       label: "Custom Roles",
       value: customCount,
       icon: Sliders,
-      tone: "bg-purple-50 text-purple-700 border-purple-100",
+      tone: "violet",
     });
   }
 
@@ -492,35 +493,11 @@ export default function UsersPage() {
       )}
 
       {/* Summary Cards */}
-      <div
-        className={`grid grid-cols-2 ${
-          summaryCards.length >= 5 ? "lg:grid-cols-5" : "lg:grid-cols-4"
-        } gap-3 sm:gap-4 w-full`}
-      >
+      <StatGrid columns={summaryCards.length >= 5 ? 5 : 4}>
         {loadingRoles
-          ? summaryCards.map((_, i) => (
-              <div key={i} className="h-24 bg-white rounded-2xl border border-neutral-200/80 animate-pulse" />
-            ))
-          : summaryCards.map((card) => {
-              const Icon = card.icon;
-              return (
-                <div
-                  key={card.label}
-                  className="bg-white rounded-2xl border border-neutral-200/80 p-4 shadow-xs flex items-center gap-3"
-                >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 border ${card.tone}`}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-xl font-bold text-neutral-900 leading-tight">{card.value}</div>
-                    <div className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wide truncate">
-                      {card.label}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-      </div>
+          ? summaryCards.map((_, i) => <div key={i} className="admin-skeleton h-[6.2rem] rounded-2xl" />)
+          : summaryCards.map((card) => <StatTile key={card.label} label={card.label} value={card.value} icon={card.icon} tone={card.tone} />)}
+      </StatGrid>
 
       {/* Filters Bar */}
       <div className="bg-white rounded-2xl border border-neutral-200/80 p-4 shadow-xs flex flex-col md:flex-row items-stretch md:items-center gap-3.5 w-full">

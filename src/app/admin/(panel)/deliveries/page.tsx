@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import EmptyState from "@/components/admin/EmptyState";
+import { StatGrid, StatTile, type StatTone } from "@/components/admin/StatTiles";
 import Link from "next/link";
 import { AlertTriangle, CheckCircle2, Copy, ExternalLink, Eye, Mail, MessageCircle, RefreshCw, Search, Send, X } from "lucide-react";
 import { apiJson, notifyApiError, toErrorMessage } from "@/lib/apiClient";
@@ -189,11 +191,11 @@ export default function DeliveriesPage() {
     }
   };
 
-  const tiles: Array<{ label: string; value: number | undefined; onClick: () => void; active: boolean }> = [
-    { label: "Sent", value: summary?.total, onClick: clearFilters, active: !hasActiveFilters },
-    { label: "Viewed by client", value: summary?.viewed, onClick: () => { setStatusFilter("all"); setViewedOnly(true); }, active: viewedOnly && statusFilter === "all" },
-    { label: "Delivered", value: summary?.delivered, onClick: () => { setViewedOnly(false); setStatusFilter("delivered"); }, active: !viewedOnly && statusFilter === "delivered" },
-    { label: "Failed", value: summary?.failed, onClick: () => { setViewedOnly(false); setStatusFilter("failed"); }, active: !viewedOnly && statusFilter === "failed" },
+  const tiles: Array<{ label: string; value: number | undefined; icon: typeof Send; tone: StatTone; onClick: () => void; active: boolean }> = [
+    { label: "Sent", value: summary?.total, icon: Send, tone: "neutral", onClick: clearFilters, active: !hasActiveFilters },
+    { label: "Viewed by client", value: summary?.viewed, icon: Eye, tone: "sky", onClick: () => { setStatusFilter("all"); setViewedOnly(true); }, active: viewedOnly && statusFilter === "all" },
+    { label: "Delivered", value: summary?.delivered, icon: CheckCircle2, tone: "emerald", onClick: () => { setViewedOnly(false); setStatusFilter("delivered"); }, active: !viewedOnly && statusFilter === "delivered" },
+    { label: "Failed", value: summary?.failed, icon: AlertTriangle, tone: "rose", onClick: () => { setViewedOnly(false); setStatusFilter("failed"); }, active: !viewedOnly && statusFilter === "failed" },
   ];
 
   const webhookWorking = Boolean(setup?.webhook.configured && setup.webhook.waitingOverAnHour === 0);
@@ -223,23 +225,11 @@ export default function DeliveriesPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" data-testid="delivery-summary">
+          <StatGrid columns={4} data-testid="delivery-summary">
             {tiles.map((tile) => (
-              <button
-                key={tile.label}
-                type="button"
-                onClick={tile.onClick}
-                aria-pressed={tile.active}
-                className={cn(
-                  "rounded-2xl border bg-white p-4 text-left transition hover:border-gray-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-                  tile.active ? "border-gray-900" : "border-gray-200"
-                )}
-              >
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">{tile.label}</p>
-                <p className="mt-1 text-2xl font-bold tabular-nums text-gray-900">{tile.value ?? "–"}</p>
-              </button>
+              <StatTile key={tile.label} label={tile.label} value={tile.value ?? "–"} icon={tile.icon} tone={tile.tone} onClick={tile.onClick} active={tile.active} />
             ))}
-          </div>
+          </StatGrid>
 
           {setup && (
             <section aria-label="Delivery tracking setup" className="rounded-2xl border border-gray-200 bg-white p-4" data-testid="delivery-setup">
@@ -315,10 +305,8 @@ export default function DeliveriesPage() {
               <LoadingSpinner />
             </div>
           ) : rows.length === 0 ? (
-            <div className="space-y-2 rounded-2xl border border-gray-200 bg-white p-12 text-center text-gray-400">
-              <Send size={28} className="mx-auto text-gray-300" />
-              <p className="text-sm font-semibold text-gray-700">No deliveries found</p>
-              <p className="text-xs">{hasActiveFilters ? "Try adjusting or clearing your filters." : "Quotations sent by email or WhatsApp appear here."}</p>
+            <div className="rounded-2xl border border-gray-200 bg-white">
+              <EmptyState icon={Send} title="No deliveries found" text={hasActiveFilters ? "Try adjusting or clearing your filters." : "Quotations sent by email or WhatsApp appear here."} />
             </div>
           ) : (
             <>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import EmptyState from "@/components/admin/EmptyState";
 import { useSession } from "next-auth/react";
 import {
   Users,
@@ -499,13 +500,7 @@ export default function DealersPage() {
             <LoadingSpinner />
           </div>
         ) : dealers.length === 0 ? (
-          <div className="p-12 text-center">
-            <Building size={36} className="mx-auto text-gray-300 mb-3" />
-            <h3 className="text-sm font-semibold text-gray-900">No dealers found</h3>
-            <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
-              No registered dealers match your current search or filter criteria.
-            </p>
-          </div>
+          <EmptyState icon={Building} title="No dealers found" text="No registered dealers match your current search or filter criteria." />
         ) : (
           <>
             {/* Desktop Table View */}

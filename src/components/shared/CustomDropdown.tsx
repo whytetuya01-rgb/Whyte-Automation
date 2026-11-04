@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -22,6 +22,10 @@ interface CustomDropdownProps {
   id?: string;
   ariaLabel?: string;
   className?: string;
+  /** Extra classes for the button itself, e.g. a compact size inside a card. */
+  triggerClassName?: string;
+  /** `data-testid` of the button. */
+  testId?: string;
   direction?: "up" | "down" | "auto";
   disabled?: boolean;
 }
@@ -42,6 +46,8 @@ export default function CustomDropdown({
   id,
   ariaLabel,
   className,
+  triggerClassName,
+  testId,
   direction = "auto",
   disabled = false,
 }: CustomDropdownProps) {
@@ -84,6 +90,15 @@ export default function CustomDropdown({
     if (!isOpen) return;
     updatePosition();
   }, [isOpen, updatePosition]);
+
+  // The menu opens at the button's left edge; near the right of the screen that would run off it, so it shifts back in.
+  useLayoutEffect(() => {
+    const popover = popoverRef.current;
+    if (!popover || !popoverRect) return;
+    const MARGIN = 8;
+    const overflow = popover.getBoundingClientRect().right - (window.innerWidth - MARGIN);
+    if (overflow > 0) popover.style.left = `${Math.max(MARGIN, popoverRect.left - overflow)}px`;
+  }, [popoverRect]);
 
   // Reposition on resize; close on scroll of anything other than the
   // popover's own option list (so scrolling the page/table can't leave a
@@ -226,6 +241,7 @@ export default function CustomDropdown({
         aria-haspopup="listbox"
         aria-expanded={isOpen}
         aria-label={ariaLabel || placeholder}
+        data-testid={testId}
         onClick={() => {
           if (!disabled) setIsOpen((prev) => !prev);
         }}
@@ -235,7 +251,8 @@ export default function CustomDropdown({
             ? "opacity-50 cursor-not-allowed bg-neutral-100/60 text-neutral-400 border-neutral-200 shadow-none pointer-events-none"
             : isOpen
               ? "border-accent ring-2 ring-accent/15 text-neutral-950 cursor-pointer"
-              : "border-neutral-200 text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-accent/15 focus:border-accent cursor-pointer"
+              : "border-neutral-200 text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 focus:outline-none focus:ring-2 focus:ring-accent/15 focus:border-accent cursor-pointer",
+          triggerClassName
         )}
       >
         <div className="flex items-center gap-2 truncate">

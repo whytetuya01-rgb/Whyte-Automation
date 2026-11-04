@@ -22,7 +22,10 @@ import {
   Tag,
   Layers,
   ListChecks,
+  FolderTree,
+  Package,
 } from "lucide-react";
+import { StatGrid, StatTile } from "@/components/admin/StatTiles";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import { confirmDeletionWithImpact } from "@/lib/deletionImpactClient";
@@ -379,19 +382,12 @@ export default function CategoriesPage() {
       />
 
       {/* ── COMPACT METRIC STRIP ────────────────────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-neutral-200 divide-x divide-neutral-100 flex overflow-hidden shadow-xs">
-        {[
-          { label: "Categories", value: categories.length },
-          { label: "Products", value: categorizedProducts },
-          { label: "Tiers", value: totalTierDimensions },
-          { label: "Finishes", value: totalFinishDimensions },
-        ].map(({ label, value }) => (
-          <div key={label} className="flex-1 flex flex-col items-center justify-center py-4 px-3 min-w-0">
-            <span className="text-2xl font-bold text-neutral-900 leading-none tabular-nums">{value}</span>
-            <span className="text-[11px] text-neutral-400 font-medium mt-1">{label}</span>
-          </div>
-        ))}
-      </div>
+      <StatGrid columns={4}>
+        <StatTile label="Categories" value={categories.length} icon={FolderTree} tone="accent" />
+        <StatTile label="Products" value={categorizedProducts} icon={Package} tone="neutral" />
+        <StatTile label="Tiers" value={totalTierDimensions} icon={Layers} tone="violet" />
+        <StatTile label="Finishes" value={totalFinishDimensions} icon={Palette} tone="amber" />
+      </StatGrid>
 
       {/* ── SEARCH / FILTER BAR ─────────────────────────────────────────────── */}
       <div className="flex items-center gap-3">

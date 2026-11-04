@@ -161,7 +161,7 @@ export default function DashboardTabsLayout({
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="max-w-full space-y-5">
+      <div className="max-w-full space-y-5" data-own-motion="">
         <HeroBand companyName={companyName} actingAsCompany={actingAsCompany} isSuperAdmin={isSuperAdmin} isDemoMode={isDemoMode} canEnableDemo={canEnableDemo} dateRange={dateRange} rangeLabel={data.dateRange.label} stats={heroStats} />
 
         {crmData.isDemo && (

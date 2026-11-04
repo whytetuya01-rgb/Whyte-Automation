@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Globe2 } from "lucide-react";
-import { Button } from "@/components/ui";
+import { Button, SearchableSelect } from "@/components/ui";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
@@ -117,29 +117,21 @@ export default function TimeZoneCard() {
         Decides what counts as &ldquo;today&rdquo; and &ldquo;overdue&rdquo; for you and which time your follow-ups are shown in, here and in Google Calendar. Until you choose, it is {settings.timeZone.default} (India).
       </p>
       <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-        <label className="block min-w-0 flex-1 text-xs font-semibold text-gray-700">
-          Your time zone
-          <select
+        <div className="min-w-0 flex-1" data-testid="timezone-select">
+          <SearchableSelect
+            label="Your time zone"
+            ariaLabel="Your time zone"
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            data-testid="timezone-select"
-            className="mt-1 h-10 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm font-normal text-gray-900 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/15"
-          >
-            <option value="">Default: {settings.timeZone.default} (India)</option>
-            <optgroup label="Common">
-              {options.common.map((option) => (
-                <option key={option.zone} value={option.zone}>{option.label}</option>
-              ))}
-            </optgroup>
-            {options.rest.length > 0 && (
-              <optgroup label="All time zones">
-                {options.rest.map((option) => (
-                  <option key={option.zone} value={option.zone}>{option.label}</option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </label>
+            options={[
+              { value: "", label: `Default: ${settings.timeZone.default} (India)` },
+              ...options.common.map((option) => ({ value: option.zone, label: option.label })),
+              ...options.rest.map((option) => ({ value: option.zone, label: option.label })),
+            ]}
+            searchPlaceholder="Search, e.g. Dubai or London"
+            emptyText="No time zone matches that"
+          />
+        </div>
         <Button type="button" variant="primary" size="sm" loading={saving} disabled={unchanged} onClick={() => void save()} data-testid="timezone-save">
           Save time zone
         </Button>

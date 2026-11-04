@@ -1025,3 +1025,161 @@ html[data-density="compact"] .admin-theme :is(td, th) {
     animation: none !important;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   Admin content motion — "refined" (Linear / Stripe feel)
+   Every admin screen gets the same, quick entrance without per-page code:
+     - the page fades in when you arrive (the admin layout wraps each page in `.admin-page`, keyed by route);
+     - the page's sections (header, filters, cards, tables) rise in one after another;
+     - table rows fade in with a short cascade the first time they appear;
+     - modals and confirm dialogs rise in; popovers and menus pop in.
+   Animations only ever START from a transform/opacity and end with none (fill-mode "backwards"), so nothing is left
+   on an element afterwards: fixed-position children (inline modals, menus) and sticky headers behave normally.
+   All of it is off for people who ask for reduced motion.
+   ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+@keyframes adminPageIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes adminRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes adminRowIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes adminDialogIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes adminSheetIn {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes adminBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes adminShimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .admin-page {
+    animation: adminPageIn 220ms var(--motion-ease, ease-out) backwards;
+  }
+  /* The page's own sections, in order. */
+  .admin-page > * > * {
+    animation: adminRise 380ms var(--motion-ease, ease-out) backwards;
+  }
+  .admin-page > * > *:nth-child(2) { animation-delay: 45ms; }
+  .admin-page > * > *:nth-child(3) { animation-delay: 90ms; }
+  .admin-page > * > *:nth-child(4) { animation-delay: 135ms; }
+  .admin-page > * > *:nth-child(5) { animation-delay: 180ms; }
+  .admin-page > * > *:nth-child(6) { animation-delay: 220ms; }
+  .admin-page > * > *:nth-child(n + 7) { animation-delay: 250ms; }
+
+  /* Table rows: a short cascade over the first rows, the rest together. */
+  .admin-page tbody tr {
+    animation: adminRowIn 300ms var(--motion-ease, ease-out) backwards;
+    animation-delay: 300ms;
+  }
+  .admin-page tbody tr:nth-child(1) { animation-delay: 60ms; }
+  .admin-page tbody tr:nth-child(2) { animation-delay: 85ms; }
+  .admin-page tbody tr:nth-child(3) { animation-delay: 110ms; }
+  .admin-page tbody tr:nth-child(4) { animation-delay: 135ms; }
+  .admin-page tbody tr:nth-child(5) { animation-delay: 160ms; }
+  .admin-page tbody tr:nth-child(6) { animation-delay: 185ms; }
+  .admin-page tbody tr:nth-child(7) { animation-delay: 210ms; }
+  .admin-page tbody tr:nth-child(8) { animation-delay: 235ms; }
+  .admin-page tbody tr:nth-child(9) { animation-delay: 260ms; }
+  .admin-page tbody tr:nth-child(10) { animation-delay: 280ms; }
+
+  /* Lists of cards marked as a grid stagger the same way. */
+  .admin-stagger > * {
+    animation: adminRise 360ms var(--motion-ease, ease-out) backwards;
+    animation-delay: 280ms;
+  }
+  .admin-stagger > *:nth-child(1) { animation-delay: 40ms; }
+  .admin-stagger > *:nth-child(2) { animation-delay: 70ms; }
+  .admin-stagger > *:nth-child(3) { animation-delay: 100ms; }
+  .admin-stagger > *:nth-child(4) { animation-delay: 130ms; }
+  .admin-stagger > *:nth-child(5) { animation-delay: 160ms; }
+  .admin-stagger > *:nth-child(6) { animation-delay: 190ms; }
+  .admin-stagger > *:nth-child(7) { animation-delay: 215ms; }
+  .admin-stagger > *:nth-child(8) { animation-delay: 240ms; }
+
+  /* Dialogs: the shared Modal and the confirm dialog. */
+  .admin-dialog-backdrop {
+    animation: adminBackdropIn 200ms ease-out backwards;
+  }
+  .admin-dialog-panel {
+    animation: adminDialogIn 260ms var(--motion-ease, ease-out) backwards;
+  }
+  @media (max-width: 639px) {
+    .admin-dialog-panel {
+      animation: adminSheetIn 300ms var(--motion-ease, ease-out) backwards;
+    }
+  }
+}
+
+/* Hover feel shared by clickable cards and rows (transitions only: nothing moves without a pointer). */
+.admin-theme .admin-card-hover {
+  transition: box-shadow var(--motion-fast, 180ms) var(--motion-ease, ease-out), border-color var(--motion-fast, 180ms) var(--motion-ease, ease-out), transform var(--motion-fast, 180ms) var(--motion-ease, ease-out);
+}
+.admin-theme .admin-card-hover:hover {
+  border-color: rgb(212 212 216);
+  box-shadow: 0 10px 28px -14px rgba(16, 16, 20, 0.22);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .admin-theme .admin-card-hover:hover { transform: translateY(-2px); }
+}
+.admin-theme tbody tr {
+  transition: background-color var(--motion-fast, 180ms) ease-out;
+}
+
+/* Loading placeholders that shimmer instead of a spinner. */
+.admin-skeleton {
+  border-radius: 0.5rem;
+  background: linear-gradient(90deg, #F1F1F3 0%, #F7F7F8 40%, #F1F1F3 80%);
+  background-size: 200% 100%;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .admin-skeleton { animation: adminShimmer 1.4s ease-in-out infinite; }
+}
+
+/* Dialog exit, and no section entrance on an overlay that sits inside a page. */
+@keyframes adminDialogOut {
+  to { opacity: 0; transform: translateY(8px) scale(0.985); }
+}
+@keyframes adminBackdropOut {
+  to { opacity: 0; }
+}
+.admin-page > * > [data-admin-overlay] {
+  animation: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .admin-dialog-closing .admin-dialog-panel { animation: adminDialogOut 150ms ease-in forwards; }
+  .admin-dialog-closing .admin-dialog-backdrop { animation: adminBackdropOut 150ms ease-in forwards; }
+}
+
+/* A screen that runs its own entrance (motion/react) opts out of the shared one: `data-own-motion` on its root. */
+.admin-page > [data-own-motion] > *,
+.admin-page > * > [data-own-motion],
+.admin-page [data-own-motion] {
+  animation: none;
+}
+
+/* Spinners wait a moment before appearing, so fast loads never flash one. */
+@media (prefers-reduced-motion: no-preference) {
+  .admin-spinner-delayed { animation: adminPageIn 220ms ease-out 180ms backwards; }
+}
+
+/* Native checkboxes, radios and sliders take the theme colour, not the browser's blue. */
+.admin-theme input[type="checkbox"],
+.admin-theme input[type="radio"],
+.admin-theme input[type="range"] {
+  accent-color: var(--color-accent);
+}

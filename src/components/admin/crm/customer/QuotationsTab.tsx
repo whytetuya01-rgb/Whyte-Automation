@@ -4,10 +4,18 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ExternalLink, FilePlus2, FileText, Search } from "lucide-react";
 import { Input } from "@/components/ui";
+import CustomDropdown from "@/components/shared/CustomDropdown";
 import { cn, formatCurrency } from "@/lib/utils";
 import { filterQuotations, type QuotationSort } from "@/lib/crmCustomerInsights";
 import type { CustomerProfile } from "@/types/crm";
 import { EmptyState, QUOTATION_STATUS_STYLE, QuotationStatusBadge, formatDate } from "./shared";
+
+const SORT_OPTIONS: Array<{ value: QuotationSort; label: string }> = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "value_desc", label: "Highest value" },
+  { value: "value_asc", label: "Lowest value" },
+];
 
 interface Props {
   quotations: CustomerProfile["quotations"];
@@ -75,20 +83,16 @@ export default function QuotationsTab({ quotations, statusCounts, newQuotationUr
           <div className="w-full sm:max-w-xs">
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search quotation number" aria-label="Search quotations" leftIcon={<Search size={14} />} className="text-xs" />
           </div>
-          <label className="flex items-center gap-2 text-xs font-medium text-neutral-500">
-            Sort
-            <select
+          <div className="flex items-center gap-2 text-xs font-medium text-neutral-500">
+            <span>Sort</span>
+            <CustomDropdown
               value={sort}
-              onChange={(e) => setSort(e.target.value as QuotationSort)}
-              aria-label="Sort quotations"
-              className="rounded-lg border border-neutral-200 bg-white px-2.5 py-1.5 text-xs font-medium text-neutral-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="value_desc">Highest value</option>
-              <option value="value_asc">Lowest value</option>
-            </select>
-          </label>
+              onChange={(value) => setSort(value as QuotationSort)}
+              options={SORT_OPTIONS}
+              ariaLabel="Sort quotations"
+              triggerClassName="h-8 rounded-lg px-2.5 text-xs"
+            />
+          </div>
         </div>
       </div>
 

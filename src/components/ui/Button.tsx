@@ -30,19 +30,19 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ) => {
     const variants = {
       primary:
-        "bg-neutral-900 text-white hover:bg-neutral-800 active:scale-[0.98] border border-neutral-900 shadow-xs",
+        "bg-neutral-950 text-white hover:bg-neutral-800 active:scale-[0.98] border border-neutral-950 shadow-[0_1px_2px_rgba(16,16,20,0.2)] hover:shadow-[0_8px_18px_-8px_rgba(16,16,20,0.55)]",
       secondary:
         "bg-neutral-100 text-neutral-800 hover:bg-neutral-200 border border-neutral-200 active:scale-[0.98]",
       danger:
         "bg-red-600 text-white hover:bg-red-700 active:scale-[0.98] shadow-xs border border-transparent",
       outline:
-        "border border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50 hover:border-neutral-300 shadow-2xs active:scale-[0.98]",
+        "border border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50 hover:border-neutral-300 shadow-2xs hover:shadow-[0_6px_14px_-8px_rgba(16,16,20,0.25)] active:scale-[0.98]",
       ghost:
         "text-neutral-700 hover:text-neutral-950 hover:bg-neutral-100 border border-transparent active:scale-[0.98]",
       link:
         "text-neutral-900 underline-offset-4 hover:underline border border-transparent !h-auto !px-0 !py-0 shadow-none font-medium",
       accent:
-        "bg-admin-primary text-white hover:bg-admin-primary-hover active:scale-[0.98] shadow-xs border border-transparent",
+        "bg-admin-primary text-white hover:bg-admin-primary-hover active:scale-[0.98] shadow-xs hover:shadow-[0_8px_18px_-8px_color-mix(in_srgb,var(--color-admin-primary)_70%,transparent)] border border-transparent",
     };
 
     const sizes = {
@@ -58,7 +58,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         disabled={disabled || loading}
         aria-busy={loading ? "true" : undefined}
         className={cn(
-          "inline-flex items-center justify-center font-semibold transition-all select-none cursor-pointer",
+          "inline-flex items-center justify-center font-semibold transition-all duration-200 ease-out select-none cursor-pointer",
           "focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/30 focus-visible:ring-offset-2",
           "disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none",
           variants[variant],

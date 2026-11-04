@@ -14,7 +14,8 @@ import {
   Calendar,
   X,
 } from "lucide-react";
-import { apiJson, notifyApiError } from "@/lib/apiClient";
+import { ApiClientError, apiJson, notifyApiError } from "@/lib/apiClient";
+import EmptyState from "@/components/admin/EmptyState";
 import PageHeader from "@/components/admin/PageHeader";
 import Pagination from "@/components/shared/Pagination";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
@@ -197,6 +198,8 @@ export default function ActivityLogPage() {
         setPage(result.pagination.page);
         hasLoadedRef.current = true;
       } catch (err: unknown) {
+        // Not allowed to see it: the page already says so; no error pop-up on top.
+        if (err instanceof ApiClientError && err.status === 403) return;
         notifyApiError(err, "Unable to load activity", "Failed to load the activity log.");
       } finally {
         setLoading(false);
@@ -207,9 +210,10 @@ export default function ActivityLogPage() {
   );
 
   useEffect(() => {
+    if (role && role !== "super_admin") return;
     fetchData(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, actionFilter, roleFilter, actorFilter, startDate, endDate, pageSize]);
+  }, [role, debouncedSearch, actionFilter, roleFilter, actorFilter, startDate, endDate, pageSize]);
 
   const hasActiveFilters =
     debouncedSearch.trim() !== "" ||
@@ -239,12 +243,8 @@ export default function ActivityLogPage() {
 
   if (role && role !== "super_admin") {
     return (
-      <div className="max-w-lg mx-auto py-16 text-center space-y-2">
-        <ShieldCheck size={32} className="mx-auto text-gray-300" />
-        <h1 className="text-lg font-bold text-gray-900">Super Admin Only</h1>
-        <p className="text-sm text-gray-500">
-          The activity log is restricted to Super Admin accounts.
-        </p>
+      <div className="rounded-2xl border border-neutral-200/80 bg-white">
+        <EmptyState icon={ShieldCheck} title="Super Admin Only" text="The activity log is restricted to Super Admin accounts." />
       </div>
     );
   }

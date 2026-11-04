@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -84,7 +84,20 @@ export default function Modal({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  // Closing plays a short exit (see "Admin content motion" in globals.css) before the dialog leaves the page. While closing
+  // it is no longer a dialog and takes no clicks.
+  const [rendered, setRendered] = useState(isOpen);
+  useEffect(() => {
+    if (isOpen) {
+      setRendered(true);
+      return;
+    }
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const timer = setTimeout(() => setRendered(false), reduce ? 0 : 150);
+    return () => clearTimeout(timer);
+  }, [isOpen]);
+
+  if (!isOpen && !rendered) return null;
 
   const sizeClasses = {
     sm: "max-w-sm",
@@ -99,27 +112,29 @@ export default function Modal({
 
   return (
     <div
-      className="fixed inset-0 flex items-end sm:items-center justify-center p-0 sm:p-4 md:p-6 overflow-hidden"
+      className={cn("fixed inset-0 flex items-end sm:items-center justify-center p-0 sm:p-4 md:p-6 overflow-hidden", !isOpen && "pointer-events-none admin-dialog-closing")}
       style={{ zIndex: "var(--z-modal)" }}
+      data-admin-overlay=""
     >
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
-        onClick={onClose}
+        className="admin-dialog-backdrop fixed inset-0 bg-black/55 backdrop-blur-[3px]"
+        onClick={isOpen ? onClose : undefined}
         aria-hidden="true"
       />
       <div
         ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
+        role={isOpen ? "dialog" : "presentation"}
+        aria-modal={isOpen ? "true" : undefined}
+        aria-label={isOpen ? title : undefined}
+        aria-hidden={isOpen ? undefined : "true"}
         className={cn(
-          "relative w-full bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl border border-neutral-200/80 max-h-[92vh] sm:max-h-[88vh] flex flex-col z-10 my-0 sm:my-auto",
+          "admin-dialog-panel relative w-full bg-white rounded-t-2xl sm:rounded-2xl shadow-[0_24px_64px_-20px_rgba(16,16,20,0.45)] border border-neutral-200/80 max-h-[92vh] sm:max-h-[88vh] flex flex-col z-10 my-0 sm:my-auto",
           sizeClasses[size],
           className
         )}
       >
         <div className="flex items-center justify-between px-4 py-3.5 sm:px-6 sm:py-4 border-b border-neutral-100 shrink-0 bg-white sm:rounded-t-2xl">
-          <h2 className="text-base sm:text-lg font-bold text-neutral-900 tracking-tight">{title}</h2>
+          <h2 className="text-base sm:text-lg font-semibold text-neutral-950 tracking-tight">{title}</h2>
           <button
             type="button"
             ref={closeButtonRef}

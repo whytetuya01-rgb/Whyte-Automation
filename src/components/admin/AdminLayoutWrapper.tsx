@@ -52,7 +52,8 @@ export default function AdminLayoutWrapper({
   const collapseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { isContentLoading } = usePageLoading();
   // The Apps launcher is a full-width home screen (like Odoo's): no sidebar, no menu button.
-  const isLauncher = usePathname() === "/admin/apps";
+  const pathname = usePathname();
+  const isLauncher = pathname === "/admin/apps";
 
   useEffect(() => {
     const checkScreen = () => {
@@ -222,7 +223,10 @@ export default function AdminLayoutWrapper({
               </div>
             ) : (
               <div className="p-3.5 sm:p-5 md:p-6 xl:p-8 flex-1 max-w-full overflow-x-hidden select-text">
-                {children}
+                {/* Keyed by route: every page arrives with the same short entrance (see "Admin content motion" in globals.css). */}
+                <div key={pathname} className="admin-page">
+                  {children}
+                </div>
               </div>
             )}
             {footer}

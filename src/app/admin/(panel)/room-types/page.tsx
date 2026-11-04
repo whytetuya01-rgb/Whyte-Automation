@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { StatGrid, StatTile, type StatTone } from "@/components/admin/StatTiles";
 import { useSession } from "next-auth/react";
 import { RoomType } from "@/types";
 import {
@@ -342,10 +343,10 @@ export default function RoomTypesPage() {
     );
   }
 
-  const metrics = [
-    { label: "Total", value: roomTypes.length, icon: DoorOpen, iconClass: "text-neutral-500" },
-    { label: "Active", value: activeCount, icon: CheckCircle2, iconClass: "text-emerald-600" },
-    { label: "Inactive", value: inactiveCount, icon: XCircle, iconClass: "text-neutral-400" },
+  const metrics: Array<{ label: string; value: number; icon: typeof DoorOpen; tone: StatTone }> = [
+    { label: "Total", value: roomTypes.length, icon: DoorOpen, tone: "neutral" },
+    { label: "Active", value: activeCount, icon: CheckCircle2, tone: "emerald" },
+    { label: "Inactive", value: inactiveCount, icon: XCircle, tone: "neutral" },
   ];
 
   return (
@@ -353,17 +354,11 @@ export default function RoomTypesPage() {
       {header}
 
       {/* ─── Metrics strip ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-3 divide-x divide-neutral-100 rounded-2xl border border-neutral-200/80 bg-white shadow-2xs">
-        {metrics.map(({ label, value, icon: Icon, iconClass }) => (
-          <div key={label} className="flex items-center justify-center gap-3 px-3 py-3 sm:py-3.5">
-            <Icon size={16} className={cn("hidden shrink-0 sm:block", iconClass)} aria-hidden="true" />
-            <div className="text-center sm:text-left">
-              <div className="text-lg font-bold leading-tight text-neutral-900 tabular-nums">{value}</div>
-              <div className="text-[11px] font-medium text-neutral-500">{label}</div>
-            </div>
-          </div>
+      <StatGrid columns={3}>
+        {metrics.map(({ label, value, icon, tone }) => (
+          <StatTile key={label} label={label} value={value} icon={icon} tone={tone} />
         ))}
-      </div>
+      </StatGrid>
 
       {/* ─── Search & status filter ────────────────────────────────────────── */}
       <div className="flex flex-col gap-2.5 rounded-2xl border border-neutral-200/80 bg-white p-2.5 shadow-2xs sm:flex-row sm:items-center sm:justify-between">

@@ -177,11 +177,20 @@ try {
   assert.equal(await rep3.getAttribute("aria-checked"), "false", "a person can be toggled from the keyboard");
   assert.equal(await desk.page.getByTestId("rep-4").count(), 0, "an inactive person is not offered");
   assert.ok(await noHorizontalScroll(desk.page), "rules page: no horizontal scroll at 1280px");
+  // the fallback owner and a source rule use the themed dropdown
+  assert.equal(await desk.page.locator("main select").count(), 0, "no browser-styled dropdown on the rules page");
+  await desk.page.getByRole("button", { name: "Fallback lead owner" }).click();
+  await desk.page.getByRole("option", { name: /^Tarun Sales/ }).click();
+  await desk.page.getByRole("button", { name: "Add Source Rule" }).click();
+  await desk.page.getByRole("button", { name: "Route directly to" }).last().click();
+  await desk.page.getByRole("option", { name: "Tarun Sales", exact: true }).click();
   await shot(desk.page, "assignment-1280");
   await desk.page.getByRole("button", { name: "Save Rules" }).first().click();
   await desk.page.waitForFunction(async () => (await (await fetch("/api/crm/assignment-rules")).json()).data.rule.mode === "least_open_leads");
   const stored = (await api(cookie.owner, "GET", "/api/crm/assignment-rules")).data.rule;
   assert.deepEqual([stored.mode, stored.eligibleSalesIds], ["least_open_leads", [2]], "the keyboard changes were saved");
+  assert.equal(stored.fallbackSalesId, 3, "the fallback chosen in the dropdown is saved");
+  assert.equal(stored.sourceMappings.at(-1).salesId, 3, "the source rule's person is saved as a number");
   await desk.context.close();
   pass("rules page at 1280px: strategy and pool are chosen from the keyboard, inactive people are not offered, Save stores the rule");
 

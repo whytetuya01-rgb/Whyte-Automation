@@ -2,11 +2,11 @@ import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface PageHeaderProps {
-  /** Bold dark-charcoal page title. */
+  /** Page title. */
   title: string;
   /** Short descriptive sentence shown in muted grey below the title. */
   subtitle?: React.ReactNode;
-  /** Page-specific icon, rendered inline before the title in Whyte pink. */
+  /** Page-specific icon, shown in a soft accent tile before the title. */
   icon?: LucideIcon;
   /** Optional inline node rendered next to the title (e.g. a count badge). */
   badge?: React.ReactNode;
@@ -18,10 +18,9 @@ interface PageHeaderProps {
 }
 
 /**
- * Canonical admin page header — pink inline icon, bold charcoal title, muted
- * subtitle, optional breadcrumbs / badge / right-side actions. Matches the
- * Activity Log reference design and is the single source of truth for page
- * titles across the admin panel.
+ * Canonical admin page header: the page's icon in a soft accent tile, a confident title, a muted one-line subtitle and
+ * optional breadcrumbs / badge / right-side actions. The single source of truth for page titles across the admin panel;
+ * it rises in with the page (see "Admin content motion" in globals.css).
  */
 export default function PageHeader({
   title,
@@ -33,30 +32,27 @@ export default function PageHeader({
   className,
 }: PageHeaderProps) {
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between",
-        className
-      )}
-    >
-      <div className="min-w-0">
-        {breadcrumbs && <div className="mb-2">{breadcrumbs}</div>}
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="flex min-w-0 items-center gap-2 text-xl font-bold text-neutral-900 sm:text-2xl">
-            {Icon && <Icon size={22} className="shrink-0 text-accent" aria-hidden="true" />}
-            <span className="min-w-0 break-words">{title}</span>
-          </h1>
-          {badge}
-        </div>
-        {subtitle && (
-          <p className="mt-0.5 text-sm text-neutral-500">{subtitle}</p>
+    <div className={cn("flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between", className)} data-testid="page-header">
+      <div className="flex min-w-0 items-start gap-3">
+        {Icon && (
+          <span
+            className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-accent/15 text-accent shadow-[0_1px_2px_rgba(16,16,20,0.05)] sm:h-11 sm:w-11"
+            style={{ background: "linear-gradient(135deg, color-mix(in srgb, var(--color-accent) 14%, #fff), color-mix(in srgb, var(--color-accent) 4%, #fff))" }}
+            aria-hidden="true"
+          >
+            <Icon size={20} strokeWidth={2} />
+          </span>
         )}
-      </div>
-      {actions && (
-        <div className="flex shrink-0 items-center gap-2 self-start sm:self-auto">
-          {actions}
+        <div className="min-w-0">
+          {breadcrumbs && <div className="mb-1.5">{breadcrumbs}</div>}
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="min-w-0 break-words text-xl font-semibold tracking-tight text-neutral-950 sm:text-[1.6rem] sm:leading-tight">{title}</h1>
+            {badge}
+          </div>
+          {subtitle && <p className="mt-0.5 max-w-3xl text-sm leading-relaxed text-neutral-500">{subtitle}</p>}
         </div>
-      )}
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap items-center gap-2 self-start sm:self-auto">{actions}</div>}
     </div>
   );
 }

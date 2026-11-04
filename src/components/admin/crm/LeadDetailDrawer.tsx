@@ -19,6 +19,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { Button } from "@/components/ui";
+import CustomDropdown from "@/components/shared/CustomDropdown";
 import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import type { Lead, LeadPriority, LeadStatus } from "@/types/crm";
@@ -27,6 +28,16 @@ import ActivityTimeline from "./ActivityTimeline";
 import { TagChips } from "./LeadTags";
 import { formatCurrency } from "@/lib/utils";
 import { effectiveProbability, weightedValue } from "@/lib/pipelineProbability";
+
+const STATUS_OPTIONS: Array<{ value: LeadStatus; label: string }> = [
+  { value: "new", label: "1. New Lead" },
+  { value: "contacted", label: "2. Contacted" },
+  { value: "site_visit", label: "3. Site Visit" },
+  { value: "quoted", label: "4. Quoted" },
+  { value: "negotiation", label: "5. Negotiation" },
+  { value: "won", label: "6. Won 🎉" },
+  { value: "lost", label: "7. Lost" },
+];
 import { useStageProbabilities } from "@/lib/useStageProbabilities";
 import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
 import { normalizeWhatsAppNumber } from "@/lib/quotationDeliveryShared";
@@ -214,20 +225,15 @@ export default function LeadDetailDrawer({
 
               {/* Status Selector */}
               <div className="flex items-center gap-2">
-                <select
+                <CustomDropdown
                   value={lead.status}
                   disabled={updatingStatus}
-                  onChange={(e) => handleStatusChange(e.target.value as LeadStatus)}
-                  className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-neutral-300 bg-white text-neutral-800 shadow-2xs focus:ring-accent focus:border-accent cursor-pointer"
-                >
-                  <option value="new">1. New Lead</option>
-                  <option value="contacted">2. Contacted</option>
-                  <option value="site_visit">3. Site Visit</option>
-                  <option value="quoted">4. Quoted</option>
-                  <option value="negotiation">5. Negotiation</option>
-                  <option value="won">6. Won 🎉</option>
-                  <option value="lost">7. Lost</option>
-                </select>
+                  onChange={(status) => handleStatusChange(status as LeadStatus)}
+                  options={STATUS_OPTIONS}
+                  ariaLabel="Change pipeline stage"
+                  testId="lead-status-select"
+                  triggerClassName="h-8 rounded-lg px-2.5 text-xs font-semibold"
+                />
               </div>
             </div>
 

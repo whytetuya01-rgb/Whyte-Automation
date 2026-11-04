@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import CustomDropdown from "@/components/shared/CustomDropdown";
+import { StatGrid, StatTile, type StatTone } from "@/components/admin/StatTiles";
 import Link from "next/link";
 import {
   Kanban,
@@ -50,6 +52,7 @@ const STAGE_OPTIONS: Array<{ id: PipelineStageId; label: string }> = [
   { id: "won", label: "Closed Won" },
   { id: "lost", label: "Closed Lost" },
 ];
+const STAGE_DROPDOWN_OPTIONS = STAGE_OPTIONS.map((option) => ({ value: option.id, label: option.label }));
 
 const LOST_REASONS = ["Price", "Competitor", "Budget", "Timing", "No response"];
 
@@ -87,19 +90,8 @@ function withCardMoved(stages: PipelineStageData[], cardId: string, target: Pipe
   });
 }
 
-function SummaryTile({ icon: Icon, label, value, hint, tone }: { icon: typeof TrendingUp; label: string; value: string; hint: string; tone: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-neutral-200 bg-white p-3.5 shadow-2xs">
-      <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", tone)}>
-        <Icon size={18} aria-hidden="true" />
-      </span>
-      <div className="min-w-0">
-        <p className="truncate text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{label}</p>
-        <p className="truncate text-lg font-bold leading-tight text-neutral-900">{value}</p>
-        <p className="truncate text-[11px] text-neutral-400">{hint}</p>
-      </div>
-    </div>
-  );
+function SummaryTile({ icon, label, value, hint, tone }: { icon: typeof TrendingUp; label: string; value: string; hint: string; tone: StatTone }) {
+  return <StatTile icon={icon} label={label} value={value} hint={hint} tone={tone} />;
 }
 
 function BoardSkeleton() {
@@ -323,18 +315,18 @@ export default function PipelinePage() {
       )}
 
       {/* Summary */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="pipeline-summary">
-        <SummaryTile icon={TrendingUp} label="Open pipeline" value={formatCurrency(summary.openValue)} hint={`${summary.openCount} open · ${formatCurrency(summary.expectedValue)} expected`} tone="bg-sky-50 text-sky-600" />
-        <SummaryTile icon={Trophy} label="Closed won" value={formatCurrency(summary.wonValue)} hint={`${summary.wonCount} ${summary.wonCount === 1 ? "deal" : "deals"} won`} tone="bg-emerald-50 text-emerald-600" />
-        <SummaryTile icon={Flame} label="Hot leads" value={String(summary.hot)} hint="Quotation viewed several times" tone="bg-amber-50 text-amber-600" />
+      <StatGrid columns={4} data-testid="pipeline-summary">
+        <SummaryTile icon={TrendingUp} label="Open pipeline" value={formatCurrency(summary.openValue)} hint={`${summary.openCount} open · ${formatCurrency(summary.expectedValue)} expected`} tone="sky" />
+        <SummaryTile icon={Trophy} label="Closed won" value={formatCurrency(summary.wonValue)} hint={`${summary.wonCount} ${summary.wonCount === 1 ? "deal" : "deals"} won`} tone="emerald" />
+        <SummaryTile icon={Flame} label="Hot leads" value={String(summary.hot)} hint="Quotation viewed several times" tone="amber" />
         <SummaryTile
           icon={AlertTriangle}
           label="Needs attention"
           value={String(summary.attention)}
           hint={`${summary.stale} stuck 7+ days · ${summary.overdue} overdue follow-ups`}
-          tone="bg-rose-50 text-rose-600"
+          tone="rose"
         />
-      </div>
+      </StatGrid>
 
       {/* Search and refresh */}
       <div className="space-y-3 rounded-2xl border border-neutral-200 bg-white p-3 shadow-2xs">
@@ -558,19 +550,15 @@ export default function PipelinePage() {
                                 <span className="truncate font-medium">{owner}</span>
                                 {!stuck && <span className="shrink-0 text-neutral-300">· {card.daysInStage}d</span>}
                               </span>
-                              <select
+                              <CustomDropdown
                                 value={card.stage}
-                                onChange={(e) => requestMove(card.id, e.target.value as PipelineStageId)}
-                                aria-label={`Move ${card.customerName} to another stage`}
-                                data-testid="pipeline-stage-select"
-                                className="max-w-[7.5rem] shrink-0 cursor-pointer rounded-lg border border-neutral-200 bg-neutral-50 px-1.5 py-1 text-[11px] font-medium text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                              >
-                                {STAGE_OPTIONS.map((option) => (
-                                  <option key={option.id} value={option.id}>
-                                    {option.label}
-                                  </option>
-                                ))}
-                              </select>
+                                onChange={(stage) => requestMove(card.id, stage as PipelineStageId)}
+                                options={STAGE_DROPDOWN_OPTIONS}
+                                ariaLabel={`Move ${card.customerName} to another stage`}
+                                testId="pipeline-stage-select"
+                                className="shrink-0"
+                                triggerClassName="h-7 max-w-[7.5rem] gap-1 rounded-lg bg-neutral-50 px-2 text-[11px]"
+                              />
                             </div>
                           </article>
                         );

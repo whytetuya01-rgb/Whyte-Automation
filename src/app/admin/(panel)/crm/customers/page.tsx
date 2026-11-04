@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import EmptyState from "@/components/admin/EmptyState";
 import Link from "next/link";
 import {
   Contact,
@@ -186,29 +187,29 @@ export default function CustomersPage() {
             <LoadingSpinner />
           </div>
         ) : customers.length === 0 ? (
-          <div className="py-20 text-center space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-neutral-100 text-neutral-400 flex items-center justify-center mx-auto">
-              <Contact size={24} />
-            </div>
-            <h3 className="text-base font-bold text-neutral-900">No customers found</h3>
-            <p className="text-xs text-neutral-500 max-w-sm mx-auto">
-              {search || customerType !== "all"
+          <EmptyState
+            icon={Contact}
+            title="No customers found"
+            text={
+              search || customerType !== "all"
                 ? "No customers match your search criteria."
-                : "Add your first central customer or convert an existing lead."}
-            </p>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              onClick={() => {
-                setEditingCustomer(null);
-                setModalOpen(true);
-              }}
-            >
-              <Plus size={14} className="mr-1" />
-              <span>Add Customer</span>
-            </Button>
-          </div>
+                : "Add your first central customer or convert an existing lead."
+            }
+            action={
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setEditingCustomer(null);
+                  setModalOpen(true);
+                }}
+              >
+                <Plus size={14} className="mr-1" />
+                <span>Add Customer</span>
+              </Button>
+            }
+          />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-xs">

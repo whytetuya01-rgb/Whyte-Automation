@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Award, History, ShieldCheck } from "lucide-react";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import notify from "@/lib/notify";
+import CustomDropdown from "@/components/shared/CustomDropdown";
 import { DEALER_TIERS, DEALER_TIER_STYLE, tierLabel, type DealerTierKey } from "@/lib/dealerTiers";
 
 /** What the dealer APIs return for a dealer's category (all calculated on the server). */
@@ -220,14 +221,18 @@ export function DealerPerformancePanel({ dealerId, canCorrect, onChanged }: { de
             <ShieldCheck size={13} aria-hidden /> Correct category (Super Admin)
           </summary>
           <div className="mt-2 space-y-2">
-            <label className="block text-[11px] font-semibold text-gray-700">
-              Category
-              <select value={category} onChange={(e) => setCategory(e.target.value as DealerTierKey)} className="mt-1 w-full h-9 rounded-lg border border-gray-300 bg-white px-2 text-sm">
-                {DEALER_TIERS.map((tier) => (
-                  <option key={tier.key} value={tier.key}>{tier.label}</option>
-                ))}
-              </select>
-            </label>
+            <div className="text-[11px] font-semibold text-gray-700">
+              <span>Category</span>
+              <CustomDropdown
+                value={category}
+                onChange={(next) => setCategory(next as DealerTierKey)}
+                options={DEALER_TIERS.map((tier) => ({ value: tier.key, label: tier.label }))}
+                ariaLabel="Category"
+                testId="dealer-category-select"
+                className="mt-1 block w-full"
+                triggerClassName="h-9 w-full rounded-lg px-2.5 font-normal text-gray-900"
+              />
+            </div>
             <label className="block text-[11px] font-semibold text-gray-700">
               Reason (kept in the history)
               <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} maxLength={500} className="mt-1 w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm" />

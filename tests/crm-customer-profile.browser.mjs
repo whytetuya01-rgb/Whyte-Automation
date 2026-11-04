@@ -169,7 +169,8 @@ try {
   assert.equal(await page.getByTestId("quotation-row").getByRole("link", { name: "Edit", exact: true }).count(), 0, "an approved quotation can be viewed, not edited");
   await page.getByTestId("quotation-filter-all").click();
   assert.equal(await page.getByTestId("quotation-row").getByRole("link", { name: "Edit", exact: true }).count(), 3, "draft, sent and rejected can still be edited");
-  await page.getByLabel("Sort quotations").selectOption("value_desc");
+  await page.getByLabel("Sort quotations").click();
+  await page.getByRole("option", { name: "Highest value", exact: true }).click();
   const first = await page.getByTestId("quotation-row").first().innerText();
   assert.ok(digits(first).includes(String(Math.round(Math.max(...Object.values(byStatus))))), "highest value first");
   const someNumber = apiProfile.quotations[0].quotationNumber;
