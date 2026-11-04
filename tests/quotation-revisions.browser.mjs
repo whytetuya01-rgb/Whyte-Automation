@@ -96,7 +96,7 @@ try {
     const history = vis(page, "revision-history");
     await vis(history, "revision-row").first().waitFor();
     assert.equal(await vis(history, "revision-row").count(), 1);
-    assert.match(await vis(history, "revision-row").first().innerText(), /Revision 1[\s\S]*Current[\s\S]*Dealer A[\s\S]*1 item/i);
+    assert.match(await vis(history, "revision-row").first().innerText(), /Rev 1[\s\S]*Current[\s\S]*Dealer A[\s\S]*1 item/i);
     const href = await vis(history, "revision-pdf").getAttribute("href");
     assert.equal(href, `/api/quotations/${id}/revisions/1/pdf`);
     const response = await page.request.get(`${baseUrl}${href}`);
@@ -133,7 +133,7 @@ try {
     await vis(page, "revision-history-open").click();
     await vis(page, "revision-row").first().waitFor();
     assert.equal(await vis(page, "revision-row").count(), 1, "only issued versions are listed");
-    assert.match(await vis(page, "revision-row").first().innerText(), /Revision 1[\s\S]*Replaced by revision 2/i);
+    assert.match(await vis(page, "revision-row").first().innerText(), /Rev 1[\s\S]*Superseded by Rev 2/i);
     await page.context().close();
   }
   pass("an issued quotation shows its revision and that it is locked; the history lists each issued version with its stored PDF; creating a revision needs a reason, reopens the quotation as the next revision and keeps the issued one; at 1280px and 375px with no overflow");

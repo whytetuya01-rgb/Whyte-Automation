@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { compareRevisionSnapshots } from "@/lib/revisionCompare";
 import type { ClientSession } from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import {
@@ -52,7 +53,7 @@ export async function buildSnapshot(quotation: Pick<IQuotationDocument, "_id" | 
   const s = session ?? null;
   const rooms = await QuotationRoom.find({ quotationId: quotation._id }).sort({ sortOrder: 1, _id: 1 }).session(s).lean<Array<{ _id: number; roomTypeId: number | null; customName: string | null; subArea: string | null; notes: string | null }>>();
   const roomIds = rooms.map((room) => room._id);
-  const items = roomIds.length === 0 ? [] : await QuotationItem.find({ quotationRoomId: { $in: roomIds } }).sort({ sortOrder: 1, _id: 1 }).session(s).lean<Array<{ _id: number; quotationRoomId: number; productId: number; productVariantId: number | null; variantLabel: string | null; quantity: number; unitPrice: unknown; priceWithoutTax?: unknown; taxPercent?: unknown; taxAmount?: unknown; notes: string | null }>>();
+  const items = roomIds.length === 0 ? [] : await QuotationItem.find({ quotationRoomId: { $in: roomIds } }).sort({ sortOrder: 1, _id: 1 }).session(s).lean<Array<{ _id: number; quotationRoomId: number; productId: number; productVariantId: number | null; variantLabel: string | null; quantity: number; unitPrice: unknown; priceWithoutTax?: unknown; taxPercent?: unknown; taxAmount?: unknown; notes: string | null; discountType?: "percentage" | "fixed" | null; discountValue?: number | null; preDiscountUnitPrice?: unknown }>>();
   const productIds = [...new Set(items.map((item) => item.productId))];
   const products = productIds.length === 0 ? [] : await includeSoftDeleted(Product.find({ _id: { $in: productIds } }).select("name code").session(s), "historical-reference").lean<Array<{ _id: number; name: string; code?: string | null }>>();
   const typeIds = [...new Set(rooms.map((room) => room.roomTypeId).filter((id): id is number => id !== null))];
@@ -79,6 +80,9 @@ export async function buildSnapshot(quotation: Pick<IQuotationDocument, "_id" | 
       taxPercent: optionalNumber(item.taxPercent),
       taxAmount: optionalNumber(item.taxAmount),
       notes: item.notes ?? null,
+      discountType: item.discountType ?? null,
+      discountValue: item.discountType ? optionalNumber(item.discountValue) : null,
+      preDiscountUnitPrice: item.discountType ? optionalNumber(item.preDiscountUnitPrice) : null,
     })),
   }));
 
@@ -319,6 +323,7 @@ export async function loadRevisionPdf(quotationId: string, revision: number): Pr
 
 export interface RevisionSummary {
   revision: number;
+  quotationNumber: string;
   issuedAt: string;
   issuedByName: string | null;
   reason: string | null;
@@ -344,6 +349,7 @@ export async function listRevisions(quotationId: string): Promise<{ currentRevis
     request: quotation.revisionRequest ?? null,
     revisions: records.map((record) => ({
       revision: record.revision,
+      quotationNumber: record.quotationNumber,
       issuedAt: new Date(record.issuedAt).toISOString(),
       issuedByName: record.issuedByName ?? null,
       reason: record.reason ?? null,
@@ -356,6 +362,26 @@ export async function listRevisions(quotationId: string): Promise<{ currentRevis
       current: record.revision === (quotation.revision ?? 1) && quotation.status !== "draft",
     })),
   };
+}
+
+/** Two issued revisions of a quotation side by side: who issued each, when, and what changed (from their frozen snapshots only). */
+export async function compareRevisions(quotationId: string, fromRevision: number, toRevision: number) {
+  await connectMongoDB();
+  const records = await QuotationRevision.find({ quotationId, revision: { $in: [fromRevision, toRevision] } }).lean<IQuotationRevision[]>();
+  const from = records.find((record) => record.revision === fromRevision);
+  const to = records.find((record) => record.revision === toRevision);
+  if (!from || !to) throw new ApiError("NOT_FOUND", `Revision ${!from ? fromRevision : toRevision} of this quotation has not been issued.`);
+  const side = (record: IQuotationRevision) => ({
+    revision: record.revision,
+    quotationNumber: record.quotationNumber,
+    issuedAt: new Date(record.issuedAt).toISOString(),
+    issuedByName: record.issuedByName ?? null,
+    reason: record.reason ?? null,
+    reconstructed: record.reconstructed === true,
+    hasPdf: Boolean(record.pdf),
+    grandTotal: record.snapshot.totals.grandTotal,
+  });
+  return { from: side(from), to: side(to), comparison: compareRevisionSnapshots(from.snapshot, to.snapshot) };
 }
 
 export async function getRevision(quotationId: string, revision: number): Promise<IQuotationRevision> {

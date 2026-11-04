@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, FileClock, History, Lock, PenLine } from "lucide-react";
+import Link from "next/link";
+import { Columns2, Download, Eye, FileClock, History, Lock, PenLine } from "lucide-react";
 import Modal from "@/components/shared/Modal";
 import { Button, Textarea } from "@/components/ui";
 import notify from "@/lib/notify";
@@ -10,6 +11,7 @@ import { useUserTimeZone } from "@/lib/useUserTimeZone";
 
 interface RevisionSummary {
   revision: number;
+  quotationNumber: string;
   issuedAt: string;
   issuedByName: string | null;
   reason: string | null;
@@ -161,32 +163,69 @@ export default function QuotationRevisionBar({ quotationId, status, revision }: 
           {!data || data.revisions.length === 0 ? (
             <p className="text-sm text-gray-500">No version of this quotation has been issued yet.</p>
           ) : (
-            <ul className="divide-y divide-gray-100">
-              {data.revisions.map((entry) => (
-                <li key={entry.revision} className="flex flex-wrap items-start justify-between gap-3 py-3" data-testid="revision-row" data-revision={entry.revision}>
-                  <div className="min-w-0 text-sm">
-                    <p className="font-semibold text-gray-900">
-                      Revision {entry.revision}
-                      {entry.current && <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-700">Current</span>}
-                      {entry.superseded && <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600">Replaced{entry.superseded.byRevision ? ` by revision ${entry.superseded.byRevision}` : ""}</span>}
-                    </p>
-                    <p className="text-xs text-gray-600">
-                      Issued {when(entry.issuedAt)}{entry.issuedByName ? ` by ${entry.issuedByName}` : ""} · {entry.itemCount} item{entry.itemCount === 1 ? "" : "s"} · {rupees(entry.grandTotal)}
-                    </p>
-                    {entry.reason && <p className="text-xs text-gray-600">Why: {entry.reason}</p>}
-                    {entry.approvedAt && <p className="text-xs text-gray-500">Was approved {when(entry.approvedAt)}</p>}
-                    {entry.reconstructed && <p className="text-xs text-amber-700">Rebuilt from the quotation as it stood when revisions began.</p>}
-                  </div>
-                  {entry.hasPdf ? (
-                    <a href={`/api/quotations/${quotationId}/revisions/${entry.revision}/pdf`} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50" data-testid="revision-pdf">
-                      <Download className="h-3.5 w-3.5" aria-hidden /> PDF
-                    </a>
-                  ) : (
-                    <span className="text-xs text-gray-400" data-testid="revision-no-pdf">No PDF stored</span>
-                  )}
-                </li>
-              ))}
-            </ul>
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-gray-500">{data.revisions.length} issued revision{data.revisions.length === 1 ? "" : "s"}, newest first.</p>
+                {data.revisions.length >= 2 ? (
+                  <Link href={`/quotation/${quotationId}/revisions?from=${data.revisions[1].revision}&to=${data.revisions[0].revision}`} className="inline-flex items-center gap-1.5 rounded-lg bg-gray-950 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-800" data-testid="revision-compare-all">
+                    <Columns2 className="h-3.5 w-3.5" aria-hidden /> Compare revisions
+                  </Link>
+                ) : (
+                  <span className="text-xs text-gray-400" data-testid="revision-compare-unavailable">Comparison needs at least two issued revisions.</span>
+                )}
+              </div>
+              <ul className="divide-y divide-gray-100 rounded-xl border border-gray-100">
+                {data.revisions.map((entry, index) => {
+                  const previous = data.revisions[index + 1] ?? null;
+                  const partner = previous ?? data.revisions[index - 1] ?? null;
+                  return (
+                    <li key={entry.revision} className="flex flex-wrap items-start justify-between gap-3 px-3 py-3" data-testid="revision-row" data-revision={entry.revision}>
+                      <div className="min-w-0 flex-1 text-sm">
+                        <p className="flex flex-wrap items-center gap-2 font-semibold text-gray-900">
+                          <span>Rev {entry.revision}</span>
+                          <span className="font-mono text-xs font-medium text-gray-500">{entry.quotationNumber}</span>
+                          {entry.current ? (
+                            <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-bold uppercase text-accent" data-testid="revision-status">Current</span>
+                          ) : (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold uppercase text-gray-600" data-testid="revision-status">{entry.superseded ? `Superseded${entry.superseded.byRevision ? ` by Rev ${entry.superseded.byRevision}` : ""}` : "Issued"}</span>
+                          )}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          Issued {when(entry.issuedAt)}{entry.issuedByName ? ` by ${entry.issuedByName}` : ""} · {entry.itemCount} item{entry.itemCount === 1 ? "" : "s"}
+                        </p>
+                        <p className="text-xs font-semibold text-gray-900" data-testid="revision-amount">{rupees(entry.grandTotal)}</p>
+                        {entry.reason && <p className="text-xs text-gray-600">Why: {entry.reason}</p>}
+                        {entry.approvedAt && <p className="text-xs text-gray-500">Was approved {when(entry.approvedAt)}</p>}
+                        {entry.reconstructed && <p className="text-xs text-amber-700">Rebuilt from the quotation as it stood when revisions began.</p>}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {entry.hasPdf ? (
+                          <>
+                            <Link href={`/quotation/${quotationId}/revisions?view=${entry.revision}`} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50" data-testid="revision-view">
+                              <Eye className="h-3.5 w-3.5" aria-hidden /> View PDF
+                            </Link>
+                            <a href={`/api/quotations/${quotationId}/revisions/${entry.revision}/pdf`} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50" data-testid="revision-pdf">
+                              <Download className="h-3.5 w-3.5" aria-hidden /> Download PDF
+                            </a>
+                          </>
+                        ) : (
+                          <span className="text-xs text-gray-400" data-testid="revision-no-pdf">No PDF stored</span>
+                        )}
+                        {partner ? (
+                          <Link href={`/quotation/${quotationId}/revisions?from=${Math.min(partner.revision, entry.revision)}&to=${Math.max(partner.revision, entry.revision)}`} className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-50" data-testid="revision-compare">
+                            <Columns2 className="h-3.5 w-3.5" aria-hidden /> Compare
+                          </Link>
+                        ) : (
+                          <button type="button" disabled title="Comparison needs at least two issued revisions." className="inline-flex cursor-not-allowed items-center gap-1.5 rounded-lg border border-gray-100 px-2.5 py-1.5 text-xs font-semibold text-gray-300" data-testid="revision-compare-disabled">
+                            <Columns2 className="h-3.5 w-3.5" aria-hidden /> Compare
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
           <p className="text-xs text-gray-500">Each PDF is the exact document issued for that version. It is never replaced or changed.</p>
         </div>

@@ -25,6 +25,11 @@ export interface RevisionSnapshotItem {
   taxPercent: number | null;
   taxAmount: number | null;
   notes: string | null;
+  /** Per-product discount, when the line had one (absent on snapshots taken before per-product discounts existed). */
+  discountType?: "percentage" | "fixed" | null;
+  discountValue?: number | null;
+  /** The unit price before that discount (`unitPrice` is the price after it). */
+  preDiscountUnitPrice?: number | null;
 }
 
 export interface RevisionSnapshotRoom {
