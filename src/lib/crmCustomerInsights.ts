@@ -148,3 +148,44 @@ export function followUpLabel(iso: string, now: number = Date.now(), timeZone?: 
   if (days === 1) return { text: "Tomorrow", overdue: false, today: false };
   return { text: `In ${days} days`, overdue: false, today: false };
 }
+
+export interface ParsedCustomerNotes {
+  userNotes: string | null;
+  migrationInfo: {
+    batch: string;
+    quotationNumbers: string[];
+    fingerprint?: string;
+  } | null;
+}
+
+/**
+ * Separates human-written customer notes from automated historical migration audit payloads.
+ * If raw notes is a migration JSON, it extracts the linked quotations and hides the raw JSON from the editable field.
+ */
+export function parseCustomerNotes(rawNotes?: string | null): ParsedCustomerNotes {
+  if (!rawNotes || !rawNotes.trim()) {
+    return { userNotes: null, migrationInfo: null };
+  }
+
+  const trimmed = rawNotes.trim();
+  if (trimmed.startsWith("{") && trimmed.includes("migrationBatch")) {
+    try {
+      const data = JSON.parse(trimmed);
+      if (data && typeof data === "object" && data.migrationBatch) {
+        return {
+          userNotes: typeof data.userNotes === "string" && data.userNotes.trim() ? data.userNotes.trim() : null,
+          migrationInfo: {
+            batch: String(data.migrationBatch),
+            quotationNumbers: Array.isArray(data.migratedQuotationNumbers) ? data.migratedQuotationNumbers : [],
+            fingerprint: typeof data.fingerprint === "string" ? data.fingerprint : undefined,
+          },
+        };
+      }
+    } catch {
+      // Not valid JSON, treat as plain text
+    }
+  }
+
+  return { userNotes: rawNotes, migrationInfo: null };
+}
+

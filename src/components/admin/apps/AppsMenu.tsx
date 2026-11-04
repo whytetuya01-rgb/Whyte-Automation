@@ -53,7 +53,6 @@ export default function AppsMenu({ role, firstName }: { role?: string; firstName
         aria-label="Apps"
         className="mx-auto w-full max-w-6xl space-y-8 pb-8"
         data-testid="admin-apps"
-        data-own-motion=""
         initial="hidden"
         animate="show"
         variants={list}

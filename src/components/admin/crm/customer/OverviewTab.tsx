@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { ArrowRight, Building2, FileText, IdCard, Mail, MapPin, MessageCircle, Phone, StickyNote, UserRound, Users, Activity, Home } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { relativeTime } from "@/lib/crmCustomerInsights";
+import { relativeTime, parseCustomerNotes } from "@/lib/crmCustomerInsights";
 import { CUSTOMER_TYPE_LABELS, type CrmActivityType, type CustomerProfile } from "@/types/crm";
 import { CopyButton, EmptyState, QuotationStatusBadge, SectionCard, formatDate } from "./shared";
 
@@ -56,6 +56,7 @@ export default function OverviewTab({ customer, onShowTab, onEdit }: Props) {
   const activities = customer.activities ?? [];
   const owner = customer.assignedSales?.name || customer.dealer?.companyName || customer.dealer?.name || null;
   const ownerLine = customer.assignedSales?.email || customer.assignedSales?.contactNumber || customer.dealer?.contactNumber || null;
+  const parsedNotes = parseCustomerNotes(customer.notes);
 
   return (
     <div className="grid gap-5 lg:grid-cols-3" data-testid="overview-tab">
@@ -164,20 +165,39 @@ export default function OverviewTab({ customer, onShowTab, onEdit }: Props) {
           title="Notes"
           action={
             <button type="button" onClick={onEdit} className="text-xs font-semibold text-accent hover:underline">
-              {customer.notes ? "Edit" : "Add"}
+              {parsedNotes.userNotes ? "Edit" : "Add"}
             </button>
           }
         >
-          {customer.notes ? (
-            <p className="whitespace-pre-line break-words text-sm leading-relaxed text-neutral-700" data-testid="customer-notes">
-              {customer.notes}
-            </p>
-          ) : (
-            <div className="flex items-center gap-2 text-sm text-neutral-400">
-              <StickyNote size={15} aria-hidden="true" />
-              No notes yet.
-            </div>
-          )}
+          <div className="space-y-3">
+            {parsedNotes.migrationInfo && (
+              <div className="flex items-start gap-2.5 rounded-xl border border-neutral-200/90 bg-neutral-50/80 p-3 text-xs">
+                <FileText size={15} className="mt-0.5 shrink-0 text-neutral-400" aria-hidden="true" />
+                <div className="min-w-0">
+                  <p className="font-semibold text-neutral-800">
+                    Imported from Historical Proposal
+                  </p>
+                  <p className="mt-0.5 text-neutral-500">
+                    Linked Quotation:{" "}
+                    <span className="font-medium text-neutral-700">
+                      {parsedNotes.migrationInfo.quotationNumbers.join(", ") || "Historical Proposal"}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {parsedNotes.userNotes ? (
+              <p className="whitespace-pre-line break-words text-sm leading-relaxed text-neutral-700" data-testid="customer-notes">
+                {parsedNotes.userNotes}
+              </p>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-neutral-400">
+                <StickyNote size={15} aria-hidden="true" />
+                No notes yet.
+              </div>
+            )}
+          </div>
         </SectionCard>
       </div>
     </div>

@@ -10,6 +10,7 @@ import type { Customer, CustomerType } from "@/types/crm";
 import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
 import { TagInput } from "@/components/admin/crm/LeadTags";
 import type { TagCount } from "@/lib/leadTags";
+import { parseCustomerNotes } from "@/lib/crmCustomerInsights";
 
 interface CustomerModalProps {
   isOpen: boolean;
@@ -92,7 +93,8 @@ export default function CustomerModal({ isOpen, onClose, onSaved, customer }: Cu
       setGstNumber(customer.gstNumber || "");
       setAssignedSalesId(customer.assignedSalesId ? String(customer.assignedSalesId) : "");
       setDealerId(customer.dealerId ? String(customer.dealerId) : "");
-      setNotes(customer.notes || "");
+      const parsedNotes = parseCustomerNotes(customer.notes);
+      setNotes(parsedNotes.userNotes || "");
     } else {
       setName("");
       setCompanyName("");
@@ -298,6 +300,12 @@ export default function CustomerModal({ isOpen, onClose, onSaved, customer }: Cu
         </div>
 
         <TagInput value={tags} onChange={setTags} suggestions={tagSuggestions} />
+
+        {customer && parseCustomerNotes(customer.notes).migrationInfo && (
+          <p className="text-[11px] text-neutral-500 bg-neutral-50 border border-neutral-200/70 rounded-lg px-2.5 py-1.5">
+            ℹ️ Auto-linked to historical proposal: <span className="font-semibold text-neutral-700">{parseCustomerNotes(customer.notes).migrationInfo?.quotationNumbers.join(", ")}</span>
+          </p>
+        )}
 
         <Textarea
           label="Internal Notes"
