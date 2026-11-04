@@ -27,6 +27,7 @@ import ActivityTimeline from "./ActivityTimeline";
 import { TagChips } from "./LeadTags";
 import { formatCurrency } from "@/lib/utils";
 import { effectiveProbability, weightedValue } from "@/lib/pipelineProbability";
+import { useStageProbabilities } from "@/lib/useStageProbabilities";
 import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
 import { normalizeWhatsAppNumber } from "@/lib/quotationDeliveryShared";
 
@@ -46,6 +47,7 @@ export default function LeadDetailDrawer({
   onEditLead,
 }: LeadDetailDrawerProps) {
   const router = useRouter();
+  const { stages: stageDefaults } = useStageProbabilities();
   const [converting, setConverting] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(false);
 
@@ -328,8 +330,8 @@ export default function LeadDetailDrawer({
                 <p className="flex items-center justify-between text-neutral-600" data-testid="drawer-probability">
                   <span>Win Probability:</span>
                   <strong className="text-neutral-900">
-                    {effectiveProbability(lead.status, lead.probability)}%
-                    {lead.estimatedBudget ? ` · ≈ ${formatCurrency(weightedValue(lead.estimatedBudget, effectiveProbability(lead.status, lead.probability)))}` : ""}
+                    {effectiveProbability(lead.status, lead.probability, stageDefaults)}%
+                    {lead.estimatedBudget ? ` · ≈ ${formatCurrency(weightedValue(lead.estimatedBudget, effectiveProbability(lead.status, lead.probability, stageDefaults)))}` : ""}
                   </strong>
                 </p>
               )}

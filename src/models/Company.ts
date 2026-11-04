@@ -85,6 +85,8 @@ export interface ICompany extends SoftDeleteFields {
   documentSettings?: DocumentSettings | null;
   /** Catalogue GST rates and HSN/SAC codes; see `normalizeTaxSettings`. */
   taxSettings?: { gstRates?: number[]; defaultGstRate?: number; hsnCodes?: HsnSacCode[] } | null;
+  /** CRM settings; `stageProbabilities` are the company's default win chances per pipeline stage (forecasting only). */
+  crmSettings?: { stageProbabilities?: Partial<Record<"new" | "contacted" | "site_visit" | "quoted" | "negotiation", number>> } | null;
   /** Custom brand colour (`#rrggbb`); overrides the selected preset's accent. null = use the preset. */
   brandColor?: string | null;
   /** Absent / null on companies that predate self-registration (treated as approved). */
@@ -289,6 +291,28 @@ const CompanySchema = new Schema<ICompanyDocument>(
       ),
       default: undefined,
     },
+    /** Pipeline forecasting: default win chance per stage. Absent on companies that never changed it. */
+    crmSettings: {
+      type: new Schema(
+        {
+          stageProbabilities: {
+            type: new Schema(
+              {
+                new: { type: Number, min: 0, max: 100, default: undefined },
+                contacted: { type: Number, min: 0, max: 100, default: undefined },
+                site_visit: { type: Number, min: 0, max: 100, default: undefined },
+                quoted: { type: Number, min: 0, max: 100, default: undefined },
+                negotiation: { type: Number, min: 0, max: 100, default: undefined },
+              },
+              { _id: false }
+            ),
+            default: undefined,
+          },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     theme: {
       type: String,
       enum: SITE_THEME_IDS,
@@ -365,6 +389,7 @@ if (
     !cachedCompany.schema.path("documentSettings.overviewPage") ||
     !cachedCompany.schema.path("documentSettings.labels.serviceCharge") ||
     !cachedCompany.schema.path("taxSettings.hsnCodes") ||
+    !cachedCompany.schema.path("crmSettings.stageProbabilities.negotiation") ||
     SITE_THEME_IDS.some((id) => !cachedThemeEnum.includes(id)))
 ) {
   mongoose.deleteModel("Company");

@@ -3,6 +3,7 @@ import type { ClientSession } from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import {
   AdminUser,
+  Company,
   CrmActivity,
   Customer,
   Lead,
@@ -16,7 +17,7 @@ import {
 import { getNextSequence, getNextLeadSequence } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
 import { ApiError } from "@/lib/api-response";
-import { effectiveProbability, weightedValue as weightedDealValue } from "@/lib/pipelineProbability";
+import { effectiveProbability, resolveStageProbabilities, weightedValue as weightedDealValue } from "@/lib/pipelineProbability";
 import { hasPermission } from "@/lib/permissions";
 import { requireActiveDealer, requireActiveSalesExecutive } from "@/lib/quotationOwnership";
 import { aggregateQuotationRoomTotals, deriveQuotationFinancials, totalsForQuotation } from "@/lib/quotationTotals";
@@ -618,6 +619,7 @@ export async function getPipelineBoardData(
   }
 
   const now = Date.now();
+  const stageDefaults = await loadStageProbabilities(companyId);
 
   // Group leads into stages
   const stageMap = new Map<PipelineStageId, OpportunityCard[]>();
@@ -658,7 +660,7 @@ export async function getPipelineBoardData(
     const salesName = assignedSales ? (assignedSales.name || `${assignedSales.firstName || ""} ${assignedSales.lastName || ""}`.trim() || assignedSales.email) : null;
     const dealerName = dealer ? (dealer.companyName || dealer.name || null) : null;
 
-    const probability = effectiveProbability(stageId, lead.probability);
+    const probability = effectiveProbability(stageId, lead.probability, stageDefaults);
     const referrer = (lead as unknown as { referrer?: { name?: string; customerType?: CustomerType; companyName?: string | null } | null }).referrer;
 
     const card: OpportunityCard = {
@@ -710,4 +712,11 @@ export async function getPipelineBoardData(
       items,
     };
   });
+}
+
+/** The company's default win chance per pipeline stage (its own settings over the built-in defaults). Forecasting only. */
+export async function loadStageProbabilities(companyId: number) {
+  await connectMongoDB();
+  const company = await Company.findById(companyId).select("crmSettings").lean<{ crmSettings?: { stageProbabilities?: Record<string, unknown> } | null }>();
+  return resolveStageProbabilities(company?.crmSettings?.stageProbabilities);
 }

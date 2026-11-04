@@ -8,7 +8,7 @@ import notify from "@/lib/notify";
 import { apiJson, notifyApiError } from "@/lib/apiClient";
 import type { Customer, Lead, LeadPriority, LeadSource, LeadStatus } from "@/types/crm";
 import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
-import { STAGE_PROBABILITY } from "@/lib/pipelineProbability";
+import { useStageProbabilities } from "@/lib/useStageProbabilities";
 import { TagInput } from "@/components/admin/crm/LeadTags";
 import type { TagCount } from "@/lib/leadTags";
 
@@ -30,6 +30,7 @@ function toLocalInputValue(iso: string): string {
 }
 
 export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: LeadModalProps) {
+  const { stages: stageDefaults } = useStageProbabilities();
   const isEditing = Boolean(lead);
 
   const [customerName, setCustomerName] = useState("");
@@ -482,7 +483,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
                 step={5}
                 value={probability}
                 onChange={(e) => setProbability(e.target.value)}
-                placeholder={`Stage default: ${STAGE_PROBABILITY[status]}%`}
+                placeholder={`Stage default: ${stageDefaults[status]}%`}
                 className="text-sm"
               />
               <p className="mt-1 text-[11px] text-neutral-400">Leave empty to use the stage's default chance. It resets when the lead moves to another stage.</p>

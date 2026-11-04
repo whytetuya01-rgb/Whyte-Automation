@@ -20,6 +20,7 @@ import {
   Inbox,
   Tag,
   X,
+  SlidersHorizontal,
 } from "lucide-react";
 import PageHeader from "@/components/admin/PageHeader";
 import Modal from "@/components/shared/Modal";
@@ -36,6 +37,8 @@ import LeadModal from "@/components/admin/crm/LeadModal";
 import { TagChip, TagChips } from "@/components/admin/crm/LeadTags";
 import type { TagCount } from "@/lib/leadTags";
 import { effectiveProbability, probabilityTone, weightedValue } from "@/lib/pipelineProbability";
+import { useStageProbabilities } from "@/lib/useStageProbabilities";
+import StageProbabilitiesModal from "@/components/admin/crm/StageProbabilitiesModal";
 import { CUSTOMER_TYPE_LABELS } from "@/types/crm";
 
 const STAGE_OPTIONS: Array<{ id: PipelineStageId; label: string }> = [
@@ -72,11 +75,11 @@ function followUpInfo(iso: string | null | undefined, timeZone?: string): { text
 }
 
 /** The stage list with one card moved to another stage and the counts and totals recomputed (shown before the server answers). */
-function withCardMoved(stages: PipelineStageData[], cardId: string, target: PipelineStageId): PipelineStageData[] {
+function withCardMoved(stages: PipelineStageData[], cardId: string, target: PipelineStageId, stageDefaults: Parameters<typeof effectiveProbability>[2]): PipelineStageData[] {
   const card = stages.flatMap((stage) => stage.items).find((item) => item.id === cardId);
   if (!card || card.stage === target) return stages;
   // A new stage starts from its own default chance (the salesperson's override belongs to the stage it was set in).
-  const probability = effectiveProbability(target, null);
+  const probability = effectiveProbability(target, null, stageDefaults);
   const moved: OpportunityCard = { ...card, stage: target, daysInStage: 0, probability, probabilityOverridden: false, weightedValue: weightedValue(card.estimatedValue, probability) };
   return stages.map((stage) => {
     const items = stage.id === card.stage ? stage.items.filter((item) => item.id !== cardId) : stage.id === target ? [moved, ...stage.items] : stage.items;
@@ -166,6 +169,8 @@ export default function PipelinePage() {
   const [savingLost, setSavingLost] = useState(false);
 
   const hasLoaded = useRef(false);
+  const { stages: stageDefaults, canManage: canManageProbabilities, reload: reloadStageDefaults } = useStageProbabilities();
+  const [probabilitiesOpen, setProbabilitiesOpen] = useState(false);
 
   // The search box waits for a pause in typing before asking the server.
   useEffect(() => {
@@ -204,7 +209,7 @@ export default function PipelinePage() {
   /** Moves a card (drag and drop or the stage selector). The board updates at once and is re-read afterwards. */
   const moveCard = async (leadId: string, targetStage: PipelineStageId, lostReasonText?: string) => {
     const before = stages;
-    setStages((current) => withCardMoved(current, leadId, targetStage));
+    setStages((current) => withCardMoved(current, leadId, targetStage, stageDefaults));
     try {
       await apiJson.patch(`/api/crm/leads/${leadId}/status`, {
         status: targetStage,
@@ -296,12 +301,26 @@ export default function PipelinePage() {
               <UserCheck size={14} className="text-neutral-500" aria-hidden="true" />
               Leads table
             </Link>
+            {canManageProbabilities && (
+              <Button type="button" variant="outline" size="sm" leftIcon={<SlidersHorizontal size={14} />} onClick={() => setProbabilitiesOpen(true)} data-testid="stage-probabilities-open">
+                Stage probabilities
+              </Button>
+            )}
             <Button type="button" variant="primary" size="sm" leftIcon={<Plus size={15} />} onClick={() => { setEditingLead(null); setLeadModalOpen(true); }}>
               New lead
             </Button>
           </div>
         }
       />
+
+      {canManageProbabilities && probabilitiesOpen && (
+        <StageProbabilitiesModal
+          isOpen
+          onClose={() => setProbabilitiesOpen(false)}
+          stages={stageDefaults}
+          onSaved={() => { void reloadStageDefaults(); void fetchPipeline(); }}
+        />
+      )}
 
       {/* Summary */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="pipeline-summary">

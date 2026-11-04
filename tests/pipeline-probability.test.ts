@@ -3,7 +3,7 @@
  *   npx ts-node -T -P tsconfig.testrun.json -r tsconfig-paths/register tests/pipeline-probability.test.ts
  */
 import assert from "node:assert/strict";
-import { STAGE_PROBABILITY, clampProbability, effectiveProbability, probabilityTone, weightedValue } from "../src/lib/pipelineProbability";
+import { STAGE_PROBABILITY, canConfigureStageProbabilities, clampProbability, effectiveProbability, probabilityTone, resolveStageProbabilities, weightedValue } from "../src/lib/pipelineProbability";
 import { updateLeadSchema, createLeadSchema, createCustomerSchema, updateCustomerSchema, customerTypeEnum } from "../src/lib/validation/crm";
 
 let count = 0;
@@ -56,5 +56,22 @@ assert.deepEqual([contact.companyName, contact.designation, contact.tags], ["Stu
 assert.equal(updateCustomerSchema.parse({ companyName: null }).companyName, null, "an emptied firm clears");
 assert.throws(() => updateCustomerSchema.parse({ tags: Array.from({ length: 11 }, (_, i) => `t${i}`) }));
 pass("contact schemas: Dealer type, firm, designation and tidied tags (limits as for leads)");
+
+const custom = resolveStageProbabilities({ new: 5, quoted: 70, negotiation: "x", contacted: 150, won: 50, lost: 20 });
+assert.deepEqual(custom, { new: 5, contacted: 25, site_visit: 40, quoted: 70, negotiation: 80, won: 100, lost: 0 }, "bad or missing values fall back; won and lost are fixed");
+assert.deepEqual(resolveStageProbabilities(null), { ...STAGE_PROBABILITY });
+assert.deepEqual(resolveStageProbabilities({}), { ...STAGE_PROBABILITY });
+assert.equal(effectiveProbability("quoted", null, custom), 70, "a company's own default is used");
+assert.equal(effectiveProbability("quoted", 90, custom), 90, "a lead's own override still wins");
+assert.equal(effectiveProbability("won", 10, custom), 100);
+assert.equal(effectiveProbability("lost", 90, custom), 0);
+assert.equal(effectiveProbability("quoted", null), 60, "without company settings the built-in default applies");
+assert.equal(weightedValue(100000, effectiveProbability("quoted", null, custom)), 70000);
+pass("company stage probabilities: own values over the built-in defaults, bad values ignored, won/lost fixed, a lead override still wins");
+
+for (const role of ["company_owner", "admin"]) assert.equal(canConfigureStageProbabilities(role, []), true, role);
+assert.equal(canConfigureStageProbabilities("configurable_admin", ["crm:manage"]), true);
+for (const [role, perms] of [["configurable_admin", ["crm:read"]], ["dealer", ["crm:manage"]], ["sales_executive", ["crm:manage"]], ["super_admin", []], ["", []]] as const) assert.equal(canConfigureStageProbabilities(role, perms as string[]), false, role);
+pass("only the Company Owner, an Admin or a CRM-managing custom admin may configure stage probabilities");
 
 console.log(`\nALL ${count} PIPELINE PROBABILITY AND CONTACT TESTS PASSED`);

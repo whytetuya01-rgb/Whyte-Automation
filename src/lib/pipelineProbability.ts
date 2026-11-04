@@ -17,6 +17,31 @@ export const STAGE_PROBABILITY: Readonly<Record<LeadStatus, number>> = {
   lost: 0,
 };
 
+/** The stages whose default chance a company may set. Won is always 100% and lost always 0%. */
+export const CONFIGURABLE_PROBABILITY_STAGES = ["new", "contacted", "site_visit", "quoted", "negotiation"] as const;
+export type ConfigurableProbabilityStage = (typeof CONFIGURABLE_PROBABILITY_STAGES)[number];
+
+/**
+ * The stage defaults a company is using: its own saved percentages, and the built-in default for any stage it has not
+ * set (or whose saved value is not a whole number from 0 to 100). Used ONLY to forecast the pipeline: it never touches a
+ * quotation total or revenue.
+ */
+export function resolveStageProbabilities(custom?: Partial<Record<string, unknown>> | null): Record<LeadStatus, number> {
+  const resolved: Record<LeadStatus, number> = { ...STAGE_PROBABILITY };
+  for (const stage of CONFIGURABLE_PROBABILITY_STAGES) {
+    const value = clampProbability(custom?.[stage]);
+    if (value !== null) resolved[stage] = value;
+  }
+  return resolved;
+}
+
+/** Only the Company Owner, an Admin, or a custom-role admin who manages the CRM may change the stage probabilities. */
+export function canConfigureStageProbabilities(role: string | null | undefined, permissions: readonly string[] = []): boolean {
+  const normalized = (role ?? "").trim().toLowerCase();
+  if (normalized === "company_owner" || normalized === "admin") return true;
+  return normalized === "configurable_admin" && permissions.includes("crm:manage");
+}
+
 /** A whole number from 0 to 100, or null when the value is not one (so "no override"). */
 export function clampProbability(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -25,10 +50,14 @@ export function clampProbability(value: unknown): number | null {
 }
 
 /** The chance this deal closes: won 100, lost 0, otherwise the lead's own override or its stage's default. */
-export function effectiveProbability(status: LeadStatus, override?: number | null): number {
+export function effectiveProbability(
+  status: LeadStatus,
+  override?: number | null,
+  stageDefaults: Readonly<Record<LeadStatus, number>> = STAGE_PROBABILITY
+): number {
   if (status === "won") return 100;
   if (status === "lost") return 0;
-  return clampProbability(override) ?? STAGE_PROBABILITY[status] ?? 0;
+  return clampProbability(override) ?? stageDefaults[status] ?? STAGE_PROBABILITY[status] ?? 0;
 }
 
 /** Value times probability, to the rupee. */
