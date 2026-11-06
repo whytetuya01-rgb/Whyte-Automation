@@ -15,9 +15,12 @@ import {
   Loader2,
   Layers,
   Palette,
+  Minus,
+  Plus,
 } from "lucide-react";
 import { QuotationItem, EditorCatalogProduct, Category } from "@/types";
 import { formatCurrency } from "@/lib/utils";
+import { MAX_ITEM_QUANTITY, parseQuantityInput } from "@/lib/quantity";
 import { Select } from "@/components/ui/Select";
 import {
   analyzeProductVariants,
@@ -43,6 +46,7 @@ interface Props {
     variantConfig: Record<string, string> | null;
     unitPrice: number;
     variantLabel: string | null;
+    quantity: number;
   }) => Promise<void>;
   onConfirmAdd?: (params: {
     roomId: number;
@@ -51,6 +55,7 @@ interface Props {
     variantConfig: Record<string, string> | null;
     unitPrice: number;
     variantLabel: string | null;
+    quantity: number;
   }) => Promise<void>;
 }
 
@@ -76,19 +81,24 @@ export default function ChangeProductModal({
   const [selectedProduct, setSelectedProduct] = useState<EditorCatalogProduct | null>(null);
   const [selectedTier, setSelectedTier] = useState<string | null>(null);
   const [selectedFinish, setSelectedFinish] = useState<string | null>(null);
+  const [quantity, setQuantity] = useState<number>(() => Number(targetItem?.quantity) || 1);
+  const [quantityInput, setQuantityInput] = useState<string>(() => String(Number(targetItem?.quantity) || 1));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorFeedback, setErrorFeedback] = useState<string | null>(null);
 
-  // Initialize selected category on open
+  // Initialize selected category and quantity on open
   useEffect(() => {
     if (isOpen) {
       setSearch("");
       setErrorFeedback(null);
+      const initQty = Number(targetItem?.quantity) || 1;
+      setQuantity(initQty);
+      setQuantityInput(String(initQty));
       if (categories.length > 0 && selectedCategoryId === null) {
         setSelectedCategoryId(Number(categories[0].id ?? (categories[0] as any)._id));
       }
     }
-  }, [isOpen, categories, selectedCategoryId]);
+  }, [isOpen, categories, selectedCategoryId, targetItem]);
 
   // When a replacement product is selected, resolve initial variant & finish with compatibility preservation
   const handleSelectProduct = (product: EditorCatalogProduct) => {
@@ -179,11 +189,11 @@ export default function ChangeProductModal({
   if (!isOpen) return null;
 
   const targetItemId = targetItem ? Number(targetItem.id ?? (targetItem as any)._id) : 0;
-  const targetQty = Number(targetItem?.quantity) || 1;
+  const originalTargetQty = Number(targetItem?.quantity) || 1;
   const currentUnitPrice = Number(targetItem?.unitPrice || 0);
-  const currentLineTotal = targetQty * currentUnitPrice;
+  const currentLineTotal = originalTargetQty * currentUnitPrice;
   const resolvedUnitPrice = currentResolution?.price ?? 0;
-  const resolvedLineTotal = targetQty * resolvedUnitPrice;
+  const resolvedLineTotal = quantity * resolvedUnitPrice;
   const priceDifference = resolvedLineTotal - currentLineTotal;
 
   const handleConfirm = async () => {
@@ -210,6 +220,7 @@ export default function ChangeProductModal({
           variantConfig: Object.keys(variantConfig).length > 0 ? variantConfig : null,
           unitPrice,
           variantLabel,
+          quantity,
         });
       } else if (mode === "add" && onConfirmAdd) {
         await onConfirmAdd({
@@ -219,6 +230,7 @@ export default function ChangeProductModal({
           variantConfig: Object.keys(variantConfig).length > 0 ? variantConfig : null,
           unitPrice,
           variantLabel,
+          quantity,
         });
       }
       onClose();
@@ -277,7 +289,7 @@ export default function ChangeProductModal({
 
             <div className="flex items-center gap-3 shrink-0 text-right">
               <span className="font-mono font-medium text-gray-500">
-                Qty: {targetQty} · {formatCurrency(currentUnitPrice)}
+                Qty: {originalTargetQty} · {formatCurrency(currentUnitPrice)}
               </span>
               <span className="font-mono font-bold text-gray-950">
                 {formatCurrency(currentLineTotal)}
@@ -582,8 +594,66 @@ export default function ChangeProductModal({
                     </div>
 
                     <div className="flex justify-between items-center text-gray-600">
-                      <span>Quantity</span>
-                      <span className="font-mono font-bold text-gray-900">{targetQty}</span>
+                      <span className="font-semibold text-gray-700">Quantity</span>
+                      <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50/70 overflow-hidden shadow-2xs">
+                        <button
+                          type="button"
+                          disabled={quantity <= 1 || isSubmitting}
+                          onClick={() => {
+                            const next = Math.max(1, quantity - 1);
+                            setQuantity(next);
+                            setQuantityInput(String(next));
+                          }}
+                          className="w-7 h-7 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Decrease quantity"
+                        >
+                          <Minus size={12} />
+                        </button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          disabled={isSubmitting}
+                          value={quantityInput}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/\D/g, "");
+                            setQuantityInput(val);
+                            const num = Number(val);
+                            if (num >= 1 && num <= MAX_ITEM_QUANTITY) {
+                              setQuantity(num);
+                            }
+                          }}
+                          onFocus={(e) => e.target.select()}
+                          onBlur={() => {
+                            const parsed = parseQuantityInput(quantityInput);
+                            if (parsed.ok) {
+                              setQuantity(parsed.value);
+                              setQuantityInput(String(parsed.value));
+                            } else {
+                              setQuantityInput(String(quantity));
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          className="w-12 h-7 text-center text-xs font-mono font-bold text-gray-950 bg-white border-x border-gray-200 focus:outline-none focus:ring-1 focus:ring-accent selection:bg-accent-light"
+                          title="Type quantity (1-999)"
+                        />
+                        <button
+                          type="button"
+                          disabled={quantity >= MAX_ITEM_QUANTITY || isSubmitting}
+                          onClick={() => {
+                            const next = Math.min(MAX_ITEM_QUANTITY, quantity + 1);
+                            setQuantity(next);
+                            setQuantityInput(String(next));
+                          }}
+                          className="w-7 h-7 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition disabled:opacity-30 disabled:cursor-not-allowed"
+                          title="Increase quantity"
+                        >
+                          <Plus size={12} />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex justify-between items-baseline pt-2 border-t border-gray-100">

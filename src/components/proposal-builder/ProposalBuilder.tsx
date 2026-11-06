@@ -880,7 +880,8 @@ export default function ProposalBuilder({
     productVariantId?: number,
     variantConfig?: Record<string, string>,
     unitPrice?: number,
-    variantLabel?: string
+    variantLabel?: string,
+    quantity?: number
   ) => {
     if (!quotation?.id) return;
 
@@ -901,6 +902,7 @@ export default function ProposalBuilder({
             variantConfig: variantConfig ?? null,
             unitPrice: price,
             variantLabel: variantLabel || variant?.automationTier || prod?.name || "Standard",
+            quantity: quantity !== undefined ? quantity : item.quantity,
           };
         });
         return { ...room, items: nextItems };
@@ -926,6 +928,7 @@ export default function ProposalBuilder({
           variantConfig: variantConfig ?? null,
           unitPrice: unitPrice ?? undefined,
           variantLabel: variantLabel ?? null,
+          quantity: quantity !== undefined ? quantity : undefined,
         }),
       });
 

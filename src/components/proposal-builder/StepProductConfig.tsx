@@ -54,6 +54,7 @@ import {
 import VariantPicker from "@/components/estimator/VariantPicker";
 import { Select } from "@/components/ui/Select";
 import ChangeProductModal from "./ChangeProductModal";
+import LineItemQuantityStepper from "./LineItemQuantityStepper";
 import { suggestAccessories } from "@/lib/productAccessories";
 
 /** The quantity of a new entry until the user types another one. */
@@ -81,7 +82,8 @@ interface Props {
     productVariantId?: number,
     variantConfig?: Record<string, string>,
     unitPrice?: number,
-    variantLabel?: string
+    variantLabel?: string,
+    quantity?: number
   ) => Promise<void>;
   onUpdateRoom?: (roomId: number, data: Partial<QuotationRoom>) => Promise<void>;
   onUpdateRoomNotes: (roomId: number, notes: string) => Promise<void>;
@@ -1787,34 +1789,14 @@ export default function StepProductConfig({
                           </div>
 
                           <div className="flex items-center gap-2 shrink-0">
-                            {/* Quantity Stepper */}
-                            <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50/70 overflow-hidden">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (qty > 1) {
-                                    onUpdateItem(itemId, { quantity: qty - 1 });
-                                  } else {
-                                    onDeleteItem(itemId);
-                                  }
-                                }}
-                                className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
-                                title={qty > 1 ? "Decrease quantity" : "Remove product"}
-                              >
-                                <Minus size={11} />
-                              </button>
-                              <span className="w-6 text-center text-xs font-mono font-bold text-gray-900">
-                                {qty}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => onUpdateItem(itemId, { quantity: qty + 1 })}
-                                className="w-6 h-6 flex items-center justify-center text-gray-600 hover:bg-gray-200 active:scale-90 transition"
-                                title="Increase quantity"
-                              >
-                                <Plus size={11} />
-                              </button>
-                            </div>
+                            {/* Quantity Stepper with Direct Typed Input */}
+                            <LineItemQuantityStepper
+                              itemId={itemId}
+                              quantity={qty}
+                              disabled={isLocked}
+                              onUpdateQuantity={(id, newQty) => onUpdateItem(id, { quantity: newQty })}
+                              onDelete={(id) => onDeleteItem(id)}
+                            />
 
                             {/* Delete Action */}
                             <button
@@ -1997,7 +1979,7 @@ export default function StepProductConfig({
             defaultFinish: quotation.defaultFinish ?? null,
           }}
           onClose={() => setChangeItemTarget(null)}
-          onConfirmChange={async ({ itemId, productId, productVariantId, variantConfig, unitPrice, variantLabel }) => {
+          onConfirmChange={async ({ itemId, productId, productVariantId, variantConfig, unitPrice, variantLabel, quantity }) => {
             if (onReplaceItem) {
               await onReplaceItem(
                 itemId,
@@ -2005,17 +1987,19 @@ export default function StepProductConfig({
                 productVariantId ?? undefined,
                 variantConfig ?? undefined,
                 unitPrice,
-                variantLabel ?? undefined
+                variantLabel ?? undefined,
+                quantity
               );
             }
             setChangeItemTarget(null);
           }}
-          onConfirmAdd={async ({ roomId, productId, productVariantId, variantConfig }) => {
+          onConfirmAdd={async ({ roomId, productId, productVariantId, variantConfig, quantity }) => {
             await onAddItem(
               roomId,
               productId,
               productVariantId ?? undefined,
-              variantConfig ?? undefined
+              variantConfig ?? undefined,
+              quantity
             );
             setChangeItemTarget(null);
           }}
