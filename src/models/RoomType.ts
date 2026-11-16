@@ -67,6 +67,14 @@ RoomTypeSchema.virtual("quotationRooms", {
 
 RoomTypeSchema.index({ companyId: 1, isActive: 1, sortOrder: 1 });
 
+RoomTypeSchema.index(
+  { companyId: 1, name: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { isDeleted: false },
+  }
+);
+
 softDeletePlugin(RoomTypeSchema, { blockHardDelete: true });
 tenantScopePlugin(RoomTypeSchema);
 

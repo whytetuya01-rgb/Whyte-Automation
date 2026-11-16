@@ -198,9 +198,16 @@ export default function QuotationDeliveryModal({
       }
       const { whatsappUrl: url, ...dto } = delivery;
       upsert(dto);
-      setWhatsappUrl(url);
-      if (popup) popup.location.href = url;
-      notify.success("WhatsApp is ready", "Press Send in WhatsApp. You will see here when the client opens the quotation.");
+
+      const isAutoDelivered = Boolean((delivery as any).autoDelivered);
+      if (isAutoDelivered) {
+        popup?.close();
+        notify.success("Quotation Sent Automatically", `Delivered directly to +${phone.trim()} via your connected WhatsApp.`);
+      } else {
+        setWhatsappUrl(url);
+        if (popup) popup.location.href = url;
+        notify.success("WhatsApp is ready", "Press Send in WhatsApp. You will see here when the client opens the quotation.");
+      }
       onSent?.();
     } catch {
       popup?.close();

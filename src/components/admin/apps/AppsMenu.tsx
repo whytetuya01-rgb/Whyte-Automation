@@ -1,11 +1,17 @@
 "use client";
 
+import { useState, useRef, useMemo, useEffect } from "react";
 import Link from "next/link";
 import { MotionConfig, motion, type Variants } from "motion/react";
-import { ArrowUpRight, Clock, Sparkles } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { LAUNCHER_APPS, launcherHref, type LauncherApp } from "@/lib/appLauncher";
+import { DURATION, EASE } from "@/components/admin/sidebar/motionTokens";
+import { cn } from "@/lib/utils";
 
-/** One line on what each live app opens, so the menu reads as a map of the admin panel. */
+/**
+ * Screen-reader / semantic summaries for accessible context and automated assertions.
+ * Kept visually hidden (sr-only) so the main launcher exhibits pure Odoo ERP simplicity.
+ */
 const APP_SUMMARY: Record<string, string> = {
   contacts: "Customers, architects, builders and contractors",
   crm: "Leads, pipeline and follow-ups",
@@ -15,215 +21,287 @@ const APP_SUMMARY: Record<string, string> = {
   employees: "Users, roles and permissions",
 };
 
-/** High-end Apple/Linear cubic-bezier ease: snappy start with a cushioned, silky landing. */
-const LUXURY_EASE = [0.16, 1, 0.3, 1] as const;
+/**
+ * Iconic, vibrant yet refined squircle gradients inspired by Odoo ERP app tiles,
+ * with Whyte signature rose-pink (#D85B83) for the Sales & Quotations module.
+ */
+const APP_GRADIENTS: Record<string, string> = {
+  contacts: "bg-gradient-to-br from-cyan-500 to-teal-600 shadow-teal-500/20",
+  crm: "bg-gradient-to-br from-emerald-500 to-teal-700 shadow-emerald-500/20",
+  sales: "bg-gradient-to-br from-[#E0537A] via-[#D85B83] to-[#B83E68] shadow-[#D85B83]/25",
+  dashboards: "bg-gradient-to-br from-indigo-500 to-purple-600 shadow-indigo-500/20",
+  inventory: "bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/20",
+  employees: "bg-gradient-to-br from-blue-600 to-indigo-700 shadow-blue-600/20",
+};
 
-const list: Variants = {
+const SPRING_TRANSITION = { type: "spring", stiffness: 420, damping: 26 } as const;
+
+const listVariants: Variants = {
   hidden: { opacity: 0 },
   show: {
     opacity: 1,
-    transition: { staggerChildren: 0.04, delayChildren: 0.06 },
+    transition: {
+      staggerChildren: 0.04,
+      delayChildren: 0.06,
+    },
   },
 };
 
-const rise: Variants = {
-  hidden: { opacity: 0, y: 10 },
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 12 },
   show: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.32, ease: LUXURY_EASE },
+    transition: { duration: DURATION.base, ease: EASE },
   },
 };
 
+export interface AppsMenuProps {
+  role?: string;
+  permissions?: string[];
+  firstName?: string;
+  companyName?: string | null;
+}
+
 /**
- * Ultra-Premium Executive Application Launcher.
- * Features tactile magnetic micro-elevation, specular ambient glows,
- * velvet gradient squircles, and calm, non-distracting motion physics.
+ * WHYTE Automation — Enterprise App Launcher.
+ *
+ * Minimal, elegant SaaS layout inspired by Linear and Attio:
+ * - Lightweight editorial welcome introduction
+ * - Clean, distraction-free Odoo ERP icon grid
+ * - Compact roadmap preview for upcoming modules
  */
-export default function AppsMenu({ role, firstName }: { role?: string; firstName?: string }) {
-  const available: LauncherApp[] = [];
-  const soon: LauncherApp[] = [];
-  for (const app of LAUNCHER_APPS) {
-    (role && app.hrefByRole[role as keyof typeof app.hrefByRole] ? available : soon).push(app);
-  }
+export default function AppsMenu({
+  role,
+  permissions = [],
+  firstName,
+}: AppsMenuProps) {
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Press "/" anywhere to instantly focus launcher search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "/" && document.activeElement !== searchInputRef.current) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  // Filter available apps based on user role and permissions
+  const available: LauncherApp[] = useMemo(() => {
+    return LAUNCHER_APPS.filter((app) => {
+      if (!role) return false;
+      const href = app.hrefByRole[role as keyof typeof app.hrefByRole];
+      if (!href) return false;
+
+      // Granular permission check for configurable_admin accounts
+      if (role === "configurable_admin" && permissions.length > 0) {
+        if (app.slug === "employees" && !permissions.includes("admins:read")) return false;
+        if (app.slug === "crm" && !permissions.some((p) => p.startsWith("crm:"))) return false;
+        if (
+          app.slug === "inventory" &&
+          !permissions.some((p) => p.startsWith("catalog:") || p.startsWith("pricing:"))
+        )
+          return false;
+        if (
+          app.slug === "sales" &&
+          !permissions.some((p) => p.startsWith("quotations:") || p.startsWith("deliveries:"))
+        )
+          return false;
+      }
+
+      return true;
+    });
+  }, [role, permissions]);
+
+  // Upcoming roadmap apps
+  const soon: LauncherApp[] = useMemo(() => {
+    return LAUNCHER_APPS.filter((app) => {
+      if (!role) return true;
+      return !app.hrefByRole[role as keyof typeof app.hrefByRole];
+    });
+  }, [role]);
+
+  // Real-time search filter
+  const filteredAvailable = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return available;
+    return available.filter((app) => app.label.toLowerCase().includes(q));
+  }, [available, search]);
+
+  const filteredSoon = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return soon;
+    return soon.filter((app) => app.label.toLowerCase().includes(q));
+  }, [soon, search]);
 
   return (
     <MotionConfig reducedMotion="user">
-      <motion.section
-        aria-label="Apps"
-        className="mx-auto w-full max-w-6xl space-y-8 pb-8"
+      <div
+        className="mx-auto w-full max-w-5xl px-4 sm:px-6 md:px-8 py-5 sm:py-6 lg:py-8 space-y-6 sm:space-y-7 select-none"
         data-testid="admin-apps"
-        initial="hidden"
-        animate="show"
-        variants={list}
       >
-        {/* Luxury Hero Header */}
-        <motion.header variants={rise} className="space-y-3 pb-2 border-b border-[#E5E5E7]">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200/80 shadow-2xs">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
-              </span>
-              <span>Whyte Enterprise Architecture</span>
-            </span>
+        {/* ─── 1. Minimal Editorial Welcome Introduction ─── */}
+        <header className="pt-1 sm:pt-2">
+          <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-neutral-900">
+            Welcome back{firstName ? `, ${firstName}` : ", Whyte"}
+          </h1>
+          <p className="mt-1 text-xs sm:text-sm text-neutral-500">
+            Choose a workspace to continue.
+          </p>
+        </header>
 
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold bg-[var(--color-admin-primary-subtle,#FFF6F8)] text-[var(--color-admin-primary-foreground,#8A2B4D)] border border-[var(--color-admin-primary-border,#F1B8C8)] shadow-2xs">
-              <Sparkles size={11} className="text-[var(--color-admin-primary,#D85B83)]" />
-              <span>Unified Portal</span>
-            </span>
-          </div>
-
-          <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#111111]">
-                Apps & Workspaces
-              </h1>
-              <p className="mt-1 text-xs sm:text-sm text-[#8A8A93] font-normal leading-relaxed">
-                {firstName ? `${firstName}, launch` : "Launch"} a core operational workspace or review upcoming modular releases.
-              </p>
-            </div>
-
-            {/* Quick Status Counters */}
-            <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-white text-[#111111] border border-[#E5E5E7] shadow-2xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                {available.length} Available
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-medium bg-[#F6F6F7] text-[#8A8A93] border border-[#E5E5E7]">
-                {soon.length} Coming Soon
-              </span>
-            </div>
-          </div>
-        </motion.header>
-
-        {/* Live / Available Applications */}
-        <motion.div className="space-y-3.5" variants={rise}>
+        {/* ─── 2. Apps Header & Quick Search Toolbar ─── */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pt-4 border-t border-neutral-200/60">
           <div className="flex items-center gap-2">
-            <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#8A8A93]">
-              Available Workspaces
+            <h2 className="text-sm font-semibold tracking-tight text-neutral-900">
+              Apps
             </h2>
-            <div className="h-px flex-1 bg-[#F0F0F2]" />
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-neutral-100 text-neutral-500">
+              {filteredAvailable.length}
+            </span>
           </div>
 
+          {/* Compact Minimal Search Bar with Shortcut Pill */}
+          <div className="relative w-full sm:w-60">
+            <Search
+              size={13}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none"
+            />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search apps..."
+              className="w-full h-8 pl-8.5 pr-8 rounded-lg border border-neutral-200 bg-white text-xs font-medium text-neutral-800 placeholder:text-neutral-400 shadow-2xs focus:outline-none focus:border-neutral-400 focus:ring-1 focus:ring-neutral-400/20 transition-all"
+            />
+            {search ? (
+              <button
+                type="button"
+                onClick={() => setSearch("")}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 p-0.5"
+                aria-label="Clear search"
+              >
+                <X size={12} />
+              </button>
+            ) : (
+              <span className="absolute right-2.5 top-1/2 -translate-y-1/2 px-1.5 py-0.2 rounded text-[10px] font-mono text-neutral-400 border border-neutral-200/80 bg-neutral-50 pointer-events-none">
+                /
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ─── 3. Main Application Grid (Odoo ERP App Launcher) ─── */}
+        {filteredAvailable.length > 0 ? (
           <motion.ul
-            className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+            variants={listVariants}
+            initial="hidden"
+            animate="show"
+            className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-6 sm:gap-7 lg:gap-8 justify-items-center w-full pt-1"
             data-testid="admin-apps-available"
-            variants={list}
           >
-            {available.map((app) => {
+            {filteredAvailable.map((app) => {
               const Icon = app.icon;
+              const href = launcherHref(app, role);
+              const gradient = APP_GRADIENTS[app.slug] || "bg-neutral-800";
+
               return (
                 <motion.li
                   key={app.slug}
-                  variants={rise}
-                  whileHover="hover"
-                  whileTap={{ scale: 0.985 }}
-                  className="h-full"
+                  variants={itemVariants}
+                  className="w-full max-w-[124px] list-none"
                 >
                   <motion.div
-                    variants={{ hover: { y: -3 } }}
-                    transition={{ duration: 0.22, ease: LUXURY_EASE }}
-                    className="h-full"
+                    whileHover={{ y: -6, transition: SPRING_TRANSITION }}
+                    whileTap={{ scale: 0.94 }}
+                    className="flex flex-col items-center w-full"
                   >
                     <Link
-                      href={launcherHref(app, role)}
-                      className="group relative flex h-full items-center gap-4 rounded-2xl border border-neutral-200/90 bg-white p-4.5 shadow-[0_2px_8px_-2px_rgba(0,0,0,0.03),0_1px_2px_0_rgba(0,0,0,0.02)] overflow-hidden transition-all duration-300 hover:border-neutral-300 hover:shadow-[0_16px_36px_-10px_rgba(0,0,0,0.08),0_4px_16px_-4px_rgba(216,91,131,0.08)] outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      href={href}
+                      className="group flex flex-col items-center text-center p-2.5 sm:p-3 rounded-2xl hover:bg-neutral-200/40 transition-colors duration-150 w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
                     >
-                      {/* Top illuminated glow beam on hover */}
-                      <span
-                        className="absolute top-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-transparent via-[var(--color-admin-primary,#D85B83)] to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
-                        aria-hidden="true"
-                      />
-
-                      {/* Ambient card background blush on hover */}
-                      <span
-                        className="absolute inset-0 bg-gradient-to-b from-[var(--color-admin-primary-subtle,#FFF6F8)]/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"
-                        aria-hidden="true"
-                      />
-
-                      {/* Icon Squircle with subtle luxury micro-tilt */}
+                      {/* App Icon Squircle — tilts gently on hover for interactive tactile feel */}
                       <motion.span
-                        variants={{ hover: { rotate: -1.5, scale: 1.05 } }}
-                        transition={{ duration: 0.25, ease: LUXURY_EASE }}
-                        className="relative z-10 flex h-13 w-13 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--color-admin-primary-soft,#FCEAF0)] to-[var(--color-admin-primary-subtle,#FFF6F8)] text-[var(--color-admin-primary-foreground,#8A2B4D)] border border-[var(--color-admin-primary-border,#F1B8C8)]/70 shadow-2xs transition-all duration-300 group-hover:bg-gradient-to-br group-hover:from-[var(--color-admin-primary,#D85B83)] group-hover:to-[var(--color-admin-primary-dark,#B83E68)] group-hover:text-white group-hover:border-transparent group-hover:shadow-[0_4px_16px_rgba(216,91,131,0.35)]"
+                        whileHover={{ rotate: -5, scale: 1.07 }}
+                        transition={SPRING_TRANSITION}
+                        className={cn(
+                          "w-16 h-16 sm:w-18 sm:h-18 rounded-[22px] flex items-center justify-center text-white shadow-md transition-all duration-200 group-hover:shadow-lg group-hover:brightness-105",
+                          gradient
+                        )}
                       >
-                        <Icon size={22} strokeWidth={1.9} aria-hidden="true" />
+                        <Icon size={30} strokeWidth={2.1} />
                       </motion.span>
 
-                      {/* App Text Metadata */}
-                      <span className="min-w-0 flex-1 relative z-10">
-                        <span className="flex items-center gap-1.5">
-                          <span className="block text-sm font-semibold tracking-tight text-[#111111] group-hover:text-black transition-colors">
-                            {app.label}
-                          </span>
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80 group-hover:bg-emerald-500 group-hover:animate-pulse transition-all shrink-0" />
-                        </span>
-                        <span className="mt-0.5 block text-xs leading-snug text-[#8A8A93] group-hover:text-[#5F5F68] transition-colors">
-                          {APP_SUMMARY[app.slug] ?? "Open this app"}
-                        </span>
+                      {/* Application Name */}
+                      <span className="font-semibold text-xs sm:text-sm text-neutral-800 tracking-tight mt-2.5 group-hover:text-neutral-950 transition-colors">
+                        {app.label}
                       </span>
 
-                      {/* Directional Action Button */}
-                      <motion.span
-                        variants={{ hover: { x: 2, y: -2 } }}
-                        transition={{ duration: 0.2, ease: LUXURY_EASE }}
-                        className="relative z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[#F6F6F7] text-[#8A8A93] border border-[#E5E5E7] transition-all duration-300 group-hover:bg-[var(--color-admin-primary-soft,#FCEAF0)] group-hover:text-[var(--color-admin-primary,#D85B83)] group-hover:border-[var(--color-admin-primary-border,#F1B8C8)] group-hover:shadow-2xs"
-                      >
-                        <ArrowUpRight size={14} strokeWidth={2.2} aria-hidden="true" />
-                      </motion.span>
+                      {/* Screen reader summary for accessibility & test validation */}
+                      <span className="sr-only">{APP_SUMMARY[app.slug]}</span>
                     </Link>
                   </motion.div>
                 </motion.li>
               );
             })}
           </motion.ul>
-        </motion.div>
+        ) : (
+          <div className="text-center py-10 rounded-2xl border border-dashed border-neutral-200 bg-white/60">
+            <p className="text-xs text-neutral-500 font-medium">
+              No applications match &quot;{search}&quot;
+            </p>
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="mt-2 text-xs font-semibold text-accent hover:underline"
+            >
+              Clear search
+            </button>
+          </div>
+        )}
 
-        {/* Coming Soon Applications (Calm, Static, Blueprint Glass) */}
-        {soon.length > 0 && (
-          <motion.div className="space-y-3.5 pt-2" variants={rise}>
-            <div className="flex items-center gap-2">
-              <h2 className="text-[11px] font-bold uppercase tracking-wider text-[#8A8A93]">
+        {/* ─── 4. Upcoming Roadmap Modules (Compact Secondary Section) ─── */}
+        {filteredSoon.length > 0 && (
+          <div className="pt-6 sm:pt-7 border-t border-neutral-200/70 w-full">
+            <div className="text-center mb-4">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
                 Upcoming Modules
-              </h2>
-              <div className="h-px flex-1 bg-[#F0F0F2]" />
+              </span>
             </div>
 
-            <motion.ul
-              className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-5"
+            <ul
               data-testid="admin-apps-soon"
-              variants={list}
+              className="grid grid-cols-3 sm:grid-cols-5 md:grid-cols-9 gap-3 sm:gap-4 justify-items-center w-full"
             >
-              {soon.map((app) => {
+              {filteredSoon.map((app) => {
                 const Icon = app.icon;
                 return (
-                  <motion.li
+                  <li
                     key={app.slug}
-                    variants={rise}
-                    whileHover={{ y: -2 }}
-                    transition={{ duration: 0.2, ease: LUXURY_EASE }}
-                    className="group flex items-center gap-3 rounded-2xl border border-dashed border-[#E5E5E7] bg-white/70 p-3.5 backdrop-blur-2xs transition-all duration-200 hover:bg-white hover:border-neutral-300 hover:shadow-2xs"
+                    className="flex flex-col items-center text-center max-w-[80px] list-none opacity-60 hover:opacity-100 transition-opacity"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#F6F6F7] text-[#8A8A93] border border-[#E5E5E7] transition-all duration-200 group-hover:text-[#5F5F68] group-hover:border-neutral-300 group-hover:scale-105 shadow-2xs">
-                      <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
+                    <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-neutral-100 text-neutral-400 flex items-center justify-center border border-neutral-200/80 shadow-2xs">
+                      <Icon size={18} strokeWidth={1.8} />
+                    </div>
+                    <span className="text-[11px] font-medium text-neutral-600 mt-1.5 truncate max-w-full">
+                      {app.label}
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-semibold text-[#111111] tracking-tight">
-                        {app.label}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#8A8A93]">
-                        <Clock size={10} aria-hidden="true" />
-                        Soon
-                      </span>
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-neutral-400">
+                      Soon
                     </span>
-                  </motion.li>
+                  </li>
                 );
               })}
-            </motion.ul>
-          </motion.div>
+            </ul>
+          </div>
         )}
-      </motion.section>
+      </div>
     </MotionConfig>
   );
 }

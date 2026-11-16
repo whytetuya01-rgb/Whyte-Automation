@@ -71,25 +71,25 @@ export interface ProposalPageSlice {
     | { type: "project_overview_and_scope" }
     | { type: "product_series"; start: number }
     | {
-        type: "switchboard_config_room";
-        room: QuotationRoom;
-        roomIndex: number;
-        items: QuotationItem[];
-        showSectionHeader: boolean;
-        showRoomHeader: boolean;
-        isContinuation: boolean;
-      }
+      type: "switchboard_config_room";
+      room: QuotationRoom;
+      roomIndex: number;
+      items: QuotationItem[];
+      showSectionHeader: boolean;
+      showRoomHeader: boolean;
+      isContinuation: boolean;
+    }
     | {
-        type: "room";
-        room: QuotationRoom;
-        roomIndex: number;
-        /** Display rows: entries of the same product in this room are grouped (see `@/lib/proposalItemGroups`). */
-        items: ProposalProductRow[];
-        isContinuation: boolean;
-        showSectionHeader?: boolean;
-        showRoomHeader: boolean;
-        showRoomFooter: boolean;
-      }
+      type: "room";
+      room: QuotationRoom;
+      roomIndex: number;
+      /** Display rows: entries of the same product in this room are grouped (see `@/lib/proposalItemGroups`). */
+      items: ProposalProductRow[];
+      isContinuation: boolean;
+      showSectionHeader?: boolean;
+      showRoomHeader: boolean;
+      showRoomFooter: boolean;
+    }
     | { type: "closing_and_financials" }
   >;
 }
@@ -1002,7 +1002,7 @@ export default function StepProposalPreview({
           pixelRatio: 2,
           quality: 0.88,
           backgroundColor: "#ffffff",
-          cacheBust: true,
+          cacheBust: false,
           width: PAGE_WIDTH_PX,
           height: captureHeight,
           canvasWidth: PAGE_WIDTH_PX * 2,
@@ -1017,7 +1017,7 @@ export default function StepProposalPreview({
         let drawWidth = A4_WIDTH_MM;
         let drawHeight = A4_HEIGHT_MM;
         let offsetX = 0;
-        let offsetY = 0;
+        const offsetY = 0;
 
         if (aspect > a4Aspect + 0.02) {
           drawHeight = A4_HEIGHT_MM;
@@ -1038,6 +1038,7 @@ export default function StepProposalPreview({
         pagesToRestore[i].style.maxWidth = "";
       }
       for (let i = 0; i < slotsToRestore.length; i++) {
+        slotsToRestore[i].style.overflow = prevSlotOverflows[i] || "";
         slotsToRestore[i].style.width = prevSlotWidths[i] || "";
         slotsToRestore[i].style.height = prevSlotHeights[i] || "";
         slotsToRestore[i].style.maxWidth = prevSlotMaxWidths[i] || "";
@@ -1047,6 +1048,56 @@ export default function StepProposalPreview({
 
   const buildPdfBlob = async (): Promise<Blob> => (await buildPdf()).output("blob");
 
+  // The PDF made on this page (reused, so Share / Send / Print / Download never build it twice) and whether it was marked sent here.
+  const downloadInFlight = useRef(false);
+  const madePdf = useRef<Blob | null>(null);
+  const [sentHere, setSentHere] = useState(false);
+  const [issuing, setIssuing] = useState(false);
+
+  useEffect(() => {
+    // Invalidate cached client-side PDF if quotation data updates
+    madePdf.current = null;
+  }, [quotation.updatedAt, quotation.rooms, quotation.discountValue, quotation.discountType]);
+
+  const triggerDownloadBlob = async (pdfBlob: Blob, filename: string): Promise<boolean> => {
+    const isIOS =
+      typeof navigator !== "undefined" &&
+      (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+
+    let sharedNatively = false;
+    if (isIOS && typeof navigator !== "undefined" && navigator.canShare) {
+      try {
+        const pdfFile = new File([pdfBlob], filename, { type: "application/pdf" });
+        if (navigator.canShare({ files: [pdfFile] })) {
+          await navigator.share({
+            files: [pdfFile],
+            title: filename,
+          });
+          sharedNatively = true;
+        }
+      } catch (shareErr: unknown) {
+        if ((shareErr as Error)?.name === "AbortError") {
+          return false;
+        }
+        console.warn("Native share failed, falling back to download link:", shareErr);
+      }
+    }
+
+    if (!sharedNatively) {
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = filename;
+      if (isIOS) a.target = "_blank";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    }
+    return true;
+  };
+
   const handleDownloadPDF = async () => {
     if (!quotation || pageRefs.current.length === 0) return;
 
@@ -1055,63 +1106,56 @@ export default function StepProposalPreview({
       return;
     }
 
+    if (downloadInFlight.current) return;
+    downloadInFlight.current = true;
     setDownloading(true);
+
     try {
-      const pdf = await buildPdf();
       const filename = content.fileName(quotation.quotationNumber);
 
-      const isIOS =
-        typeof navigator !== "undefined" &&
-        (/iPad|iPhone|iPod/.test(navigator.userAgent) ||
-          (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+      // Fast Path 1: If an in-memory PDF blob was already generated this session, reuse it
+      if (madePdf.current) {
+        const ok = await triggerDownloadBlob(madePdf.current, filename);
+        if (ok) toast.success("Proposal PDF downloaded!");
+        return;
+      }
 
-      const pdfBlob = pdf.output("blob");
-
-      // On iOS devices, attempt native Web Share API (Save to Files / AirDrop / share sheet)
-      // to avoid WebKit download attribute suppression and gesture expiration issues.
-      let sharedNatively = false;
-      if (isIOS && typeof navigator !== "undefined" && navigator.canShare) {
+      // Fast Path 2: For issued quotations, fetch the frozen PDF from server directly
+      // This avoids 5-15s of client canvas re-rendering
+      if (quotation.id && quotation.status !== "draft") {
         try {
-          const pdfFile = new File([pdfBlob], filename, { type: "application/pdf" });
-          if (navigator.canShare({ files: [pdfFile] })) {
-            await navigator.share({
-              files: [pdfFile],
-              title: filename,
-            });
-            sharedNatively = true;
+          const res = await fetch(`/api/quotations/${quotation.id}/pdf`);
+          if (res.ok) {
+            const blob = await res.blob();
+            if (blob.type === "application/pdf" && blob.size > 0) {
+              madePdf.current = blob;
+              const ok = await triggerDownloadBlob(blob, filename);
+              if (ok) toast.success("Proposal PDF downloaded!");
+              return;
+            }
           }
-        } catch (shareErr: unknown) {
-          if ((shareErr as Error)?.name === "AbortError") {
-            // User cancelled the native share sheet
-            return;
-          }
-          console.warn("Native share failed, falling back to download link:", shareErr);
+        } catch {
+          // Fall through to client-side build
         }
       }
 
-      if (!sharedNatively) {
-        const blobUrl = URL.createObjectURL(pdfBlob);
-        const a = document.createElement("a");
-        a.href = blobUrl;
-        a.download = filename;
-        if (isIOS) a.target = "_blank";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        // Prolong Blob URL validity (60s) so mobile browser download stream completes
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-      }
+      // Standard Path: Build client-side PDF from rendered DOM pages
+      const pdf = await buildPdf();
+      const pdfBlob = pdf.output("blob");
 
-      toast.success("Proposal PDF downloaded!");
-      madePdf.current = pdfBlob;
-      void markSentWithPdf(pdfBlob);
+      const ok = await triggerDownloadBlob(pdfBlob, filename);
+      if (ok) {
+        toast.success("Proposal PDF downloaded!");
+        madePdf.current = pdfBlob;
+        void markSentWithPdf(pdfBlob);
+      }
     } catch (err: unknown) {
       console.error("PDF generation failed:", err);
       toast.error(
         "Failed to generate PDF. You can also use the Print button to Save as PDF."
       );
     } finally {
-
+      downloadInFlight.current = false;
       setDownloading(false);
     }
   };
@@ -1160,10 +1204,6 @@ export default function StepProposalPreview({
     await new Promise((resolve) => setTimeout(resolve, 600));
   };
 
-  // The PDF made on this page (reused, so Share / Send / Print / Download never build it twice) and whether it was marked sent here.
-  const madePdf = useRef<Blob | null>(null);
-  const [sentHere, setSentHere] = useState(false);
-  const [issuing, setIssuing] = useState(false);
   const pdfForThisPage = async (): Promise<Blob> => {
     if (!madePdf.current) madePdf.current = await buildPdfBlob();
     return madePdf.current;
@@ -1482,1149 +1522,1147 @@ export default function StepProposalPreview({
                 ref={(el) => {
                   pageRefs.current[pageIdx] = el;
                 }}
-className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
+                className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
                 style={{ boxSizing: "border-box", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
               >
-              {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
+                {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
                   behind all content. Never a status/DRAFT/DUPLICATE stamp: the document's
                   actual Draft/Sent/Approved/etc. status is shown elsewhere in the app UI,
                   not altered here, and never rendered as a warning-style stamp on the PDF. */}
-              {!page.isFirstPage && content.showWatermark && (
-                <div
-                  aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 flex items-center justify-center select-none"
-                  style={{ zIndex: 0 }}
-                >
-                  <span
-                    style={{
-                      fontSize: Math.max(60, 150 - Math.max(0, content.watermark.length - 6) * 8),
-                      fontWeight: 900,
-                      letterSpacing: "-0.02em",
-                      ...watermarkStyle,
-                      display: "inline-block",
-                      transform: "rotate(-18deg)",
-                      lineHeight: 1,
-                      whiteSpace: "nowrap",
-                    }}
+                {!page.isFirstPage && content.showWatermark && (
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 flex items-center justify-center select-none"
+                    style={{ zIndex: 0 }}
                   >
-                    {content.watermark}
-                  </span>
-                </div>
-              )}
-
-              {/* Page Content Area */}
-              <div className="relative z-10 space-y-4">
-                {/* Running Header on Page 2+ */}
-                {!page.isFirstPage && (
-                  <div className="pb-3 border-b border-gray-200 flex items-center justify-between text-sm">
-                    <div className="flex items-center gap-2.5">
-                      <ProposalLogo content={content} kind="header" />
-                      <span className="text-gray-300">|</span>
-                      <span className="font-semibold text-gray-700 text-sm">
-                        {content.headerLabel}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3 text-gray-500 font-mono text-[13px]">
-                      <span className="text-gray-950 font-bold">
-                        {quotation.quotationNumber}{(quotation.revision ?? 1) > 1 ? ` · Rev ${quotation.revision}` : ""}
-                      </span>
-                      <span>•</span>
-                      <span>{formatDate(quotation.createdAt)}</span>
-                      <span>•</span>
-                      <span className="text-gray-950 font-bold">
-                        {quotation.clientName}
-                      </span>
-                    </div>
+                    <span
+                      style={{
+                        fontSize: Math.max(60, 150 - Math.max(0, content.watermark.length - 6) * 8),
+                        fontWeight: 900,
+                        letterSpacing: "-0.02em",
+                        ...watermarkStyle,
+                        display: "inline-block",
+                        transform: "rotate(-18deg)",
+                        lineHeight: 1,
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {content.watermark}
+                    </span>
                   </div>
                 )}
 
-                {/* Render Page Sections */}
-                {page.sections.map((section, sIdx) => {
-                  /* 1. COVER (PAGE 1) */
-                  if (section.type === "cover") {
-                    return (
-                      <div key={sIdx} className="space-y-4">
-                        {/* Header Brand Bar */}
-                        <div className="flex items-start justify-between">
-                          <ProposalLogo content={content} kind="cover" />
-                          <div className="text-right">
-                            <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
-                              {content.text.quotationReference}
-                            </span>
-                            <p className="text-base font-black font-mono tracking-tight text-gray-950" data-testid="document-quotation-number">
-                              {quotation.quotationNumber}{(quotation.revision ?? 1) > 1 ? ` · Rev ${quotation.revision}` : ""}
-                            </p>
-                            <p className="text-[13px] text-gray-500">
-                              {formatDate(quotation.createdAt)}
-                            </p>
+                {/* Page Content Area */}
+                <div className="relative z-10 space-y-4">
+                  {/* Running Header on Page 2+ */}
+                  {!page.isFirstPage && (
+                    <div className="pb-3 border-b border-gray-200 flex items-center justify-between text-sm">
+                      <div className="flex items-center gap-2.5">
+                        <ProposalLogo content={content} kind="header" />
+                        <span className="text-gray-300">|</span>
+                        <span className="font-semibold text-gray-700 text-sm">
+                          {content.headerLabel}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3 text-gray-500 font-mono text-[13px]">
+                        <span className="text-gray-950 font-bold">
+                          {quotation.quotationNumber}{(quotation.revision ?? 1) > 1 ? ` · Rev ${quotation.revision}` : ""}
+                        </span>
+                        <span>•</span>
+                        <span>{formatDate(quotation.createdAt)}</span>
+                        <span>•</span>
+                        <span className="text-gray-950 font-bold">
+                          {quotation.clientName}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Render Page Sections */}
+                  {page.sections.map((section, sIdx) => {
+                    /* 1. COVER (PAGE 1) */
+                    if (section.type === "cover") {
+                      return (
+                        <div key={sIdx} className="space-y-4">
+                          {/* Header Brand Bar */}
+                          <div className="flex items-start justify-between">
+                            <ProposalLogo content={content} kind="cover" />
+                            <div className="text-right">
+                              <span className="text-[10px] font-mono tracking-widest text-gray-400 uppercase font-bold block">
+                                {content.text.quotationReference}
+                              </span>
+                              <p className="text-base font-black font-mono tracking-tight text-gray-950" data-testid="document-quotation-number">
+                                {quotation.quotationNumber}{(quotation.revision ?? 1) > 1 ? ` · Rev ${quotation.revision}` : ""}
+                              </p>
+                              <p className="text-[13px] text-gray-500">
+                                {formatDate(quotation.createdAt)}
+                              </p>
+                            </div>
                           </div>
-                        </div>
 
-                        {/* Title + Hero zone (a company's own cover picture sits beside the title) */}
-                        <div className={content.coverImageUrl ? "flex items-start justify-between gap-5" : undefined}>
-                          <div className="w-[320px] shrink-0 space-y-2 pt-1">
-                            <ProposalCoverTitle title={content.text.coverTitle} />
-                            <div className="h-[3px] w-[130px] rounded-full bg-gradient-to-r from-accent to-accent/0" />
-                            <p className="text-[12px] font-bold uppercase tracking-widest text-gray-500">
-                              {content.isDefaultCompany ? (
-                                <>
-                                  Next-Gen <span className="text-gray-950">Smart Living</span> Ecosystems
-                                </>
-                              ) : (
-                                <span className="text-gray-950">{content.tagline ?? content.automationType}</span>
-                              )}
-                            </p>
-                          </div>
+                          {/* Title + Hero zone (a company's own cover picture sits beside the title) */}
+                          <div className={content.coverImageUrl ? "flex items-start justify-between gap-5" : undefined}>
+                            <div className="w-[320px] shrink-0 space-y-2 pt-1">
+                              <ProposalCoverTitle title={content.text.coverTitle} />
+                              <div className="h-[3px] w-[130px] rounded-full bg-gradient-to-r from-accent to-accent/0" />
+                              <p className="text-[12px] font-bold uppercase tracking-widest text-gray-500">
+                                {content.isDefaultCompany ? (
+                                  <>
+                                    Next-Gen <span className="text-gray-950">Smart Living</span> Ecosystems
+                                  </>
+                                ) : (
+                                  <span className="text-gray-950">{content.tagline ?? content.automationType}</span>
+                                )}
+                              </p>
+                            </div>
 
-                          {content.coverImageUrl && (
-                            // eslint-disable-next-line @next/next/no-img-element -- the PDF is rasterised from this DOM
-                            <img
-                              src={content.coverImageUrl}
-                              alt={`${content.brandName} cover`}
-                              crossOrigin="anonymous"
-                              data-testid="cover-image"
-                              className="h-[250px] w-[370px] rounded-2xl border border-gray-100 object-cover"
-                            />
-                          )}
-
-                          {/* The cover illustration shows Whyte's own product: only the default company uses it, unless it set its own picture. */}
-                          {content.isDefaultCompany && !content.coverImageUrl && (
-                            <div className="-mt-[140px] flex justify-end">
+                            {content.coverImageUrl && (
+                              // eslint-disable-next-line @next/next/no-img-element -- the PDF is rasterised from this DOM
                               <img
-                                src="/proposal/whyte/cover-hero.webp"
-                                alt="Whyte smart home and app control"
-                                className="h-auto w-[600px] object-contain"
+                                src={content.coverImageUrl}
+                                alt={`${content.brandName} cover`}
+                                crossOrigin="anonymous"
+                                data-testid="cover-image"
+                                className="h-[250px] w-[370px] rounded-2xl border border-gray-100 object-cover"
                               />
-                            </div>
-                          )}
-                        </div>
+                            )}
 
-                        {/* Project Overview: Compact & Premium 3-Row Layout */}
-                        <div className="overflow-hidden rounded-xl border border-gray-200/90 bg-white shadow-xs text-sm">
-                          {/* Row 1 — Client Information */}
-                          <div className="px-5 py-3 bg-white">
-                            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent">
-                                  {content.text.preparedFor}
-                                </p>
-                                <h2 className="mt-0.5 text-lg font-bold tracking-tight text-gray-950 leading-snug break-words [overflow-wrap:anywhere]">
-                                  {quotation.clientName}
-                                </h2>
-                              </div>
-                              <div className="flex items-center gap-1.5 text-xs text-gray-600 shrink-0">
-                                <MapPin size={12} className="text-accent shrink-0" />
-                                <span className="font-medium text-gray-700 break-words">
-                                  {quotation.clientAddress || content.text.siteFallback}
-                                </span>
-                              </div>
-                            </div>
-                            {(quotation.clientPhone || quotation.clientEmail) && (
-                              <div className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400">
-                                {quotation.clientPhone && (
-                                  <span>{quotation.clientPhone}</span>
-                                )}
-                                {quotation.clientPhone && quotation.clientEmail && (
-                                  <span>•</span>
-                                )}
-                                {quotation.clientEmail && (
-                                  <span className="break-all">{quotation.clientEmail}</span>
-                                )}
+                            {/* The cover illustration shows Whyte's own product: only the default company uses it, unless it set its own picture. */}
+                            {content.isDefaultCompany && !content.coverImageUrl && (
+                              <div className="-mt-[140px] flex justify-end">
+                                <img
+                                  src="/proposal/whyte/cover-hero.webp"
+                                  alt="Whyte smart home and app control"
+                                  className="h-auto w-[600px] object-contain"
+                                />
                               </div>
                             )}
                           </div>
 
-                          {/* Row 2 — Project Information (Compact 3-Column Layout) */}
-                          <div className="grid grid-cols-3 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50/50 py-2">
-                            <div className="px-5 min-w-0">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
-                                {content.text.projectType}
-                              </span>
-                              <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
-                                {premisesLabel(quotation) ?? content.text.projectTypeFallback}
-                              </span>
-                            </div>
-
-                            <div className="px-5 min-w-0">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
-                                {content.text.automationTypeLabel}
-                              </span>
-                              <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
-                                {content.automationType}
-                              </span>
-                            </div>
-
-                            <div className="px-5 min-w-0">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
-                                {content.text.projectScope}
-                              </span>
-                              <span className="mt-0.5 text-xs font-semibold text-gray-900 block">
-                                {renderableRooms.length} {renderableRooms.length === 1 ? "Space" : "Spaces"} · {totalProducts} {totalProducts === 1 ? "Device" : "Devices"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Row 3 — Slim Investment Strip */}
-                          <div className="px-5 py-2.5 bg-accent-light/40 border-t border-accent-border/50 flex items-center justify-between">
-                            <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-700">
-                              {content.text.totalInvestment}
-                            </span>
-                            <span className="text-lg font-black font-mono tracking-tight text-accent leading-none">
-                              {formatCurrency(grandTotal, { decimals: 2 })}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  /* 2c. PRODUCT SERIES used by this quotation */
-                  if (section.type === "product_series") {
-                    return (
-                      <ProposalSeriesCards
-                        key={sIdx}
-                        series={documentSeries.slice(section.start, section.start + SERIES_PER_PAGE)}
-                        eyebrow={content.text.seriesEyebrow}
-                        title={content.text.seriesTitle}
-                      />
-                    );
-                  }
-
-                  /* 2b. ABOUT THE COMPANY (custom introduction page written in the company's settings) */
-                  if (section.type === "about_company" && content.about) {
-                    return <ProposalAboutCompany key={sIdx} about={content.about} eyebrow={content.text.aboutEyebrow} />;
-                  }
-
-                  /* 2. ABOUT WHYTE (PAGE 2) */
-                  if (section.type === "about_whyte") {
-                    return (
-                      <div key={sIdx} className="space-y-6">
-                        {/* Section Header */}
-                        <div
-                          className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-pink-50 via-white to-slate-100"
-                          style={{ minHeight: 250 }}
-                        >
-                          <img
-                            src="/proposal/whyte/about-hero.webp"
-                            alt=""
-                            className="absolute right-0 top-0 h-full w-auto max-w-none object-cover object-right"
-                          />
-                          <div className="relative z-10 w-[58%] p-6">
-                            <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                              Company Profile & Ecosystem
-                            </span>
-                            <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
-                              About Whyte Automations
-                            </h2>
-                            <p className="text-sm text-gray-700 mt-2 leading-relaxed">
-                              Founded in Gandhinagar, Gujarat, Whyte Automations is
-                              dedicated to bringing the next generation of smart
-                              living to modern premises through the Internet of
-                              Things, intuitive touch architecture, and intelligent
-                              power management.
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Proven Milestone Statistics */}
-                        <div className="grid grid-cols-4 gap-3 text-center">
-                          <div className="p-4 rounded-2xl bg-white border border-pink-200/90 shadow-2xs flex flex-col items-center justify-center">
-                            <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
-                              1000+
-                            </p>
-                            <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
-                              INSTALLATIONS
-                            </p>
-                          </div>
-                          <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
-                            <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
-                              89000+
-                            </p>
-                            <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
-                              SWITCHES
-                            </p>
-                          </div>
-                          <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
-                            <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
-                              50+
-                            </p>
-                            <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
-                              PRODUCTS
-                            </p>
-                          </div>
-                          <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
-                            <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
-                              25+
-                            </p>
-                            <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
-                              FEATURES
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Bespoke Premise Solutions */}
-                        <div className="space-y-2.5">
-                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
-                            Bespoke Automation Solutions
-                          </h3>
-                          <div className="grid grid-cols-4 gap-2.5">
-                            <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
-                              <div className="h-20 bg-gray-100 overflow-hidden">
-                                <img
-                                  src="/proposal/whyte/solutions/img-home.jpg"
-                                  alt="Home Automation"
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                              <div className="p-2">
-                                <p className="font-bold text-gray-950 text-sm">
-                                  Home
-                                </p>
-                                <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
-                                  Feather-touch & scene automation.
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
-                              <div className="h-20 bg-gray-100 overflow-hidden">
-                                <img
-                                  src="/proposal/whyte/solutions/img-office.jpg"
-                                  alt="Office Automation"
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                              <div className="p-2">
-                                <p className="font-bold text-gray-950 text-sm">
-                                  Office
-                                </p>
-                                <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
-                                  Meeting & energy automation.
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
-                              <div className="h-20 bg-gray-100 overflow-hidden">
-                                <img
-                                  src="/proposal/whyte/solutions/img-hotel.jpg"
-                                  alt="Hotel Automation"
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                              <div className="p-2">
-                                <p className="font-bold text-gray-950 text-sm">
-                                  Hotels
-                                </p>
-                                <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
-                                  Guest bedside touch panels.
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
-                              <div className="h-20 bg-gray-100 overflow-hidden">
-                                <img
-                                  src="/proposal/whyte/solutions/img-hospital.jpg"
-                                  alt="Hospital Automation"
-                                  className="w-full h-full object-cover"
-                                />
-                              </div>
-                              <div className="p-2">
-                                <p className="font-bold text-gray-950 text-sm">
-                                  Hospitals
-                                </p>
-                                <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
-                                  Hygienic touch interfaces.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Why Whyte: Engineering & Guarantees */}
-                        <div className="space-y-2.5">
-                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
-                            Why Whyte
-                          </h3>
-                          <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 border-l-[3px] border-l-accent space-y-1">
-                              <div className="flex items-center gap-1.5 font-bold text-gray-950">
-                                <ShieldCheck size={14} className="text-gray-950" />
-                                <span>5* Years Limited Warranty</span>
-                              </div>
-                              <p className="text-[13px] text-gray-500 leading-relaxed">
-                                Backed by Whyte comprehensive hardware warranty
-                                and dedicated support for long-term reliability.
-                              </p>
-                            </div>
-
-                            <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 border-l-[3px] border-l-accent space-y-1">
-                              <div className="flex items-center gap-1.5 font-bold text-gray-950">
-                                <Sliders size={14} className="text-gray-950" />
-                                <span>Modular & 100% Retrofit</span>
-                              </div>
-                              <p className="text-[13px] text-gray-500 leading-relaxed">
-                                Direct drop-in replacement compatible with
-                                standard concealed metal boxes with zero civil
-                                rewiring.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Government & Industry Backing */}
-                        <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between text-sm text-gray-600">
-                          <div className="flex items-center gap-2">
-                            <Award size={15} className="text-gray-950" />
-                            <span className="font-semibold text-gray-900">
-                              Backed by Startup Gujarat (Govt. of Gujarat – 2021)
-                            </span>
-                          </div>
-                          <span className="text-[13px] text-gray-500">
-                            VSTS Startup Arena Winner
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  /* 3. YOUR PROJECT OVERVIEW & TACTUS TECH (PAGE 3) */
-                  if (section.type === "project_overview_and_scope") {
-                    return (
-                      <div key={sIdx} className="space-y-6">
-                        {/* Section Header */}
-                        <div
-                          className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-accent-light via-white to-slate-100"
-                          style={{ minHeight: 200 }}
-                        >
-                          {/* Whyte's own product photo on its document; another company's cover picture, or none. */}
-                          {(content.isDefaultCompany || content.coverImageUrl) && (
-                            <img
-                              src={content.isDefaultCompany ? "/proposal/whyte/overview-hero.webp" : (content.coverImageUrl as string)}
-                              alt=""
-                              className="absolute right-0 top-0 h-full w-auto max-w-[45%] object-cover object-right"
-                            />
-                          )}
-                          <div className={`relative z-10 p-6 ${content.isDefaultCompany || content.coverImageUrl ? "w-[55%]" : "w-full"}`}>
-                            <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                              {content.text.overviewEyebrow}
-                            </span>
-                            <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
-                              {content.text.overviewTitle}
-                            </h2>
-                            <p className="text-sm text-gray-700 mt-1">
-                              {content.text.overviewIntro}{" "}
-                              <strong className="text-gray-950">
-                                {quotation.clientName}
-                              </strong>
-                              .
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Authorized Dealer — only ever quotation.dealer (the existing
-                            dealerId/"assignedTo" relation). Omitted entirely, with no
-                            placeholder, when the quotation has no dealer. */}
-                        {(() => {
-                          if (!authorizedDealer) return null;
-                          const hasContactRow =
-                            authorizedDealer.address || authorizedDealer.phone || authorizedDealer.email;
-                          return (
-                            <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3.5">
-                              <div className="flex flex-wrap items-start justify-between gap-3">
-                                <div className="flex items-start gap-2.5">
-                                  <div className="w-9 h-9 rounded-lg bg-gray-950 text-white flex items-center justify-center shrink-0">
-                                    <Building2 size={16} />
-                                  </div>
-                                  <div>
-                                    <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
-                                      {content.text.dealerLabel}
-                                    </p>
-                                    <p className="text-base font-black text-gray-950 tracking-tight mt-0.5">
-                                      {authorizedDealer.companyName || authorizedDealer.name}
-                                    </p>
-                                    {authorizedDealer.companyName && (
-                                      <p className="text-[13px] text-gray-500 font-medium">
-                                        {authorizedDealer.name}
-                                      </p>
-                                    )}
-                                  </div>
+                          {/* Project Overview: Compact & Premium 3-Row Layout */}
+                          <div className="overflow-hidden rounded-xl border border-gray-200/90 bg-white shadow-xs text-sm">
+                            {/* Row 1 — Client Information */}
+                            <div className="px-5 py-3 bg-white">
+                              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-accent">
+                                    {content.text.preparedFor}
+                                  </p>
+                                  <h2 className="mt-0.5 text-lg font-bold tracking-tight text-gray-950 leading-snug break-words [overflow-wrap:anywhere]">
+                                    {quotation.clientName}
+                                  </h2>
                                 </div>
-                                {authorizedDealer.gstNumber && (
-                                  <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-bold text-gray-600 tracking-wide shrink-0">
-                                    {content.text.gstinLabel} {authorizedDealer.gstNumber}
+                                <div className="flex items-center gap-1.5 text-xs text-gray-600 shrink-0">
+                                  <MapPin size={12} className="text-accent shrink-0" />
+                                  <span className="font-medium text-gray-700 break-words">
+                                    {quotation.clientAddress || content.text.siteFallback}
                                   </span>
-                                )}
+                                </div>
                               </div>
-                              {hasContactRow && (
-                                <div className="mt-2.5 pt-2.5 border-t border-gray-200/70 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-gray-500 font-medium">
-                                  {authorizedDealer.address && (
-                                    <span className="flex items-center gap-1.5">
-                                      <MapPin size={11} className="text-gray-400 shrink-0" />
-                                      {authorizedDealer.address}
-                                    </span>
+                              {(quotation.clientPhone || quotation.clientEmail) && (
+                                <div className="mt-1 flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400">
+                                  {quotation.clientPhone && (
+                                    <span>{quotation.clientPhone}</span>
                                   )}
-                                  {authorizedDealer.phone && (
-                                    <span className="flex items-center gap-1.5">
-                                      <Phone size={11} className="text-gray-400 shrink-0" />
-                                      {authorizedDealer.phone}
-                                    </span>
+                                  {quotation.clientPhone && quotation.clientEmail && (
+                                    <span>•</span>
                                   )}
-                                  {authorizedDealer.email && (
-                                    <span className="flex items-center gap-1.5">
-                                      <Mail size={11} className="text-gray-400 shrink-0" />
-                                      {authorizedDealer.email}
-                                    </span>
+                                  {quotation.clientEmail && (
+                                    <span className="break-all">{quotation.clientEmail}</span>
                                   )}
                                 </div>
                               )}
                             </div>
-                          );
-                        })()}
 
-                        {/* Selected Automated Spaces */}
-                        <div className="space-y-2.5">
-                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
-                            {content.text.spacesTitle} ({renderableRooms.length}{" "}
-                            {renderableRooms.length === 1 ? content.text.spaceSingular : content.text.spacePlural})
-                          </h3>
-                          {renderableRooms.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                              {renderableRooms.map((r: QuotationRoom) => {
-                                const roomId = Number(r.id ?? (r as any)._id);
-                                const Icon = getRoomIcon(
-                                  r.customName ?? r.roomType?.name ?? "Room"
-                                );
-                                const count = eligibleItemsOfRoom(r, r.items, isLocked).reduce(
-                                  (acc: number, i: QuotationItem) => acc + (Number(i.quantity) || 1),
-                                  0
-                                );
-                                return (
-                                  <div
-                                    key={roomId}
-                                    className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm"
-                                  >
-                                    <Icon size={13} className="text-accent" />
-                                    <span className="font-semibold text-gray-900">
-                                      {getRoomFullTitle(r, renderableRooms, isMultiFloorHouseType(quotation.houseType))}
-                                    </span>
-                                    <span className="font-mono text-[11px] bg-accent-light text-accent-foreground border border-accent-border/60 px-1.5 py-0.5 rounded font-bold">
-                                      {count} {count === 1 ? content.text.deviceSingular : content.text.devicePlural}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-400 italic">
-                              {content.text.noSpaces}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Automation Scope */}
-                        <div className="space-y-2 pt-1">
-                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
-                            {content.text.scopeTitle}
-                          </h3>
-                          <div className="p-4 rounded-xl bg-gray-50/70 border border-gray-200 text-sm space-y-1.5 text-gray-700">
-                            <p className="flex items-center gap-2 font-medium">
-                              <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                              <span>{content.text.scopeLine1}</span>
-                            </p>
-                            <p className="flex items-center gap-2 font-medium">
-                              <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                              <span>
-                                {content.text.scopeLine2} ({renderableRooms.length} {content.text.automatedSpaces}).
-                              </span>
-                            </p>
-                            {configuredTiers.length > 0 && (
-                              <p className="flex items-center gap-2 font-medium">
-                                <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                                <span>
-                                  {content.text.tierLabel}:{" "}
-                                  <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[13px]">
-                                    {configuredTiers.join(", ")}
-                                  </strong>
+                            {/* Row 2 — Project Information (Compact 3-Column Layout) */}
+                            <div className="grid grid-cols-3 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50/50 py-2">
+                              <div className="px-5 min-w-0">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                                  {content.text.projectType}
                                 </span>
-                              </p>
-                            )}
-                            {configuredFinishes.length > 0 && (
-                              <p className="flex items-center gap-2 font-medium">
-                                <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                                <span>
-                                  {content.text.finishLabel}:{" "}
-                                  <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[13px]">
-                                    {configuredFinishes.join(", ")}
-                                  </strong>
-                                </span>
-                              </p>
-                            )}
-                            <p className="flex items-center gap-2 font-medium">
-                              <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
-                              <span>{content.text.scopeLine3}</span>
-                            </p>
-                          </div>
-                        </div>
-
-                        {/* Official Whyte Tactus Features: Whyte's own product line, on its own document only */}
-                        {content.isDefaultCompany && (
-                        <div className="space-y-2.5 pt-1">
-                          <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
-                            Whyte Tactus Touch Series Technology
-                          </h3>
-                          <div className="grid grid-cols-3 gap-2.5 text-sm">
-                            <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-sm">
-                                Dual Intensity Light
-                              </p>
-                              <p className="text-[11px] text-gray-500 leading-snug">
-                                Visual feedback indication showing active ON/OFF
-                                state.
-                              </p>
-                            </div>
-
-                            <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-sm">
-                                Night Recognizable
-                              </p>
-                              <p className="text-[11px] text-gray-500 leading-snug">
-                                Soft dim ambient glow makes switches easy to
-                                locate in the dark.
-                              </p>
-                            </div>
-
-                            <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-sm">
-                                Voice Automation Ready
-                              </p>
-                              <p className="text-[11px] text-gray-500 leading-snug">
-                                Full compatibility with Amazon Alexa and Google
-                                Assistant.
-                              </p>
-                            </div>
-
-                            <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-sm">
-                                Sleep & Child Lock
-                              </p>
-                              <p className="text-[11px] text-gray-500 leading-snug">
-                                Built-in safety and uninterrupted sleep mode
-                                settings.
-                              </p>
-                            </div>
-
-                            <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-sm">
-                                Shock & Splash Proof
-                              </p>
-                              <p className="text-[11px] text-gray-500 leading-snug">
-                                Toughened glass design provides optimal safety in
-                                all spaces.
-                              </p>
-                            </div>
-
-                            <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
-                              <p className="font-bold text-gray-950 text-sm">
-                                Two-Way Switching
-                              </p>
-                              <p className="text-[11px] text-gray-500 leading-snug">
-                                Convenient provision for multi-point staircase and
-                                bedside control.
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  /* 4. ROOM-WISE PRODUCT SUMMARY & SPECIFICATIONS (UNIFIED SINGLE CONTAINER FORMAT) */
-                  if (section.type === "room") {
-                    const {
-                      room,
-                      items,
-                      isContinuation,
-                      showSectionHeader,
-                      showRoomHeader,
-                      showRoomFooter,
-                    } = section;
-                    const Icon = getRoomIcon(
-                      room.customName ?? room.roomType?.name ?? "Room"
-                    );
-                    const roomSubtotal = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
-                      (acc, i) =>
-                        acc + Number(i.unitPrice || 0) * (i.quantity || 1),
-                      0
-                    );
-                    const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
-                    // Flats have no floors: the label is hidden, the stored floor value is untouched.
-                    const floorLocation = getRoomFloorLabel(room, renderableRooms, isMultiFloor);
-                    const deviceCount = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
-                      (acc, i) => acc + (Number(i.quantity) || 1),
-                      0
-                    );
-
-                    return (
-                      <div key={sIdx} className="space-y-2.5">
-                        {/* Section Header Banner — same eyebrow + h2 pattern used by every
-                            other section title in this document (About Whyte, Your Project
-                            Overview, Financial Summary). */}
-                        {showSectionHeader && (
-                          <div className="pb-2.5 border-b border-gray-200 flex items-end justify-between mb-3">
-                            <div>
-                              <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                                {content.text.productsEyebrow}
-                              </span>
-                              <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
-                                {content.text.productsTitle}
-                              </h2>
-                            </div>
-                            <p className="text-[13px] text-gray-500 font-medium text-right max-w-xs">
-                              {content.text.productsSubtitle}
-                            </p>
-                          </div>
-                        )}
-
-                        {/* One bordered room container with a pink left accent: header, product rows separated by hairlines, subtotal. No nested boxes. */}
-                        <div className="rounded-xl overflow-hidden border border-gray-200 border-l-4 border-l-accent bg-white -mb-1">
-                          {showRoomHeader && (
-                            <div className="flex items-center justify-between gap-4 p-3 border-b border-gray-200">
-                              <div className="flex items-center gap-4 min-w-0 flex-1">
-                                <RoomHeaderImage
-                                  room={room}
-                                  renderableRooms={renderableRooms}
-                                  fallbackIcon={Icon}
-                                  large
-                                />
-                                <div className="min-w-0 flex-1 space-y-1">
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <Icon size={17} className="text-accent shrink-0" />
-                                    <h3 className="font-extrabold text-gray-950 text-xl uppercase tracking-wider truncate">
-                                      {getRoomDisplayName(room, renderableRooms)}
-                                    </h3>
-                                  </div>
-                                  {floorLocation ? (
-                                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{floorLocation}</p>
-                                  ) : (
-                                    <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{content.text.spaceCaption}</p>
-                                  )}
-                                </div>
-                              </div>
-                              <p className="shrink-0 text-right leading-none">
-                                <span className="block font-mono text-2xl font-black text-accent">{deviceCount}</span>
-                                <span className="block mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                                  {deviceCount === 1 ? content.text.deviceSingular : content.text.devicePlural}
-                                </span>
-                              </p>
-                            </div>
-                          )}
-
-                          {isContinuation && (
-                            <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-gray-200 bg-gray-50/60 text-xs font-bold uppercase tracking-wider text-gray-600">
-                              <span className="flex items-center gap-2 min-w-0">
-                                <Icon size={13} className="text-accent shrink-0" />
-                                <span className="truncate">{getRoomFullTitle(room, renderableRooms, isMultiFloor)}</span>
-                              </span>
-                              <span className="shrink-0 text-[10px] uppercase tracking-widest text-accent">{content.text.continuedBadge}</span>
-                            </div>
-                          )}
-
-                          {showRoomHeader && !isLocked && room.isUnavailable && (
-                            <div className="px-4 py-1.5 border-b border-amber-100">
-                              <UnavailabilityWarning
-                                reason={room.unavailableReason}
-                                label={getRoomDisplayName(room, renderableRooms)}
-                              />
-                            </div>
-                          )}
-
-                          {showRoomHeader && room.notes && (
-                            <div className="px-4 py-1.5 border-b border-amber-100 text-[13px] text-amber-900">
-                              <span className="font-semibold">{content.text.spaceNote}: </span>
-                              {room.notes}
-                            </div>
-                          )}
-
-                          {items.length > 0 && (
-                            <div className="divide-y divide-gray-100 px-4">
-                              {items.map((row, itemIdx) => {
-                                const item = row.item;
-                                const isGrouped = row.entries.length > 1;
-                                const unitPrice = Number(item.unitPrice || 0);
-                                // A per-product discount (Admin / Company Owner): show original price, discount and final price.
-                                // Absent on every quotation without one, so those keep the plain layout.
-                                const originalUnitPrice = item.discountType ? Number(item.preDiscountUnitPrice || 0) : 0;
-                                const hasItemDiscount = Boolean(item.discountType) && originalUnitPrice > unitPrice;
-                                const formattedName = formatProposalProductName(item.product?.name);
-                                const moduleSize = getItemModuleSize(item);
-                                const finish = getItemFinish(item, quotation);
-                                const color = getItemColor(item);
-                                const tier = getItemTier(item, quotation);
-                                const connectivity = getItemConnectivity(item);
-                                const sbLabel = item.sbNumber?.trim();
-                                const imgUrl = getItemImageUrl(item);
-                                const location = getItemLocation(item);
-                                const specs = specsOf(item);
-                                const excluded = !isLocked && (room.isUnavailable || item.isUnavailable);
-                                const chipClass =
-                                  "text-[11px] font-semibold text-gray-600 bg-gray-100/80 px-2 py-0.5 rounded-full";
-
-                                return (
-                                  <div
-                                    key={row.key || itemIdx}
-                                    className="flex items-center gap-5 py-3"
-                                    style={{ minHeight: PRODUCT_ROW_MIN_PX }}
-                                  >
-                                    {/* The product itself, straight on white: no frame, no grey tile, never cropped or stretched */}
-                                    <div
-                                      className="shrink-0 flex items-center justify-center"
-                                      style={{ width: PRODUCT_IMAGE_PX, height: PRODUCT_IMAGE_PX }}
-                                    >
-                                      {imgUrl ? (
-                                        <img
-                                          src={imgUrl}
-                                          alt={formattedName}
-                                          className="max-h-full max-w-full object-contain"
-                                          crossOrigin="anonymous"
-                                          onError={(e) => {
-                                            (e.target as HTMLElement).style.display = "none";
-                                          }}
-                                        />
-                                      ) : (
-                                        <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-200 text-gray-300">
-                                          <Package size={28} />
-                                          <span className="text-[9px] font-semibold uppercase tracking-wider">{content.text.noImage}</span>
-                                        </div>
-                                      )}
-                                    </div>
-
-                                    <div className="min-w-0 flex-1 space-y-1.5">
-                                      <div className="flex items-start gap-2 min-w-0">
-                                        {sbLabel && (
-                                          <span className="font-mono text-[11px] font-bold text-accent shrink-0 mt-[3px] tracking-wide">
-                                            {sbLabel}
-                                          </span>
-                                        )}
-                                        <p className="font-bold text-gray-950 text-[15px] leading-snug break-words min-w-0">
-                                          {formattedName}
-                                        </p>
-                                        {!isLocked && !room.isUnavailable && item.isUnavailable && (
-                                          <UnavailabilityWarning reason={item.unavailableReason} compact />
-                                        )}
-                                      </div>
-
-                                      {(moduleSize || finish || color || tier || connectivity) && (
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                          {moduleSize && <span className={chipClass}>{moduleSize}</span>}
-                                          {finish && <span className={`${chipClass} capitalize`}>{finish}</span>}
-                                          {color && <span className={`${chipClass} capitalize`}>{color}</span>}
-                                          {tier && (
-                                            <span className="text-[11px] font-semibold text-accent-foreground bg-accent-light px-2 py-0.5 rounded-full capitalize">
-                                              {tier}
-                                            </span>
-                                          )}
-                                          {connectivity && <span className={`${chipClass} uppercase`}>{connectivity}</span>}
-                                        </div>
-                                      )}
-
-                                      {specs.length > 0 && (
-                                        <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-gray-600" data-testid="proposal-specs">
-                                          {specs.map((spec) => (
-                                            <div key={spec.key} className="flex gap-1">
-                                              <dt className="text-gray-400">{spec.label}:</dt>
-                                              <dd className="font-semibold text-gray-900">{spec.text}</dd>
-                                            </div>
-                                          ))}
-                                        </dl>
-                                      )}
-
-                                      {!isGrouped && location && (
-                                        <p className="flex items-start gap-1.5 text-[13px] text-gray-600 break-words">
-                                          <MapPin size={13} className="text-accent shrink-0 mt-0.5" />
-                                          <span>
-                                            <span className="text-gray-400">{content.text.locationLabel}: </span>
-                                            <span className="font-semibold text-gray-900">{location}</span>
-                                          </span>
-                                        </p>
-                                      )}
-
-                                      {/* Several entries of this product in the room: every distinct location, with its units. */}
-                                      {isGrouped &&
-                                        row.locations.map((entryLocation, locationIdx) => {
-                                          const { prefix, text } = formatRowLocation(
-                                            entryLocation.label,
-                                            entryLocation.quantity,
-                                            row.locations.length > 1
-                                          );
-                                          return (
-                                            <p
-                                              key={`${row.key}-location-${locationIdx}`}
-                                              className="flex items-start gap-1.5 text-[13px] text-gray-600 break-words"
-                                            >
-                                              <MapPin size={13} className="text-accent shrink-0 mt-0.5" />
-                                              <span>
-                                                {prefix && <span className="text-gray-400">{prefix}</span>}
-                                                <span
-                                                  className={entryLocation.label === null ? "text-gray-400" : "font-semibold text-gray-900"}
-                                                >
-                                                  {text}
-                                                </span>
-                                              </span>
-                                            </p>
-                                          );
-                                        })}
-                                    </div>
-
-                                    {/* Quantity and unit price, right-aligned. Struck through when this item/room is excluded from the totals. */}
-                                    <div className="shrink-0 w-32 text-right space-y-1">
-                                      <p className="font-mono font-bold text-gray-500 text-sm leading-none">
-                                        Qty <span className="text-gray-950 text-lg font-extrabold">{row.quantity}</span>
-                                      </p>
-                                      {hasItemDiscount && (
-                                        <div className="space-y-0.5" data-testid="proposal-item-discount">
-                                          <p className="font-mono text-[11px] leading-none text-gray-400">
-                                            <span className="text-[9px] uppercase tracking-wider font-semibold">Original </span>
-                                            <span className="line-through">{formatCurrency(originalUnitPrice)}</span>
-                                          </p>
-                                          <p className="font-mono text-[11px] font-bold leading-none text-emerald-700">
-                                            <span className="text-[9px] uppercase tracking-wider font-semibold">Discount </span>
-                                            −{formatCurrency(originalUnitPrice - unitPrice)}
-                                            {item.discountType === "percentage" && item.discountValue ? ` (${item.discountValue}%)` : ""}
-                                          </p>
-                                        </div>
-                                      )}
-                                      <p
-                                        className={`font-mono font-extrabold text-lg leading-none ${
-                                          excluded ? "text-gray-400 line-through" : "text-gray-950"
-                                        }`}
-                                      >
-                                        {formatCurrency(unitPrice)}
-                                      </p>
-                                      <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">
-                                        {hasItemDiscount ? "Final · " : ""}
-                                        {content.text.perUnit}
-                                      </p>
-                                      {/* Grouped entries: the sum of each entry's own line total. */}
-                                      {isGrouped && (
-                                        <p
-                                          className={`font-mono text-[13px] font-bold leading-none pt-0.5 ${
-                                            excluded ? "text-gray-400 line-through" : "text-gray-700"
-                                          }`}
-                                        >
-                                          <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">{content.text.lineTotal} </span>
-                                          {formatCurrency(row.lineTotal)}
-                                        </p>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {/* Room subtotal: its own distinct strip, always on the same page as the last product row */}
-                          {!showRoomFooter && items.length > 0 && (
-                            <div className="px-4 py-1.5 border-t border-gray-100 text-right text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                              {content.text.continuedNote}
-                            </div>
-                          )}
-                          {showRoomFooter && items.length > 0 && (
-                            <div className="flex justify-between items-center px-4 py-3 border-t border-gray-200 bg-accent-light/50 text-sm font-bold text-gray-900">
-                              <span className="uppercase tracking-wider text-[12px]">
-                                {getRoomDisplayName(room, renderableRooms)} Subtotal
-                              </span>
-                              <span className="font-mono font-extrabold text-gray-950 text-base">
-                                {formatCurrency(roomSubtotal)}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  }
-
-                  /* 6. FINANCIAL SUMMARY, INVESTMENT CALLOUT, TERMS & OFFICIAL WHYTE CLOSING */
-                  if (section.type === "closing_and_financials") {
-                    return (
-                      <div key={sIdx} className="space-y-2">
-                        {/* Section Header — same eyebrow + h2 pattern as every other page. */}
-                        <div>
-                          <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
-                            {content.text.closingEyebrow}
-                          </span>
-                          <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
-                            {content.text.closingTitle}
-                          </h2>
-                        </div>
-
-                        {/* Financial Summary */}
-                        <div className="space-y-1.5">
-                          <div className="pb-1 border-b border-gray-200 flex items-center justify-between">
-                            <h3 className="text-base font-bold uppercase tracking-wider text-gray-950">
-                              {content.text.financialSummary}
-                            </h3>
-                            <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
-                              {content.text.investmentOverview}
-                            </span>
-                          </div>
-
-                          <div className="p-3 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5 text-sm">
-                            {/* Subtotal */}
-                            <div className="flex justify-between items-center text-gray-600">
-                              <span className="font-medium text-gray-600">{content.text.subtotal}</span>
-                              <span className="font-mono font-medium text-gray-900">
-                                {formatCurrency(grossSubtotal, { decimals: 2 })}
-                              </span>
-                            </div>
-
-                            {/* Discount — hidden entirely when there is none */}
-                            {clampedDiscount > 0 && (
-                              <div className="flex justify-between items-center text-gray-600">
-                                <span className="flex items-center gap-1.5 font-medium text-gray-600">
-                                  <span>{content.text.discount}</span>
-                                  {hasDiscount && quotation.discountType === "percentage" && (
-                                    <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                                      {quotation.discountValue}%
-                                    </span>
-                                  )}
-                                </span>
-                                <span className="font-mono font-medium text-emerald-600">
-                                  -{formatCurrency(clampedDiscount, { decimals: 2 })}
+                                <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
+                                  {premisesLabel(quotation) ?? content.text.projectTypeFallback}
                                 </span>
                               </div>
-                            )}
 
-                            {/* Net Subtotal */}
-                            <div className="pt-2 border-t border-gray-200/80 flex justify-between items-baseline py-0.5">
-                              <div>
-                                <span className="font-bold text-gray-950 block text-base">{content.text.netSubtotal}</span>
-                                <span className="text-[11px] text-gray-400 font-medium">{content.text.netSubtotalNote}</span>
-                              </div>
-                              <span className="font-mono font-bold text-gray-950 text-lg">
-                                {formatCurrency(netSubtotal, { decimals: 2 })}
-                              </span>
-                            </div>
-
-                            {/* Additional charges box (the company's own 18% charge; product prices already include GST) */}
-                            <div className="p-3 rounded-lg bg-white border border-gray-200/80 space-y-1.5">
-                              <div className="flex items-center justify-between pb-1 border-b border-gray-100">
-                                <span className="text-[11px] uppercase font-bold tracking-wider text-gray-500">
-                                  {content.text.taxSummary}
+                              <div className="px-5 min-w-0">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                                  {content.text.automationTypeLabel}
                                 </span>
-                                <span className="text-[11px] font-mono font-bold text-accent px-1.5 py-0.5 rounded bg-accent/5 border border-accent/20">
-                                  {QUOTATION_CGST_PERCENT + QUOTATION_SGST_PERCENT}%
+                                <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
+                                  {content.automationType}
                                 </span>
                               </div>
-                              <div className="space-y-1 text-sm">
-                                {/* One line: the company's own charge on the net subtotal (product prices already include
-                                    GST). igstAmount is the existing CGST + SGST total, the same amount either way. */}
-                                <div className="flex justify-between items-center text-gray-600">
-                                  <span className="text-gray-700 font-medium">
-                                    {content.text.serviceCharge} ({QUOTATION_CGST_PERCENT + QUOTATION_SGST_PERCENT}%)
-                                  </span>
-                                  <span className="font-mono font-semibold text-gray-900">
-                                    {formatCurrency(igstAmount, { decimals: 2 })}
-                                  </span>
-                                </div>
-                                {content.text.pricesIncludeGst && (
-                                  <p className="text-[11px] text-gray-400">{content.text.pricesIncludeGst}</p>
-                                )}
+
+                              <div className="px-5 min-w-0">
+                                <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                                  {content.text.projectScope}
+                                </span>
+                                <span className="mt-0.5 text-xs font-semibold text-gray-900 block">
+                                  {renderableRooms.length} {renderableRooms.length === 1 ? "Space" : "Spaces"} · {totalProducts} {totalProducts === 1 ? "Device" : "Devices"}
+                                </span>
                               </div>
                             </div>
 
-                            {/* Grand Total */}
-                            <div className="pt-2.5 border-t-2 border-gray-950/20 flex justify-between items-baseline">
-                              <div>
-                                <span className="text-base font-black uppercase tracking-wider text-gray-950 block">
-                                  {content.text.grandTotal}
-                                </span>
-                                <span className="text-[11px] text-gray-400">
-                                  {content.text.grandTotalNote}
-                                </span>
-                              </div>
-                              <span className="text-2xl font-black font-mono text-gray-950 tracking-tight">
+                            {/* Row 3 — Slim Investment Strip */}
+                            <div className="px-5 py-2.5 bg-accent-light/40 border-t border-accent-border/50 flex items-center justify-between">
+                              <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-gray-700">
+                                {content.text.totalInvestment}
+                              </span>
+                              <span className="text-lg font-black font-mono tracking-tight text-accent leading-none">
                                 {formatCurrency(grandTotal, { decimals: 2 })}
                               </span>
                             </div>
                           </div>
                         </div>
+                      );
+                    }
 
-                        {/* Final Investment Callout */}
-                        <div className="p-3 rounded-2xl border border-accent-border/80 bg-accent-light/40 text-center space-y-0.5">
-                          <p className="text-[11px] uppercase font-bold tracking-widest text-accent">
-                            {content.text.estimateTitle}
-                          </p>
-                          <p className="text-2xl font-black font-mono tracking-tight text-gray-950">
-                            {formatCurrency(grandTotal, { decimals: 2 })}
-                          </p>
-                          <p className="text-[13px] text-gray-500">
-                            {content.text.estimateNote}
-                          </p>
-                        </div>
+                    /* 2c. PRODUCT SERIES used by this quotation */
+                    if (section.type === "product_series") {
+                      return (
+                        <ProposalSeriesCards
+                          key={sIdx}
+                          series={documentSeries.slice(section.start, section.start + SERIES_PER_PAGE)}
+                          eyebrow={content.text.seriesEyebrow}
+                          title={content.text.seriesTitle}
+                        />
+                      );
+                    }
 
-                        {/* Proposal Includes & Commercial Information */}
-                        <div className={`grid gap-3 text-sm ${hasIncludes ? "grid-cols-2" : "grid-cols-1"}`}>
-                          {/* Proposal Includes (the company's lines + this quotation's selections) */}
-                          <ProposalIncludes content={content} tiers={configuredTiers} finishes={configuredFinishes} />
+                    /* 2b. ABOUT THE COMPANY (custom introduction page written in the company's settings) */
+                    if (section.type === "about_company" && content.about) {
+                      return <ProposalAboutCompany key={sIdx} about={content.about} eyebrow={content.text.aboutEyebrow} />;
+                    }
 
-                          {/* Commercial Terms & Validity */}
-                          <div className="p-3 rounded-xl border border-gray-200 bg-white space-y-1">
-                            <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">
-                              {content.text.termsTitle}
-                            </h4>
-                            <div className="space-y-1 text-[13px] text-gray-600">
-                              <p>
-                                <strong className="text-gray-900">
-                                  {content.text.validityLabel}:{" "}
-                                </strong>
-                                {proposalValidityText(content, quotation.validUntil, formatDate)}
+                    /* 2. ABOUT WHYTE (PAGE 2) */
+                    if (section.type === "about_whyte") {
+                      return (
+                        <div key={sIdx} className="space-y-6">
+                          {/* Section Header */}
+                          <div
+                            className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-pink-50 via-white to-slate-100"
+                            style={{ minHeight: 250 }}
+                          >
+                            <img
+                              src="/proposal/whyte/about-hero.webp"
+                              alt=""
+                              className="absolute right-0 top-0 h-full w-auto max-w-none object-cover object-right"
+                            />
+                            <div className="relative z-10 w-[58%] p-6">
+                              <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
+                                Company Profile & Ecosystem
+                              </span>
+                              <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
+                                About Whyte Automations
+                              </h2>
+                              <p className="text-sm text-gray-700 mt-2 leading-relaxed">
+                                Founded in Gandhinagar, Gujarat, Whyte Automations is
+                                dedicated to bringing the next generation of smart
+                                living to modern premises through the Internet of
+                                Things, intuitive touch architecture, and intelligent
+                                power management.
                               </p>
-                              {(quotation.terms || content.defaultTerms) && (
-                                <p>
-                                  <strong className="text-gray-900">
-                                    {content.text.termsLabel}:{" "}
-                                  </strong>
-                                  {quotation.terms || content.defaultTerms}
-                                </p>
-                              )}
-                              {quotation.notes && (
-                                <p>
-                                  <strong className="text-gray-900">
-                                    {content.text.remarksLabel}:{" "}
-                                  </strong>
-                                  {quotation.notes}
-                                </p>
-                              )}
-                              {quotation.clientGstNumber && (
-                                <p className="font-mono">
-                                  <strong className="text-gray-900">
-                                    Client GST:{" "}
-                                  </strong>
-                                  {quotation.clientGstNumber}
-                                </p>
-                              )}
                             </div>
                           </div>
+
+                          {/* Proven Milestone Statistics */}
+                          <div className="grid grid-cols-4 gap-3 text-center">
+                            <div className="p-4 rounded-2xl bg-white border border-pink-200/90 shadow-2xs flex flex-col items-center justify-center">
+                              <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                                1000+
+                              </p>
+                              <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                                INSTALLATIONS
+                              </p>
+                            </div>
+                            <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                              <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                                89000+
+                              </p>
+                              <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                                SWITCHES
+                              </p>
+                            </div>
+                            <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                              <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                                50+
+                              </p>
+                              <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                                PRODUCTS
+                              </p>
+                            </div>
+                            <div className="p-4 rounded-2xl bg-white border border-gray-200/90 shadow-2xs flex flex-col items-center justify-center">
+                              <p className="text-3xl font-extrabold text-[#ef4370] tracking-tight">
+                                25+
+                              </p>
+                              <p className="text-[11px] uppercase tracking-wider text-gray-900 font-bold mt-1">
+                                FEATURES
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Bespoke Premise Solutions */}
+                          <div className="space-y-2.5">
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
+                              Bespoke Automation Solutions
+                            </h3>
+                            <div className="grid grid-cols-4 gap-2.5">
+                              <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
+                                <div className="h-20 bg-gray-100 overflow-hidden">
+                                  <img
+                                    src="/proposal/whyte/solutions/img-home.jpg"
+                                    alt="Home Automation"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="p-2">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Home
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
+                                    Feather-touch & scene automation.
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
+                                <div className="h-20 bg-gray-100 overflow-hidden">
+                                  <img
+                                    src="/proposal/whyte/solutions/img-office.jpg"
+                                    alt="Office Automation"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="p-2">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Office
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
+                                    Meeting & energy automation.
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
+                                <div className="h-20 bg-gray-100 overflow-hidden">
+                                  <img
+                                    src="/proposal/whyte/solutions/img-hotel.jpg"
+                                    alt="Hotel Automation"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="p-2">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Hotels
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
+                                    Guest bedside touch panels.
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border border-gray-200 overflow-hidden bg-white">
+                                <div className="h-20 bg-gray-100 overflow-hidden">
+                                  <img
+                                    src="/proposal/whyte/solutions/img-hospital.jpg"
+                                    alt="Hospital Automation"
+                                    className="w-full h-full object-cover"
+                                  />
+                                </div>
+                                <div className="p-2">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Hospitals
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-tight mt-0.5">
+                                    Hygienic touch interfaces.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Why Whyte: Engineering & Guarantees */}
+                          <div className="space-y-2.5">
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
+                              Why Whyte
+                            </h3>
+                            <div className="grid grid-cols-2 gap-3 text-sm">
+                              <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 border-l-[3px] border-l-accent space-y-1">
+                                <div className="flex items-center gap-1.5 font-bold text-gray-950">
+                                  <ShieldCheck size={14} className="text-gray-950" />
+                                  <span>5* Years Limited Warranty</span>
+                                </div>
+                                <p className="text-[13px] text-gray-500 leading-relaxed">
+                                  Backed by Whyte comprehensive hardware warranty
+                                  and dedicated support for long-term reliability.
+                                </p>
+                              </div>
+
+                              <div className="p-3 bg-gray-50/70 rounded-xl border border-gray-200 border-l-[3px] border-l-accent space-y-1">
+                                <div className="flex items-center gap-1.5 font-bold text-gray-950">
+                                  <Sliders size={14} className="text-gray-950" />
+                                  <span>Modular & 100% Retrofit</span>
+                                </div>
+                                <p className="text-[13px] text-gray-500 leading-relaxed">
+                                  Direct drop-in replacement compatible with
+                                  standard concealed metal boxes with zero civil
+                                  rewiring.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Government & Industry Backing */}
+                          <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex items-center justify-between text-sm text-gray-600">
+                            <div className="flex items-center gap-2">
+                              <Award size={15} className="text-gray-950" />
+                              <span className="font-semibold text-gray-900">
+                                Backed by Startup Gujarat (Govt. of Gujarat – 2021)
+                              </span>
+                            </div>
+                            <span className="text-[13px] text-gray-500">
+                              VSTS Startup Arena Winner
+                            </span>
+                          </div>
                         </div>
+                      );
+                    }
 
-                        {/* Next Steps (the company's own steps; hidden when it has none) */}
-                        <ProposalNextSteps content={content} />
+                    /* 3. YOUR PROJECT OVERVIEW & TACTUS TECH (PAGE 3) */
+                    if (section.type === "project_overview_and_scope") {
+                      return (
+                        <div key={sIdx} className="space-y-6">
+                          {/* Section Header */}
+                          <div
+                            className="relative overflow-hidden rounded-2xl border border-gray-200 bg-gradient-to-br from-accent-light via-white to-slate-100"
+                            style={{ minHeight: 200 }}
+                          >
+                            {/* Whyte's own product photo on its document; another company's cover picture, or none. */}
+                            {(content.isDefaultCompany || content.coverImageUrl) && (
+                              <img
+                                src={content.isDefaultCompany ? "/proposal/whyte/overview-hero.webp" : (content.coverImageUrl as string)}
+                                alt=""
+                                className="absolute right-0 top-0 h-full w-auto max-w-[45%] object-cover object-right"
+                              />
+                            )}
+                            <div className={`relative z-10 p-6 ${content.isDefaultCompany || content.coverImageUrl ? "w-[55%]" : "w-full"}`}>
+                              <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
+                                {content.text.overviewEyebrow}
+                              </span>
+                              <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
+                                {content.text.overviewTitle}
+                              </h2>
+                              <p className="text-sm text-gray-700 mt-1">
+                                {content.text.overviewIntro}{" "}
+                                <strong className="text-gray-950">
+                                  {quotation.clientName}
+                                </strong>
+                                .
+                              </p>
+                            </div>
+                          </div>
 
-                        {/* Closing & contact card: the company's own details */}
-                        <ProposalContactCard content={content} />
-                      </div>
-                    );
-                  }
+                          {/* Authorized Dealer — only ever quotation.dealer (the existing
+                            dealerId/"assignedTo" relation). Omitted entirely, with no
+                            placeholder, when the quotation has no dealer. */}
+                          {(() => {
+                            if (!authorizedDealer) return null;
+                            const hasContactRow =
+                              authorizedDealer.address || authorizedDealer.phone || authorizedDealer.email;
+                            return (
+                              <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3.5">
+                                <div className="flex flex-wrap items-start justify-between gap-3">
+                                  <div className="flex items-start gap-2.5">
+                                    <div className="w-9 h-9 rounded-lg bg-gray-950 text-white flex items-center justify-center shrink-0">
+                                      <Building2 size={16} />
+                                    </div>
+                                    <div>
+                                      <p className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
+                                        {content.text.dealerLabel}
+                                      </p>
+                                      <p className="text-base font-black text-gray-950 tracking-tight mt-0.5">
+                                        {authorizedDealer.companyName || authorizedDealer.name}
+                                      </p>
+                                      {authorizedDealer.companyName && (
+                                        <p className="text-[13px] text-gray-500 font-medium">
+                                          {authorizedDealer.name}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {authorizedDealer.gstNumber && (
+                                    <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-bold text-gray-600 tracking-wide shrink-0">
+                                      {content.text.gstinLabel} {authorizedDealer.gstNumber}
+                                    </span>
+                                  )}
+                                </div>
+                                {hasContactRow && (
+                                  <div className="mt-2.5 pt-2.5 border-t border-gray-200/70 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[13px] text-gray-500 font-medium">
+                                    {authorizedDealer.address && (
+                                      <span className="flex items-center gap-1.5">
+                                        <MapPin size={11} className="text-gray-400 shrink-0" />
+                                        {authorizedDealer.address}
+                                      </span>
+                                    )}
+                                    {authorizedDealer.phone && (
+                                      <span className="flex items-center gap-1.5">
+                                        <Phone size={11} className="text-gray-400 shrink-0" />
+                                        {authorizedDealer.phone}
+                                      </span>
+                                    )}
+                                    {authorizedDealer.email && (
+                                      <span className="flex items-center gap-1.5">
+                                        <Mail size={11} className="text-gray-400 shrink-0" />
+                                        {authorizedDealer.email}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
 
-                  return null;
-                })}
-              </div>
+                          {/* Selected Automated Spaces */}
+                          <div className="space-y-2.5">
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
+                              {content.text.spacesTitle} ({renderableRooms.length}{" "}
+                              {renderableRooms.length === 1 ? content.text.spaceSingular : content.text.spacePlural})
+                            </h3>
+                            {renderableRooms.length > 0 ? (
+                              <div className="flex flex-wrap gap-2">
+                                {renderableRooms.map((r: QuotationRoom) => {
+                                  const roomId = Number(r.id ?? (r as any)._id);
+                                  const Icon = getRoomIcon(
+                                    r.customName ?? r.roomType?.name ?? "Room"
+                                  );
+                                  const count = eligibleItemsOfRoom(r, r.items, isLocked).reduce(
+                                    (acc: number, i: QuotationItem) => acc + (Number(i.quantity) || 1),
+                                    0
+                                  );
+                                  return (
+                                    <div
+                                      key={roomId}
+                                      className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-sm"
+                                    >
+                                      <Icon size={13} className="text-accent" />
+                                      <span className="font-semibold text-gray-900">
+                                        {getRoomFullTitle(r, renderableRooms, isMultiFloorHouseType(quotation.houseType))}
+                                      </span>
+                                      <span className="font-mono text-[11px] bg-accent-light text-accent-foreground border border-accent-border/60 px-1.5 py-0.5 rounded font-bold">
+                                        {count} {count === 1 ? content.text.deviceSingular : content.text.devicePlural}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 text-sm text-gray-400 italic">
+                                {content.text.noSpaces}
+                              </div>
+                            )}
+                          </div>
 
-              {/* Document Footer on Every Page */}
-              <ProposalPageFooter content={content} pageNumber={page.pageNumber} totalPages={page.totalPages} />
+                          {/* Automation Scope */}
+                          <div className="space-y-2 pt-1">
+                            <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
+                              {content.text.scopeTitle}
+                            </h3>
+                            <div className="p-4 rounded-xl bg-gray-50/70 border border-gray-200 text-sm space-y-1.5 text-gray-700">
+                              <p className="flex items-center gap-2 font-medium">
+                                <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                                <span>{content.text.scopeLine1}</span>
+                              </p>
+                              <p className="flex items-center gap-2 font-medium">
+                                <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                                <span>
+                                  {content.text.scopeLine2} ({renderableRooms.length} {content.text.automatedSpaces}).
+                                </span>
+                              </p>
+                              {configuredTiers.length > 0 && (
+                                <p className="flex items-center gap-2 font-medium">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                                  <span>
+                                    {content.text.tierLabel}:{" "}
+                                    <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[13px]">
+                                      {configuredTiers.join(", ")}
+                                    </strong>
+                                  </span>
+                                </p>
+                              )}
+                              {configuredFinishes.length > 0 && (
+                                <p className="flex items-center gap-2 font-medium">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                                  <span>
+                                    {content.text.finishLabel}:{" "}
+                                    <strong className="text-accent-foreground bg-accent-light px-1.5 py-0.5 rounded border border-accent-border/60 capitalize text-[13px]">
+                                      {configuredFinishes.join(", ")}
+                                    </strong>
+                                  </span>
+                                </p>
+                              )}
+                              <p className="flex items-center gap-2 font-medium">
+                                <span className="w-1.5 h-1.5 rounded-full bg-accent shrink-0" />
+                                <span>{content.text.scopeLine3}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Official Whyte Tactus Features: Whyte's own product line, on its own document only */}
+                          {content.isDefaultCompany && (
+                            <div className="space-y-2.5 pt-1">
+                              <h3 className="text-sm font-bold uppercase tracking-wider text-gray-950">
+                                Whyte Tactus Touch Series Technology
+                              </h3>
+                              <div className="grid grid-cols-3 gap-2.5 text-sm">
+                                <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Dual Intensity Light
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-snug">
+                                    Visual feedback indication showing active ON/OFF
+                                    state.
+                                  </p>
+                                </div>
+
+                                <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Night Recognizable
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-snug">
+                                    Soft dim ambient glow makes switches easy to
+                                    locate in the dark.
+                                  </p>
+                                </div>
+
+                                <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Voice Automation Ready
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-snug">
+                                    Full compatibility with Amazon Alexa and Google
+                                    Assistant.
+                                  </p>
+                                </div>
+
+                                <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Sleep & Child Lock
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-snug">
+                                    Built-in safety and uninterrupted sleep mode
+                                    settings.
+                                  </p>
+                                </div>
+
+                                <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Shock & Splash Proof
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-snug">
+                                    Toughened glass design provides optimal safety in
+                                    all spaces.
+                                  </p>
+                                </div>
+
+                                <div className="p-3 bg-white rounded-xl border border-gray-200 space-y-1">
+                                  <p className="font-bold text-gray-950 text-sm">
+                                    Two-Way Switching
+                                  </p>
+                                  <p className="text-[11px] text-gray-500 leading-snug">
+                                    Convenient provision for multi-point staircase and
+                                    bedside control.
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    /* 4. ROOM-WISE PRODUCT SUMMARY & SPECIFICATIONS (UNIFIED SINGLE CONTAINER FORMAT) */
+                    if (section.type === "room") {
+                      const {
+                        room,
+                        items,
+                        isContinuation,
+                        showSectionHeader,
+                        showRoomHeader,
+                        showRoomFooter,
+                      } = section;
+                      const Icon = getRoomIcon(
+                        room.customName ?? room.roomType?.name ?? "Room"
+                      );
+                      const roomSubtotal = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
+                        (acc, i) =>
+                          acc + Number(i.unitPrice || 0) * (i.quantity || 1),
+                        0
+                      );
+                      const isMultiFloor = isMultiFloorHouseType(quotation.houseType);
+                      // Flats have no floors: the label is hidden, the stored floor value is untouched.
+                      const floorLocation = getRoomFloorLabel(room, renderableRooms, isMultiFloor);
+                      const deviceCount = eligibleItemsOfRoom(room, room.items, isLocked).reduce(
+                        (acc, i) => acc + (Number(i.quantity) || 1),
+                        0
+                      );
+
+                      return (
+                        <div key={sIdx} className="space-y-2.5">
+                          {/* Section Header Banner — same eyebrow + h2 pattern used by every
+                            other section title in this document (About Whyte, Your Project
+                            Overview, Financial Summary). */}
+                          {showSectionHeader && (
+                            <div className="pb-2.5 border-b border-gray-200 flex items-end justify-between mb-3">
+                              <div>
+                                <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
+                                  {content.text.productsEyebrow}
+                                </span>
+                                <h2 className="text-3xl font-black text-gray-950 tracking-tight mt-0.5">
+                                  {content.text.productsTitle}
+                                </h2>
+                              </div>
+                              <p className="text-[13px] text-gray-500 font-medium text-right max-w-xs">
+                                {content.text.productsSubtitle}
+                              </p>
+                            </div>
+                          )}
+
+                          {/* One bordered room container with a pink left accent: header, product rows separated by hairlines, subtotal. No nested boxes. */}
+                          <div className="rounded-xl overflow-hidden border border-gray-200 border-l-4 border-l-accent bg-white -mb-1">
+                            {showRoomHeader && (
+                              <div className="flex items-center justify-between gap-4 p-3 border-b border-gray-200">
+                                <div className="flex items-center gap-4 min-w-0 flex-1">
+                                  <RoomHeaderImage
+                                    room={room}
+                                    renderableRooms={renderableRooms}
+                                    fallbackIcon={Icon}
+                                    large
+                                  />
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <Icon size={17} className="text-accent shrink-0" />
+                                      <h3 className="font-extrabold text-gray-950 text-xl uppercase tracking-wider truncate">
+                                        {getRoomDisplayName(room, renderableRooms)}
+                                      </h3>
+                                    </div>
+                                    {floorLocation ? (
+                                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{floorLocation}</p>
+                                    ) : (
+                                      <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">{content.text.spaceCaption}</p>
+                                    )}
+                                  </div>
+                                </div>
+                                <p className="shrink-0 text-right leading-none">
+                                  <span className="block font-mono text-2xl font-black text-accent">{deviceCount}</span>
+                                  <span className="block mt-1 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                                    {deviceCount === 1 ? content.text.deviceSingular : content.text.devicePlural}
+                                  </span>
+                                </p>
+                              </div>
+                            )}
+
+                            {isContinuation && (
+                              <div className="flex items-center justify-between gap-2 px-4 py-2.5 border-b border-gray-200 bg-gray-50/60 text-xs font-bold uppercase tracking-wider text-gray-600">
+                                <span className="flex items-center gap-2 min-w-0">
+                                  <Icon size={13} className="text-accent shrink-0" />
+                                  <span className="truncate">{getRoomFullTitle(room, renderableRooms, isMultiFloor)}</span>
+                                </span>
+                                <span className="shrink-0 text-[10px] uppercase tracking-widest text-accent">{content.text.continuedBadge}</span>
+                              </div>
+                            )}
+
+                            {showRoomHeader && !isLocked && room.isUnavailable && (
+                              <div className="px-4 py-1.5 border-b border-amber-100">
+                                <UnavailabilityWarning
+                                  reason={room.unavailableReason}
+                                  label={getRoomDisplayName(room, renderableRooms)}
+                                />
+                              </div>
+                            )}
+
+                            {showRoomHeader && room.notes && (
+                              <div className="px-4 py-1.5 border-b border-amber-100 text-[13px] text-amber-900">
+                                <span className="font-semibold">{content.text.spaceNote}: </span>
+                                {room.notes}
+                              </div>
+                            )}
+
+                            {items.length > 0 && (
+                              <div className="divide-y divide-gray-100 px-4">
+                                {items.map((row, itemIdx) => {
+                                  const item = row.item;
+                                  const isGrouped = row.entries.length > 1;
+                                  const unitPrice = Number(item.unitPrice || 0);
+                                  // A per-product discount (Admin / Company Owner): show original price, discount and final price.
+                                  // Absent on every quotation without one, so those keep the plain layout.
+                                  const originalUnitPrice = item.discountType ? Number(item.preDiscountUnitPrice || 0) : 0;
+                                  const hasItemDiscount = Boolean(item.discountType) && originalUnitPrice > unitPrice;
+                                  const formattedName = formatProposalProductName(item.product?.name);
+                                  const moduleSize = getItemModuleSize(item);
+                                  const finish = getItemFinish(item, quotation);
+                                  const color = getItemColor(item);
+                                  const tier = getItemTier(item, quotation);
+                                  const connectivity = getItemConnectivity(item);
+                                  const sbLabel = item.sbNumber?.trim();
+                                  const imgUrl = getItemImageUrl(item);
+                                  const location = getItemLocation(item);
+                                  const specs = specsOf(item);
+                                  const excluded = !isLocked && (room.isUnavailable || item.isUnavailable);
+                                  const chipClass =
+                                    "text-[11px] font-semibold text-gray-600 bg-gray-100/80 px-2 py-0.5 rounded-full";
+
+                                  return (
+                                    <div
+                                      key={row.key || itemIdx}
+                                      className="flex items-center gap-5 py-3"
+                                      style={{ minHeight: PRODUCT_ROW_MIN_PX }}
+                                    >
+                                      {/* The product itself, straight on white: no frame, no grey tile, never cropped or stretched */}
+                                      <div
+                                        className="shrink-0 flex items-center justify-center"
+                                        style={{ width: PRODUCT_IMAGE_PX, height: PRODUCT_IMAGE_PX }}
+                                      >
+                                        {imgUrl ? (
+                                          <img
+                                            src={imgUrl}
+                                            alt={formattedName}
+                                            className="max-h-full max-w-full object-contain"
+                                            crossOrigin="anonymous"
+                                            onError={(e) => {
+                                              (e.target as HTMLElement).style.display = "none";
+                                            }}
+                                          />
+                                        ) : (
+                                          <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-200 text-gray-300">
+                                            <Package size={28} />
+                                            <span className="text-[9px] font-semibold uppercase tracking-wider">{content.text.noImage}</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className="min-w-0 flex-1 space-y-1.5">
+                                        <div className="flex items-start gap-2 min-w-0">
+                                          {sbLabel && (
+                                            <span className="font-mono text-[11px] font-bold text-accent shrink-0 mt-[3px] tracking-wide">
+                                              {sbLabel}
+                                            </span>
+                                          )}
+                                          <p className="font-bold text-gray-950 text-[15px] leading-snug break-words min-w-0">
+                                            {formattedName}
+                                          </p>
+                                          {!isLocked && !room.isUnavailable && item.isUnavailable && (
+                                            <UnavailabilityWarning reason={item.unavailableReason} compact />
+                                          )}
+                                        </div>
+
+                                        {(moduleSize || finish || color || tier || connectivity) && (
+                                          <div className="flex flex-wrap items-center gap-1.5">
+                                            {moduleSize && <span className={chipClass}>{moduleSize}</span>}
+                                            {finish && <span className={`${chipClass} capitalize`}>{finish}</span>}
+                                            {color && <span className={`${chipClass} capitalize`}>{color}</span>}
+                                            {tier && (
+                                              <span className="text-[11px] font-semibold text-accent-foreground bg-accent-light px-2 py-0.5 rounded-full capitalize">
+                                                {tier}
+                                              </span>
+                                            )}
+                                            {connectivity && <span className={`${chipClass} uppercase`}>{connectivity}</span>}
+                                          </div>
+                                        )}
+
+                                        {specs.length > 0 && (
+                                          <dl className="flex flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-gray-600" data-testid="proposal-specs">
+                                            {specs.map((spec) => (
+                                              <div key={spec.key} className="flex gap-1">
+                                                <dt className="text-gray-400">{spec.label}:</dt>
+                                                <dd className="font-semibold text-gray-900">{spec.text}</dd>
+                                              </div>
+                                            ))}
+                                          </dl>
+                                        )}
+
+                                        {!isGrouped && location && (
+                                          <p className="flex items-start gap-1.5 text-[13px] text-gray-600 break-words">
+                                            <MapPin size={13} className="text-accent shrink-0 mt-0.5" />
+                                            <span>
+                                              <span className="text-gray-400">{content.text.locationLabel}: </span>
+                                              <span className="font-semibold text-gray-900">{location}</span>
+                                            </span>
+                                          </p>
+                                        )}
+
+                                        {/* Several entries of this product in the room: every distinct location, with its units. */}
+                                        {isGrouped &&
+                                          row.locations.map((entryLocation, locationIdx) => {
+                                            const { prefix, text } = formatRowLocation(
+                                              entryLocation.label,
+                                              entryLocation.quantity,
+                                              row.locations.length > 1
+                                            );
+                                            return (
+                                              <p
+                                                key={`${row.key}-location-${locationIdx}`}
+                                                className="flex items-start gap-1.5 text-[13px] text-gray-600 break-words"
+                                              >
+                                                <MapPin size={13} className="text-accent shrink-0 mt-0.5" />
+                                                <span>
+                                                  {prefix && <span className="text-gray-400">{prefix}</span>}
+                                                  <span
+                                                    className={entryLocation.label === null ? "text-gray-400" : "font-semibold text-gray-900"}
+                                                  >
+                                                    {text}
+                                                  </span>
+                                                </span>
+                                              </p>
+                                            );
+                                          })}
+                                      </div>
+
+                                      {/* Quantity and unit price, right-aligned. Struck through when this item/room is excluded from the totals. */}
+                                      <div className="shrink-0 w-32 text-right space-y-1">
+                                        <p className="font-mono font-bold text-gray-500 text-sm leading-none">
+                                          Qty <span className="text-gray-950 text-lg font-extrabold">{row.quantity}</span>
+                                        </p>
+                                        {hasItemDiscount && (
+                                          <div className="space-y-0.5" data-testid="proposal-item-discount">
+                                            <p className="font-mono text-[11px] leading-none text-gray-400">
+                                              <span className="text-[9px] uppercase tracking-wider font-semibold">Original </span>
+                                              <span className="line-through">{formatCurrency(originalUnitPrice)}</span>
+                                            </p>
+                                            <p className="font-mono text-[11px] font-bold leading-none text-emerald-700">
+                                              <span className="text-[9px] uppercase tracking-wider font-semibold">Discount </span>
+                                              −{formatCurrency(originalUnitPrice - unitPrice)}
+                                              {item.discountType === "percentage" && item.discountValue ? ` (${item.discountValue}%)` : ""}
+                                            </p>
+                                          </div>
+                                        )}
+                                        <p
+                                          className={`font-mono font-extrabold text-lg leading-none ${excluded ? "text-gray-400 line-through" : "text-gray-950"
+                                            }`}
+                                        >
+                                          {formatCurrency(unitPrice)}
+                                        </p>
+                                        <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">
+                                          {hasItemDiscount ? "Final · " : ""}
+                                          {content.text.perUnit}
+                                        </p>
+                                        {/* Grouped entries: the sum of each entry's own line total. */}
+                                        {isGrouped && (
+                                          <p
+                                            className={`font-mono text-[13px] font-bold leading-none pt-0.5 ${excluded ? "text-gray-400 line-through" : "text-gray-700"
+                                              }`}
+                                          >
+                                            <span className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">{content.text.lineTotal} </span>
+                                            {formatCurrency(row.lineTotal)}
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {/* Room subtotal: its own distinct strip, always on the same page as the last product row */}
+                            {!showRoomFooter && items.length > 0 && (
+                              <div className="px-4 py-1.5 border-t border-gray-100 text-right text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                                {content.text.continuedNote}
+                              </div>
+                            )}
+                            {showRoomFooter && items.length > 0 && (
+                              <div className="flex justify-between items-center px-4 py-3 border-t border-gray-200 bg-accent-light/50 text-sm font-bold text-gray-900">
+                                <span className="uppercase tracking-wider text-[12px]">
+                                  {getRoomDisplayName(room, renderableRooms)} Subtotal
+                                </span>
+                                <span className="font-mono font-extrabold text-gray-950 text-base">
+                                  {formatCurrency(roomSubtotal)}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    /* 6. FINANCIAL SUMMARY, INVESTMENT CALLOUT, TERMS & OFFICIAL WHYTE CLOSING */
+                    if (section.type === "closing_and_financials") {
+                      return (
+                        <div key={sIdx} className="space-y-2">
+                          {/* Section Header — same eyebrow + h2 pattern as every other page. */}
+                          <div>
+                            <span className="text-[11px] uppercase tracking-widest text-accent font-bold block">
+                              {content.text.closingEyebrow}
+                            </span>
+                            <h2 className="text-2xl font-black text-gray-950 tracking-tight mt-0.5">
+                              {content.text.closingTitle}
+                            </h2>
+                          </div>
+
+                          {/* Financial Summary */}
+                          <div className="space-y-1.5">
+                            <div className="pb-1 border-b border-gray-200 flex items-center justify-between">
+                              <h3 className="text-base font-bold uppercase tracking-wider text-gray-950">
+                                {content.text.financialSummary}
+                              </h3>
+                              <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                                {content.text.investmentOverview}
+                              </span>
+                            </div>
+
+                            <div className="p-3 rounded-xl border border-gray-200 bg-gray-50/50 space-y-1.5 text-sm">
+                              {/* Subtotal */}
+                              <div className="flex justify-between items-center text-gray-600">
+                                <span className="font-medium text-gray-600">{content.text.subtotal}</span>
+                                <span className="font-mono font-medium text-gray-900">
+                                  {formatCurrency(grossSubtotal, { decimals: 2 })}
+                                </span>
+                              </div>
+
+                              {/* Discount — hidden entirely when there is none */}
+                              {clampedDiscount > 0 && (
+                                <div className="flex justify-between items-center text-gray-600">
+                                  <span className="flex items-center gap-1.5 font-medium text-gray-600">
+                                    <span>{content.text.discount}</span>
+                                    {hasDiscount && quotation.discountType === "percentage" && (
+                                      <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                        {quotation.discountValue}%
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span className="font-mono font-medium text-emerald-600">
+                                    -{formatCurrency(clampedDiscount, { decimals: 2 })}
+                                  </span>
+                                </div>
+                              )}
+
+                              {/* Net Subtotal */}
+                              <div className="pt-2 border-t border-gray-200/80 flex justify-between items-baseline py-0.5">
+                                <div>
+                                  <span className="font-bold text-gray-950 block text-base">{content.text.netSubtotal}</span>
+                                  <span className="text-[11px] text-gray-400 font-medium">{content.text.netSubtotalNote}</span>
+                                </div>
+                                <span className="font-mono font-bold text-gray-950 text-lg">
+                                  {formatCurrency(netSubtotal, { decimals: 2 })}
+                                </span>
+                              </div>
+
+                              {/* Additional charges box (the company's own 18% charge; product prices already include GST) */}
+                              <div className="p-3 rounded-lg bg-white border border-gray-200/80 space-y-1.5">
+                                <div className="flex items-center justify-between pb-1 border-b border-gray-100">
+                                  <span className="text-[11px] uppercase font-bold tracking-wider text-gray-500">
+                                    {content.text.taxSummary}
+                                  </span>
+                                  <span className="text-[11px] font-mono font-bold text-accent px-1.5 py-0.5 rounded bg-accent/5 border border-accent/20">
+                                    {QUOTATION_CGST_PERCENT + QUOTATION_SGST_PERCENT}%
+                                  </span>
+                                </div>
+                                <div className="space-y-1 text-sm">
+                                  {/* One line: the company's own charge on the net subtotal (product prices already include
+                                    GST). igstAmount is the existing CGST + SGST total, the same amount either way. */}
+                                  <div className="flex justify-between items-center text-gray-600">
+                                    <span className="text-gray-700 font-medium">
+                                      {content.text.serviceCharge} ({QUOTATION_CGST_PERCENT + QUOTATION_SGST_PERCENT}%)
+                                    </span>
+                                    <span className="font-mono font-semibold text-gray-900">
+                                      {formatCurrency(igstAmount, { decimals: 2 })}
+                                    </span>
+                                  </div>
+                                  {content.text.pricesIncludeGst && (
+                                    <p className="text-[11px] text-gray-400">{content.text.pricesIncludeGst}</p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Grand Total */}
+                              <div className="pt-2.5 border-t-2 border-gray-950/20 flex justify-between items-baseline">
+                                <div>
+                                  <span className="text-base font-black uppercase tracking-wider text-gray-950 block">
+                                    {content.text.grandTotal}
+                                  </span>
+                                  <span className="text-[11px] text-gray-400">
+                                    {content.text.grandTotalNote}
+                                  </span>
+                                </div>
+                                <span className="text-2xl font-black font-mono text-gray-950 tracking-tight">
+                                  {formatCurrency(grandTotal, { decimals: 2 })}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Final Investment Callout */}
+                          <div className="p-3 rounded-2xl border border-accent-border/80 bg-accent-light/40 text-center space-y-0.5">
+                            <p className="text-[11px] uppercase font-bold tracking-widest text-accent">
+                              {content.text.estimateTitle}
+                            </p>
+                            <p className="text-2xl font-black font-mono tracking-tight text-gray-950">
+                              {formatCurrency(grandTotal, { decimals: 2 })}
+                            </p>
+                            <p className="text-[13px] text-gray-500">
+                              {content.text.estimateNote}
+                            </p>
+                          </div>
+
+                          {/* Proposal Includes & Commercial Information */}
+                          <div className={`grid gap-3 text-sm ${hasIncludes ? "grid-cols-2" : "grid-cols-1"}`}>
+                            {/* Proposal Includes (the company's lines + this quotation's selections) */}
+                            <ProposalIncludes content={content} tiers={configuredTiers} finishes={configuredFinishes} />
+
+                            {/* Commercial Terms & Validity */}
+                            <div className="p-3 rounded-xl border border-gray-200 bg-white space-y-1">
+                              <h4 className="font-bold uppercase tracking-wider text-gray-900 text-[11px]">
+                                {content.text.termsTitle}
+                              </h4>
+                              <div className="space-y-1 text-[13px] text-gray-600">
+                                <p>
+                                  <strong className="text-gray-900">
+                                    {content.text.validityLabel}:{" "}
+                                  </strong>
+                                  {proposalValidityText(content, quotation.validUntil, formatDate)}
+                                </p>
+                                {(quotation.terms || content.defaultTerms) && (
+                                  <p>
+                                    <strong className="text-gray-900">
+                                      {content.text.termsLabel}:{" "}
+                                    </strong>
+                                    {quotation.terms || content.defaultTerms}
+                                  </p>
+                                )}
+                                {quotation.notes && (
+                                  <p>
+                                    <strong className="text-gray-900">
+                                      {content.text.remarksLabel}:{" "}
+                                    </strong>
+                                    {quotation.notes}
+                                  </p>
+                                )}
+                                {quotation.clientGstNumber && (
+                                  <p className="font-mono">
+                                    <strong className="text-gray-900">
+                                      Client GST:{" "}
+                                    </strong>
+                                    {quotation.clientGstNumber}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Next Steps (the company's own steps; hidden when it has none) */}
+                          <ProposalNextSteps content={content} />
+
+                          {/* Closing & contact card: the company's own details */}
+                          <ProposalContactCard content={content} />
+                        </div>
+                      );
+                    }
+
+                    return null;
+                  })}
+                </div>
+
+                {/* Document Footer on Every Page */}
+                <ProposalPageFooter content={content} pageNumber={page.pageNumber} totalPages={page.totalPages} />
               </div>
             </div>
           ))}

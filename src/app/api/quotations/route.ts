@@ -9,6 +9,7 @@ import { withTransaction } from "@/lib/transaction";
 import { isBathroomLikeRoomName } from "@/lib/utils";
 import { parsePaginationParams, createPaginatedResponse } from "@/lib/pagination";
 import { withSession } from "@/lib/api-auth";
+import { normalizeQuotation } from "@/lib/quotationNormalization";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationSchema } from "@/lib/validation/quotation";
@@ -340,25 +341,42 @@ async function createQuotation(
     const input = createQuotationSchema.parse(await readJsonBody(req));
     const { houseTypeId, discountValue, customerDiscountPercent, dealerId, assignedSalesId, ...rest } = input;
 
-    // Ownership is derived from the authenticated session. Only the optional
-    // `dealerId` (the dealer to assign to) or `assignedSalesId` comes from the client,
-    // and both are strictly validated against the caller's role, permissions, and tenant scope.
-    const ownership = await resolveNewQuotationOwnership({
-      role,
-      userId,
-      requestedDealerId: dealerId,
-      requestedSalesId: assignedSalesId,
-      callerPermissions: permissions,
-      companyId,
-    });
+    // Parallel execution of pre-transaction validations:
+    // 1. Resolve ownership (dealer / sales executive assignment)
+    // 2. Validate CRM links (customerId, leadId)
+    // 3. Verify houseTypeId and pre-fetch room templates in a single parallel round-trip
+    const [ownership, links, houseType, houseTypeTemplates] = await Promise.all([
+      resolveNewQuotationOwnership({
+        role,
+        userId,
+        requestedDealerId: dealerId,
+        requestedSalesId: assignedSalesId,
+        callerPermissions: permissions,
+        companyId,
+      }),
+      validateQuotationLinks(
+        { role, userId, permissions, companyId },
+        { customerId: rest.customerId, leadId: rest.leadId }
+      ),
+      houseTypeId
+        ? HouseType.findById(houseTypeId).select("_id").lean()
+        : Promise.resolve(null),
+      houseTypeId
+        ? HouseTypeRoomTemplate.find({ houseTypeId })
+            .sort({ sortOrder: 1 })
+            .populate({ path: "roomType" })
+            .lean()
+        : Promise.resolve([]),
+    ]);
+
+    if (houseTypeId && !houseType) {
+      throw new ApiError("NOT_FOUND", "House type not found.", { field: "houseTypeId" });
+    }
+
     const targetDealerId = ownership.dealerId;
     const targetSalesId = ownership.assignedSalesId;
     const allocatedPercent = ownership.allocatedPercent;
 
-    // `customerId` and `leadId` come from the client, so nothing about them is trusted until checked: each must exist in
-    // this company and be visible to the caller, and the caller must hold the CRM permission for it. A lead that
-    // already has a quotation is refused here, and again atomically when it is claimed below.
-    const links = await validateQuotationLinks({ role, userId, permissions, companyId }, { customerId: rest.customerId, leadId: rest.leadId });
     rest.customerId = links.customerId ?? null;
     rest.leadId = links.leadId ?? null;
 
@@ -391,10 +409,25 @@ async function createQuotation(
       customerPercent: requestedCustomerDiscount,
     });
 
-    if (houseTypeId) {
-      const houseType = await HouseType.findById(houseTypeId).select("_id").lean();
-      if (!houseType) {
-        throw new ApiError("NOT_FOUND", "House type not found.", { field: "houseTypeId" });
+    // Auto customer resolution outside the quotation transaction:
+    // Speeds up the transaction, prevents transaction locks on customer sequences,
+    // and avoids re-querying or duplicate customer creation during transaction retries.
+    let resolvedCustomerId = rest.customerId ?? null;
+    if (companyId && !resolvedCustomerId && rest.clientName?.trim() && (rest.clientPhone?.trim() || rest.clientEmail?.trim())) {
+      try {
+        resolvedCustomerId = await resolveOrCreateCustomer({
+          companyId: (companyId as number),
+          name: rest.clientName,
+          phone: rest.clientPhone,
+          email: rest.clientEmail,
+          siteAddress: rest.clientAddress,
+          gstNumber: rest.clientGstNumber,
+          assignedSalesId: targetSalesId,
+          dealerId: targetDealerId,
+          userId,
+        });
+      } catch (err) {
+        console.error("Auto customer resolution error:", err);
       }
     }
 
@@ -411,25 +444,6 @@ async function createQuotation(
       const finalDiscountValue = requestedCustomerDiscount > 0
         ? mongoose.Types.Decimal128.fromString(requestedCustomerDiscount.toFixed(2))
         : (discountValue !== undefined && discountValue !== null ? mongoose.Types.Decimal128.fromString(discountValue.toFixed(2)) : null);
-
-      let resolvedCustomerId = rest.customerId ?? null;
-      if (companyId && !resolvedCustomerId && rest.clientName?.trim() && (rest.clientPhone?.trim() || rest.clientEmail?.trim())) {
-        try {
-          resolvedCustomerId = await resolveOrCreateCustomer({
-            companyId: (companyId as number),
-            name: rest.clientName,
-            phone: rest.clientPhone,
-            email: rest.clientEmail,
-            siteAddress: rest.clientAddress,
-            gstNumber: rest.clientGstNumber,
-            assignedSalesId: targetSalesId,
-            dealerId: targetDealerId,
-            userId,
-          });
-        } catch (err) {
-          console.error("Auto customer resolution error:", err);
-        }
-      }
 
       // Take the lead with one conditional update (inside this transaction when there is one), so it can never end up
       // pointing at two quotations, whatever else is happening to it.
@@ -465,47 +479,38 @@ async function createQuotation(
         await newQuotation.save();
       }
 
-      // Auto-create rooms from the house type template, inside the same
-      // transaction so a quotation never exists with a partial room set.
-      if (houseTypeId) {
-        const template = await HouseTypeRoomTemplate.find({ houseTypeId })
-          .sort({ sortOrder: 1 })
-          .populate({ path: "roomType" })
-          .session(dbSession ?? null);
-
-        // `roomType` is a Mongoose virtual, so it is read from the lean output.
-        // It also resolves only LIVE room types (RoomType is soft-deletable),
-        // so a template whose room type has since been soft-deleted is
-        // skipped here too — a new quotation can never pick up a dead
-        // reference just because an old template still points at it.
-        const validTemplates = template.filter((t) => {
-          const roomType = (t as unknown as { roomType?: { name?: string } | null }).roomType;
+      // Auto-create rooms from the pre-fetched house type templates inside the same transaction
+      if (houseTypeId && houseTypeTemplates.length > 0) {
+        const validTemplates = houseTypeTemplates.filter((t: any) => {
+          const roomType = t.roomType;
           return Boolean(roomType) && !isBathroomLikeRoomName(roomType?.name);
         });
 
-        const totalRooms = validTemplates.reduce((sum, t) => sum + (Number(t.defaultCount) || 1), 0);
-        const roomIds = await reserveSequenceBlock("quotationRoom", totalRooms, QuotationRoom, dbSession);
-        let roomIdCursor = 0;
+        const totalRooms = validTemplates.reduce((sum: number, t: any) => sum + (Number(t.defaultCount) || 1), 0);
+        if (totalRooms > 0) {
+          const roomIds = await reserveSequenceBlock("quotationRoom", totalRooms, QuotationRoom, dbSession);
+          let roomIdCursor = 0;
 
-        const roomsToCreate = [];
-        for (const t of validTemplates) {
-          const defaultCount = Number(t.defaultCount) || 1;
-          for (let i = 0; i < defaultCount; i++) {
-            const nextRoomId = roomIds[roomIdCursor++];
-            roomsToCreate.push({
-              _id: nextRoomId,
-              quotationId,
-              roomTypeId: t.roomTypeId,
-              sortOrder: t.sortOrder * 10 + i,
-            });
+          const roomsToCreate = [];
+          for (const t of validTemplates) {
+            const defaultCount = Number(t.defaultCount) || 1;
+            for (let i = 0; i < defaultCount; i++) {
+              const nextRoomId = roomIds[roomIdCursor++];
+              roomsToCreate.push({
+                _id: nextRoomId,
+                quotationId,
+                roomTypeId: t.roomTypeId,
+                sortOrder: t.sortOrder * 10 + i,
+              });
+            }
           }
-        }
 
-        if (roomsToCreate.length > 0) {
-          if (dbSession) {
-            await QuotationRoom.insertMany(roomsToCreate, { session: dbSession });
-          } else {
-            await QuotationRoom.insertMany(roomsToCreate);
+          if (roomsToCreate.length > 0) {
+            if (dbSession) {
+              await QuotationRoom.insertMany(roomsToCreate, { session: dbSession });
+            } else {
+              await QuotationRoom.insertMany(roomsToCreate);
+            }
           }
         }
       }
@@ -534,41 +539,78 @@ async function createQuotation(
         dbSession
       );
 
-      if (resolvedCustomerId && companyId) {
-        try {
-          await recordCrmActivity({
-            companyId: (companyId as number),
-            customerId: resolvedCustomerId,
-            leadId: rest.leadId ?? null,
-            quotationId,
-            type: "note",
-            title: "Quotation Created",
-            description: `Quotation ${quotationNumber} initialized for ${rest.clientName}`,
-            performedBy: userId,
-          });
-        } catch (err) {
-          console.error("CRM activity error on quotation create:", err);
-        }
-      }
-
       return newQuotation;
     }));
 
-    // The lead was claimed inside the transaction, so the rest of its update waits until that has committed (writing
-    // to it from inside would wait on the transaction's own lock). An early lead moves to Quoted; Quoted / Negotiation /
-    // Won / Lost are never moved; the timeline records the link.
+    // Post-transaction tasks: finalize lead link and record CRM activity concurrently
+    const postTransactionTasks: Promise<unknown>[] = [];
+
     if (links.leadId && companyId) {
-      await finalizeLeadLink({
-        companyId,
-        leadId: links.leadId,
-        quotationId: String(createdQuotation._id),
-        quotationNumber: createdQuotation.quotationNumber,
-        customerId: createdQuotation.customerId ?? null,
-        userId,
-      });
+      postTransactionTasks.push(
+        finalizeLeadLink({
+          companyId,
+          leadId: links.leadId,
+          quotationId: String(createdQuotation._id),
+          quotationNumber: createdQuotation.quotationNumber,
+          customerId: createdQuotation.customerId ?? null,
+          userId,
+        })
+      );
     }
 
-    const plain = createdQuotation.toJSON ? createdQuotation.toJSON() : createdQuotation;
-    return apiSuccess(redactQuotationForRole(plain as any, role, permissions), { status: 201 });
+    if (resolvedCustomerId && companyId) {
+      postTransactionTasks.push(
+        recordCrmActivity({
+          companyId: (companyId as number),
+          customerId: resolvedCustomerId,
+          leadId: links.leadId ?? null,
+          quotationId: String(createdQuotation._id),
+          type: "note",
+          title: "Quotation Created",
+          description: `Quotation ${createdQuotation.quotationNumber} initialized for ${rest.clientName}`,
+          performedBy: userId,
+        }).catch((err) => {
+          console.error("CRM activity error on quotation create:", err);
+        })
+      );
+    }
+
+    if (postTransactionTasks.length > 0) {
+      await Promise.all(postTransactionTasks);
+    }
+
+    // Populate the newly created quotation document with rooms, houseType, dealer, customer, and lead
+    // so the client proposal builder receives the complete record in the POST 201 response directly,
+    // eliminating a redundant GET /api/quotations/[id] roundtrip and server-side page reload.
+    // For a brand new quotation, rooms have no items yet, so nested item lookups are omitted.
+    const populated = await Quotation.findById(createdQuotation._id)
+      .populate({ path: "houseType" })
+      .populate({ path: "dealer", select: "id name email firstName lastName contactNumber companyName gstNumber businessEmail address" })
+      .populate({ path: "customer", select: "id name phone whatsapp email billingAddress siteAddress gstNumber customerType" })
+      .populate({ path: "lead", select: "id referenceNumber customerName status priority" })
+      .populate({
+        path: "rooms",
+        options: { sort: { sortOrder: 1 } },
+        populate: { path: "roomType" },
+      })
+      .lean({ virtuals: true });
+
+    if (!populated) {
+      const plain = createdQuotation.toJSON ? createdQuotation.toJSON() : createdQuotation;
+      return apiSuccess(redactQuotationForRole(plain as any, role, permissions), { status: 201 });
+    }
+
+    const rawRooms = Array.isArray((populated as any).rooms) ? (populated as any).rooms : [];
+    const filteredRooms = rawRooms.filter(
+      (room: any) => !isBathroomLikeRoomName(room.roomType?.name)
+    );
+
+    const [withActors] = await attachQuotationActors([populated]);
+    const normalized = normalizeQuotation({
+      ...withActors,
+      rooms: filteredRooms,
+    });
+
+    return apiSuccess(redactQuotationForRole(normalized as any, role, permissions), { status: 201 });
   }
 }

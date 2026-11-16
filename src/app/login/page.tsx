@@ -54,7 +54,9 @@ function UserLoginForm() {
       const result = await signIn("credentials", { email: email.trim(), password, portal: "user", redirect: false });
       if (result?.error) {
         let message = "Invalid email address or password. Please try again.";
-        if (result.error === "ADMIN_IN_USER_PORTAL") {
+        if (result.error === "RATE_LIMITED") {
+          message = "Too many failed login attempts. Please wait 15 minutes before trying again.";
+        } else if (result.error === "ADMIN_IN_USER_PORTAL") {
           message = "This portal is for Dealer and Sales Executive accounts. Administrators must log in via the Admin Portal at /admin/login.";
         } else if (result.error in REVIEW_BLOCK_MESSAGES) {
           message = REVIEW_BLOCK_MESSAGES[result.error as LoginBlock];

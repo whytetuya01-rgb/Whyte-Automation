@@ -66,7 +66,9 @@ export function useOfflineDraftAutosave(
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const draftRef = useRef<OfflineQuotationDraft | null>(draft);
-  draftRef.current = draft;
+  useEffect(() => {
+    draftRef.current = draft;
+  }, [draft]);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const isSavingRef = useRef(false);

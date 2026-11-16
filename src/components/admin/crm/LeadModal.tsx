@@ -486,7 +486,7 @@ export default function LeadModal({ isOpen, onClose, onSaved, lead, customer }: 
                 placeholder={`Stage default: ${stageDefaults[status]}%`}
                 className="text-sm"
               />
-              <p className="mt-1 text-[11px] text-neutral-400">Leave empty to use the stage's default chance. It resets when the lead moves to another stage.</p>
+              <p className="mt-1 text-[11px] text-neutral-400">Leave empty to use the stage&apos;s default chance. It resets when the lead moves to another stage.</p>
             </div>
             {(contacts.length > 0 || referrerId) && (
               <Select

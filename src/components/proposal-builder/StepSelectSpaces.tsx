@@ -200,9 +200,8 @@ export default function StepSelectSpaces({
       } else {
         await onAddRoom(null, preset.name, targetFloor);
       }
-      notify.success(`Added ${preset.name}`);
     } catch {
-      notify.error("Failed to add space");
+      // onAddRoom handles user error notifications
     }
   };
 
@@ -221,9 +220,8 @@ export default function StepSelectSpaces({
 
     try {
       await onDeleteRoom(roomId);
-      notify.success(`Removed ${displayName}`);
     } catch {
-      notify.error("Failed to remove space");
+      // onDeleteRoom handles rollback and error notifications
     }
   };
 

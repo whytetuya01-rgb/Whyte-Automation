@@ -99,6 +99,9 @@ async function connectWithRetry(uri: string): Promise<typeof mongoose> {
         // Never queue operations while disconnected: fail fast and loudly so a
         // broken connection surfaces as an error instead of a silent hang.
         bufferCommands: false,
+        maxPoolSize: 10,
+        minPoolSize: 1,
+        maxIdleTimeMS: 10_000,
         serverSelectionTimeoutMS: 4_000,
         connectTimeoutMS: 4_000,
         socketTimeoutMS: 45_000,

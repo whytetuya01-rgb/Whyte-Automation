@@ -53,8 +53,9 @@ export default function NewQuotationForm({ initialHouseTypes }: NewQuotationForm
       if (!res.ok) throw new Error();
 
       const data = await res.json();
+      const quote = data?.data ?? data;
       toast.success("Quotation created!");
-      router.push(`/quotation/${data.id}`);
+      router.push(`/quotation/${quote.id || quote._id}`);
     } catch {
       toast.error("Failed to create quotation");
       setSubmitting(false);

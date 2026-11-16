@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import { StatGrid, StatTile, type StatTone } from "@/components/admin/StatTiles";
 import { useSession } from "next-auth/react";
+import Link from "next/link";
 import { RoomType } from "@/types";
 import {
   Plus,

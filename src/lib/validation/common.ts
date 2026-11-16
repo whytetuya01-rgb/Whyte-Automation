@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ApiError } from "@/lib/api-response";
+import { ApiError } from "../api-response";
 
 /**
  * Reusable Zod primitives shared by every mutation schema.

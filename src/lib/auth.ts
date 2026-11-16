@@ -5,6 +5,14 @@ import { AdminUser, Company } from "@/models";
 import { runUnscoped } from "@/lib/tenant/context";
 import { reviewBlockFor } from "@/lib/companyReviewStatus";
 import { resolveAccountCompany } from "@/lib/tenant/accountCompany";
+import {
+  checkLoginRateLimit,
+  recordFailedLoginAttempt,
+  recordSuccessfulLogin,
+  constantTimeDummyCompare,
+  extractClientIpFromAuthRequest,
+  logSecurityEvent,
+} from "@/lib/authRateLimit";
 
 const ADMIN_PORTAL_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
 // The workspace at /login is for the people who build quotations: dealers and the company's sales executives.
@@ -19,11 +27,27 @@ export const authOptions = {
         password: { label: "Password", type: "password" },
         portal: { label: "Portal", type: "text" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
 
-        await connectMongoDB();
         const email = credentials.email.toLowerCase().trim();
+        const portal = credentials.portal || "user";
+        const clientIp = extractClientIpFromAuthRequest(req);
+
+        // 1. Enforce shared persistent rate limiting (both per-account and per-IP)
+        const rateCheck = await checkLoginRateLimit({ email, ip: clientIp });
+        if (!rateCheck.allowed) {
+          logSecurityEvent("LOGIN_RATE_LIMITED", {
+            email,
+            ip: clientIp,
+            portal,
+            reason: rateCheck.reason,
+            retryAfterSeconds: rateCheck.retryAfterSeconds,
+          });
+          throw new Error("RATE_LIMITED");
+        }
+
+        await connectMongoDB();
 
         // No tenant context exists yet — resolving WHICH company a login
         // belongs to is the entire point of this lookup, so it must run
@@ -37,15 +61,39 @@ export const authOptions = {
         // run with no tenant context at all and the plugin would throw.
         const user = await runUnscoped("auth-lookup", async () => await AdminUser.findOne({ email }).lean());
 
-        if (!user || user.isActive === false) return null;
+        // 2. Generic error & timing-attack mitigation:
+        // When a user does not exist or is inactive, run constant-time dummy bcrypt
+        // comparison so duration is indistinguishable from real credential checks.
+        if (!user || user.isActive === false) {
+          await constantTimeDummyCompare(credentials.password);
+          await recordFailedLoginAttempt({ email, ip: clientIp });
+          logSecurityEvent("LOGIN_FAILED", {
+            email,
+            ip: clientIp,
+            portal,
+            reason: "INVALID_CREDENTIALS",
+          });
+          return null;
+        }
 
         const isValid = await bcrypt.compare(credentials.password, user.passwordHash);
-        if (!isValid) return null;
+        if (!isValid) {
+          await recordFailedLoginAttempt({ email, ip: clientIp });
+          logSecurityEvent("LOGIN_FAILED", {
+            email,
+            ip: clientIp,
+            portal,
+            reason: "INVALID_CREDENTIALS",
+          });
+          return null;
+        }
+
+        // 3. Clear failed login attempts on successful credentials authentication
+        await recordSuccessfulLogin({ email, ip: clientIp });
 
         // Strict portal separation:
         // - /admin/login only accepts admin and super_admin accounts
         // - /login only accepts dealer accounts
-        const portal = credentials.portal;
         if (portal === "admin") {
           if (!ADMIN_PORTAL_ROLES.has(user.role)) {
             throw new Error("DEALER_IN_ADMIN_PORTAL");
@@ -75,6 +123,14 @@ export const authOptions = {
           const blocked = reviewBlockFor(company.registrationStatus);
           if (blocked) throw new Error(blocked);
         }
+
+        logSecurityEvent("LOGIN_SUCCESS", {
+          email,
+          ip: clientIp,
+          portal,
+          userId: String((user as any).id || user._id),
+          role: user.role,
+        });
 
         return {
           id: String((user as any).id || user._id),

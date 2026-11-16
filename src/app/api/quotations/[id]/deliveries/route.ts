@@ -22,6 +22,7 @@ import {
 } from "@/lib/quotationDelivery";
 import { defaultWhatsAppMessage, whatsappShareUrl } from "@/lib/quotationDeliveryShared";
 import { deliveryDto, issueLink, quotationLinkUrl } from "@/lib/quotationLinks";
+import { getWhatsAppBridgeStatus, sendViaWhatsAppBridge } from "@/lib/whatsappService";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -148,18 +149,45 @@ export async function POST(req: Request, context: RouteContext) {
       });
 
       if (channel === "whatsapp") {
-        // Sent from the sender's own WhatsApp: we record the share and track opens of the link.
         const now = new Date();
+        const message = parsed.data.message ?? defaultWhatsAppMessage({ clientName: quotation.clientName, quotationNumber: quotation.quotationNumber, companyName });
+        const fullMessage = `${message}\n\nView your quotation: ${viewUrl}`;
+
+        // Attempt automated direct delivery via local WhatsApp Bridge daemon
+        const bridgeStatus = await getWhatsAppBridgeStatus();
+        let autoDelivered = false;
+
+        if (bridgeStatus.connected) {
+          const sendResult = await sendViaWhatsAppBridge({
+            to: parsed.data.to,
+            message: fullMessage,
+            pdfBuffer: pdf,
+            pdfFilename: `${quotation.quotationNumber}.pdf`,
+            idempotencyKey: deliveryId,
+          });
+          if (sendResult.success) {
+            autoDelivered = true;
+            delivery.providerMessageId = sendResult.messageId || null;
+            pushDeliveryEvent(delivery, "sent", `Automated delivery via connected WhatsApp bridge (+${bridgeStatus.phoneNumber || "business"}).`, now);
+          }
+        }
+
         delivery.status = "sent";
         delivery.sentAt = now;
         delivery.attempts = 1;
-        pushDeliveryEvent(delivery, "shared", `Shared on WhatsApp with +${parsed.data.to}.`, now);
+        if (!autoDelivered) {
+          pushDeliveryEvent(delivery, "shared", `Shared on WhatsApp with +${parsed.data.to}.`, now);
+        }
         await delivery.save();
         await markQuotationSentIfDraft(quotation, userId, "whatsapp");
         await adoptDeliveryPdf(quotationId, { _id: deliveryId }); // the revision being sent keeps this exact PDF
-        const message = parsed.data.message ?? defaultWhatsAppMessage({ clientName: quotation.clientName, quotationNumber: quotation.quotationNumber, companyName });
+
         return apiSuccess(
-          { ...deliveryDto(delivery.toObject()), whatsappUrl: whatsappShareUrl(parsed.data.to, `${message}\n\nView your quotation: ${viewUrl}`) },
+          {
+            ...deliveryDto(delivery.toObject()),
+            autoDelivered,
+            whatsappUrl: whatsappShareUrl(parsed.data.to, fullMessage),
+          },
           { status: 201 }
         );
       }

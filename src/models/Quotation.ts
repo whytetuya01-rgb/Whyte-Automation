@@ -230,6 +230,7 @@ QuotationSchema.index({ companyId: 1, createdAt: -1 });
 QuotationSchema.index({ companyId: 1, dealerId: 1, createdAt: -1 });
 QuotationSchema.index({ companyId: 1, createdBy: 1, createdAt: -1 });
 QuotationSchema.index({ companyId: 1, assignedSalesId: 1, status: 1 });
+QuotationSchema.index({ companyId: 1, customerId: 1, createdAt: -1 });
 // Replaces the old global-unique quotationNumber index: unique per company instead.
 QuotationSchema.index({ companyId: 1, quotationNumber: 1 }, { unique: true });
 

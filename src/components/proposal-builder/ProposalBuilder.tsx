@@ -2,7 +2,7 @@
 
 import QuotationRevisionBar from "./QuotationRevisionBar";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { useSession } from "next-auth/react";
@@ -10,6 +10,7 @@ import { AlertTriangle, ArrowLeft, Check, Clock, Copy, Home, Save, X, WifiOff, D
 import CloneQuotationModal, { type CloneSource } from "@/components/admin/quotations/CloneQuotationModal";
 import {
   Quotation,
+  QuotationRoom,
   EditorCatalogProduct,
   Category,
   RoomType,
@@ -78,7 +79,6 @@ export default function ProposalBuilder({
   isOfflineDraft = false,
   initialOfflineDraft = null,
 }: Props) {
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   // Resolve step from URL query or initialStep
@@ -266,28 +266,40 @@ export default function ProposalBuilder({
   // already in.
 
   const upsertItemLocally = useCallback((rawItem: any) => {
-    const item = normalizeQuotationItem(rawItem);
-    const targetRoomId = Number(item.quotationRoomId);
+    if (!rawItem) return;
+    const incomingItems = Array.isArray(rawItem) ? rawItem : [rawItem];
+    if (incomingItems.length === 0) return;
+
     setQuotation((prev) => {
       if (!prev) return prev;
-      let replaced = false;
-      const rooms = (prev.rooms || []).map((room) => {
-        const items = room.items || [];
-        const idx = items.findIndex((it) => Number(it.id ?? (it as any)._id) === Number(item.id));
-        if (idx === -1) return room;
-        replaced = true;
-        const nextItems = [...items];
-        nextItems[idx] = item;
-        return { ...room, items: nextItems };
-      });
-      if (replaced) return { ...prev, rooms };
-      // Not found anywhere: a new item, appended to its target room.
-      const withAppended = rooms.map((room) => {
-        const roomId = Number(room.id ?? (room as any)._id);
-        if (roomId !== targetRoomId) return room;
-        return { ...room, items: [...(room.items || []), item] };
-      });
-      return { ...prev, rooms: withAppended };
+      let rooms = [...(prev.rooms || [])];
+
+      for (const raw of incomingItems) {
+        const item = normalizeQuotationItem(raw);
+        const targetRoomId = Number(item.quotationRoomId);
+        let replaced = false;
+
+        rooms = rooms.map((room) => {
+          const items = room.items || [];
+          const idx = items.findIndex((it) => Number(it.id ?? (it as any)._id) === Number(item.id));
+          if (idx === -1) return room;
+          replaced = true;
+          const nextItems = [...items];
+          nextItems[idx] = item;
+          return { ...room, items: nextItems };
+        });
+
+        if (!replaced) {
+          // Not found anywhere: a new item, appended to its target room.
+          rooms = rooms.map((room) => {
+            const roomId = Number(room.id ?? (room as any)._id);
+            if (roomId !== targetRoomId) return room;
+            return { ...room, items: [...(room.items || []), item] };
+          });
+        }
+      }
+
+      return { ...prev, rooms };
     });
   }, []);
 
@@ -344,11 +356,11 @@ export default function ProposalBuilder({
         .catch(() => setRoomTypes([]));
     }
 
-    // 2. Heavy product catalog (products ~388KB + categories) - defer until Step 2+ or when Step 3 is needed
+    // 2. Heavy product catalog (products ~330KB + categories) - defer until Step 2+ or when Step 3 is needed
     if (currentStep >= 2 || parsedStep >= 2) {
       if (products.length === 0 && !fetchStatusRef.current.products) {
         fetchStatusRef.current.products = true;
-        fetch("/api/products")
+        fetch("/api/products?editor=true")
           .then((r) => (r.ok ? r.json() : []))
           .then((data) => {
             const list = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
@@ -366,7 +378,10 @@ export default function ProposalBuilder({
               }))
             );
           })
-          .catch(() => setProducts([]));
+          .catch(() => {
+            fetchStatusRef.current.products = false;
+            setProducts([]);
+          });
       }
 
       if (categories.length === 0 && !fetchStatusRef.current.categories) {
@@ -374,7 +389,10 @@ export default function ProposalBuilder({
         fetch("/api/categories")
           .then((r) => (r.ok ? r.json() : []))
           .then((data) => setCategories(normalizeCategories(Array.isArray(data) ? data : [])))
-          .catch(() => setCategories([]));
+          .catch(() => {
+            fetchStatusRef.current.categories = false;
+            setCategories([]);
+          });
       }
     }
 
@@ -392,6 +410,7 @@ export default function ProposalBuilder({
 
   // Step 1: Save & Continue Handler
   const handleSaveProjectDetails = async (formData: ProjectFormData) => {
+    if (isSaving) return;
     setIsSaving(true);
     setSaveStatus("saving");
 
@@ -458,19 +477,23 @@ export default function ProposalBuilder({
         const newQuote = resJson?.data ?? resJson;
         toast.success("Project initialized!");
 
-        // Fetch full populated record and move to Step 2
-        const fullRes = await fetch(`/api/quotations/${newQuote.id || newQuote._id}`);
-        const fullJson = fullRes.ok ? await fullRes.json() : newQuote;
-        const fullQuote = fullJson?.data ?? fullJson;
-        const normalized = normalizeQuotation(fullQuote);
+        // Consume the populated quotation directly from POST response, avoiding redundant GET fetch
+        const normalized = normalizeQuotation(newQuote);
 
         setQuotation(normalized);
         if (normalized.rooms?.length > 0) {
           setActiveRoomId(normalized.rooms[0].id);
         }
         setSaveStatus("saved");
-        router.replace(`/quotation/${normalized.id}?step=2`);
+
+        // Seamless navigation to Step 2:
+        // 1. Replace current '/quotation/new' history entry with '/quotation/[id]?step=1' so Browser Back lands on Step 1
+        // 2. Push '/quotation/[id]?step=2' so URL bar is fully synchronised for refresh and bookmarking
+        // 3. Update currentStep in-place, eliminating Next.js Server Component reload and ProposalBuilder remount
+        window.history.replaceState(null, "", `/quotation/${normalized.id}?step=1`);
+        window.history.pushState(null, "", `/quotation/${normalized.id}?step=2`);
         setCurrentStep(2);
+        window.scrollTo({ top: 0, behavior: "smooth" });
       } else {
         // Update existing quotation via PATCH /api/quotations/[id]
         const res = await fetch(`/api/quotations/${quotation.id}`, {
@@ -698,7 +721,16 @@ export default function ProposalBuilder({
       toast.success("Space removed");
       return;
     }
+    const previousRooms = quotation.rooms || [];
+    const remaining = previousRooms.filter((r) => Number(r.id ?? (r as any)._id) !== Number(roomId));
+
+    // Optimistic UI update: instantly remove room from screen
+    if (activeRoomId === roomId) {
+      setActiveRoomId(remaining[0]?.id ?? (remaining[0] as any)?._id ?? null);
+    }
+    removeRoomLocally(roomId);
     setSaveStatus("saving");
+
     try {
       const res = await fetch(`/api/quotations/${quotation.id}/rooms/${roomId}`, {
         method: "DELETE",
@@ -709,17 +741,14 @@ export default function ProposalBuilder({
         throw new Error(extractErrorMessage(err, "Failed to remove room"));
       }
 
-      if (activeRoomId === roomId) {
-        const remaining = (quotation.rooms || []).filter((r) => (r.id ?? (r as any)._id) !== roomId);
-        setActiveRoomId(remaining[0]?.id ?? (remaining[0] as any)?._id ?? null);
-      }
-
-      removeRoomLocally(roomId);
       setSaveStatus("saved");
       toast.success("Space removed");
     } catch (e: any) {
+      // Rollback to previous state on failure
+      setQuotation((prev) => (prev ? { ...prev, rooms: previousRooms } : prev));
       toast.error(extractErrorMessage(e, "Failed to remove room"));
       setSaveStatus("unsaved");
+      throw e;
     }
   };
 
@@ -826,7 +855,7 @@ export default function ProposalBuilder({
       const nextRooms = (quotation.rooms || []).map((room) => {
         const nextItems = (room.items || []).map((item) => {
           if (Number(item.id ?? (item as any)._id) !== Number(itemId)) return item;
-          let updated = { ...item, ...data };
+          const updated = { ...item, ...data };
           if (data.resetToDefaultPrice) {
             const prod = products.find((p) => p.id === item.productId);
             const variant = prod?.variants?.find((v) => v.id === item.productVariantId);
@@ -1017,6 +1046,65 @@ export default function ProposalBuilder({
       toast.error(extractErrorMessage(e, "Failed to remove item"));
       setSaveStatus("unsaved");
     }
+  };
+
+  const handleClearRoom = async (roomId: number) => {
+    if (!quotation?.id) return;
+    if (isOfflineDraft && offlineDraft) {
+      const nextRooms = (quotation.rooms || []).map((r) =>
+        Number(r.id ?? (r as any)._id) === Number(roomId) ? { ...r, items: [] } : r
+      );
+      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+      setOfflineDraft(nextDraft);
+      setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
+      triggerAutosave();
+      toast.success("Room devices cleared");
+      return;
+    }
+
+    setSaveStatus("saving");
+    try {
+      const res = await fetch(`/api/quotations/${quotation.id}/rooms/${roomId}/items`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to clear room"));
+      }
+      const body = await res.json();
+      const updatedRoom = body?.data?.room ?? body?.room ?? body?.data;
+      if (updatedRoom) {
+        upsertRoomLocally(updatedRoom);
+      } else {
+        setQuotation((prev) => {
+          if (!prev) return prev;
+          const nextRooms = (prev.rooms || []).map((r) =>
+            Number(r.id ?? (r as any)._id) === Number(roomId) ? { ...r, items: [] } : r
+          );
+          return { ...prev, rooms: nextRooms };
+        });
+      }
+      setSaveStatus("saved");
+      toast.success("Room devices cleared");
+    } catch (e: any) {
+      toast.error(extractErrorMessage(e, "Failed to clear room"));
+      setSaveStatus("unsaved");
+    }
+  };
+
+  const handleRoomsUpdated = (updatedRooms: QuotationRoom[]) => {
+    setQuotation((prev) => {
+      if (!prev) return prev;
+      const updatedMap = new Map(
+        updatedRooms.map((r) => [Number(r.id ?? (r as any)._id), r])
+      );
+      const nextRooms = (prev.rooms || []).map((r) => {
+        const rId = Number(r.id ?? (r as any)._id);
+        return updatedMap.get(rId) || r;
+      });
+      return { ...prev, rooms: nextRooms };
+    });
   };
 
   const handleUpdateRoomNotes = async (roomId: number, notes: string) => {
@@ -1384,6 +1472,8 @@ export default function ProposalBuilder({
             onAddItem={handleAddItem}
             onUpdateItem={handleUpdateItem}
             onDeleteItem={handleDeleteItem}
+            onClearRoom={handleClearRoom}
+            onRoomsUpdated={handleRoomsUpdated}
             onReplaceItem={handleReplaceItem}
             onUpdateRoom={handleUpdateRoom}
             onUpdateRoomNotes={handleUpdateRoomNotes}

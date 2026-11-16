@@ -21,7 +21,6 @@ import { createProductSchema } from "@/lib/validation/product";
 import {
   findDuplicateVariantCode,
   normalizeVariantRows,
-  serializeVariant,
   validateFinalVariantMatrix,
 } from "@/lib/productVariantService";
 import { normalizeProduct, normalizeProducts } from "@/lib/quotationNormalization";
@@ -29,6 +28,7 @@ import { assertProductTaxAllowed, loadCompanyTaxSettings } from "@/lib/productTa
 import { gstSplitKeepingPrice } from "@/lib/taxSettings";
 import { assertProductSpecs, loadCategorySpecSources } from "@/lib/categorySpecs";
 import { redactProductsForRole } from "@/lib/variantRedaction";
+import { getEditorCatalog } from "@/lib/editorCatalog";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +81,15 @@ export async function GET(req: Request) {
           throw new ApiError("FORBIDDEN", "You do not have permission to view the full product catalog.");
         }
       }
+      const isEditor = searchParams.get("editor") === "true";
+      if (isEditor) {
+        await tracer.measure("MongoDB Connection", () => connectMongoDB());
+        const catalog = await tracer.measure("Editor Catalog Query & Build", () => getEditorCatalog());
+        const redacted = redactProductsForRole(catalog as any, callerRole, callerPermissions);
+        tracer.end({ isEditor: true, count: redacted.length });
+        return NextResponse.json(redacted);
+      }
+
       const isPaginated = searchParams.has("page") || searchParams.has("pageSize");
 
       const searchParam = searchParams.get("search")?.trim();

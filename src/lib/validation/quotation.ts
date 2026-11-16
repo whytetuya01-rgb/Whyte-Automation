@@ -193,6 +193,22 @@ export const createQuotationItemSchema = strictObject({
   sortOrder: intField(),
 });
 
+export const bulkCreateQuotationItemSchema = strictObject({
+  quotationRoomId: numericIdSchema.optional(),
+  productId: numericIdSchema,
+  productVariantId: numericIdSchema.optional().nullable(),
+  variantConfig: z.record(z.string(), z.string()).optional().nullable(),
+  quantity: itemQuantityField.optional(),
+  sbNumber: optionalText(60),
+  notes: optionalText(500),
+  sortOrder: intField(),
+});
+
+export const bulkCreateQuotationItemsSchema = strictObject({
+  quotationRoomId: numericIdSchema.optional(),
+  items: z.array(bulkCreateQuotationItemSchema).min(1, "At least one item is required.").max(100, "Maximum 100 items per batch."),
+});
+
 /**
  * QuotationItem PATCH body. Moving an item to another room and swapping the
  * product are both supported here; the room is re-checked against this
@@ -262,6 +278,7 @@ export type UpdateQuotationInput = z.infer<typeof updateQuotationSchema>;
 export type CreateQuotationRoomInput = z.infer<typeof createQuotationRoomSchema>;
 export type UpdateQuotationRoomInput = z.infer<typeof updateQuotationRoomSchema>;
 export type CreateQuotationItemInput = z.infer<typeof createQuotationItemSchema>;
+export type BulkCreateQuotationItemsInput = z.infer<typeof bulkCreateQuotationItemsSchema>;
 export type UpdateQuotationItemInput = z.infer<typeof updateQuotationItemSchema>;
 export type MassUpdateRoomItemInput = z.infer<typeof massUpdateRoomItemSchema>;
 export type MassUpdateRoomItemsInput = z.infer<typeof massUpdateRoomItemsSchema>;

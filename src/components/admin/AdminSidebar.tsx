@@ -156,10 +156,10 @@ export default function AdminSidebar({
     currentRole === "super_admin"
       ? "Super Admin"
       : currentRole === "company_owner"
-      ? "Company Owner"
-      : currentRole === "configurable_admin"
-      ? "Configurable Admin"
-      : "Admin";
+        ? "Company Owner"
+        : currentRole === "configurable_admin"
+          ? "Configurable Admin"
+          : "Admin";
 
   // Entrance plays once per mount — the sidebar lives in the persistent panel
   // layout, so route changes never replay it. A group title shares its first

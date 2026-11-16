@@ -36,10 +36,12 @@ export async function POST(req: Request) {
 
     const input = createRoomTypeSchema.parse(await readJsonBody(req));
 
-    // RoomType master data has no unique index, so the same-level duplicate is
-    // rejected here. Comparison is case-insensitive to match how the admin UI
-    // presents room names.
-    const existing = await RoomType.findOne({ name: input.name }).select("_id").lean();
+    // Check case-insensitively for existing room type with same name in tenant
+    const escapeRegex = (s: string) => s.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+    const existing = await RoomType.findOne({
+      name: { $regex: new RegExp(`^${escapeRegex(input.name.trim())}$`, "i") },
+      isDeleted: { $ne: true },
+    }).select("_id").lean();
     if (existing) {
       throw new ApiError("DUPLICATE_RECORD", `A room type named '${input.name}' already exists.`, {
         field: "name",

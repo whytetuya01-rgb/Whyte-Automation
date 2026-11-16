@@ -74,7 +74,9 @@ function LoginForm() {
 
       if (result?.error) {
         let message = "Invalid email/username or password. Please check your credentials.";
-        if (result.error === "DEALER_IN_ADMIN_PORTAL") {
+        if (result.error === "RATE_LIMITED") {
+          message = "Too many failed login attempts. Please wait 15 minutes before trying again.";
+        } else if (result.error === "DEALER_IN_ADMIN_PORTAL") {
           message = "Dealer accounts cannot sign in to the Admin Portal. Please use the Dealer login at /login.";
         } else if (result.error in REVIEW_BLOCK_MESSAGES) {
           message = REVIEW_BLOCK_MESSAGES[result.error as LoginBlock];

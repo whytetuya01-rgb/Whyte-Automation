@@ -5,11 +5,57 @@ import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationRoomSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
-import { canModifyQuotation } from "@/lib/quotationAccess";
+import { canModifyQuotation, canViewQuotation } from "@/lib/quotationAccess";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
 
 type RouteContext = { params: Promise<{ id: string; roomId: string }> };
+
+/** GET — fetches a single room with all its active line items populated */
+export async function GET(_req: Request, context: RouteContext) {
+  try {
+    return await withSession(async ({ role, userId, permissions }) => {
+      const { id, roomId } = await context.params;
+      const quotationId = parseQuotationId(id);
+      const rId = parseNumericId(roomId, "roomId");
+
+      await connectMongoDB();
+
+      const quotation = await Quotation.findById(quotationId).select("_id dealerId assignedSalesId createdBy").lean();
+      if (!quotation) {
+        throw new ApiError("NOT_FOUND", "Quotation not found.");
+      }
+      if (!canViewQuotation(role, userId, quotation, permissions)) {
+        throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
+      }
+
+      const room = await QuotationRoom.findOne({ _id: rId, quotationId, isDeleted: { $ne: true } })
+        .populate({ path: "roomType" })
+        .populate({
+          path: "items",
+          match: { isDeleted: { $ne: true } },
+          populate: [
+            {
+              path: "product",
+              select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes specs",
+            },
+            {
+              path: "productVariant",
+              select: "surfaceFinish automationTier price priceWithoutTax taxPercent",
+            },
+          ],
+        });
+
+      if (!room) {
+        throw new ApiError("NOT_FOUND", "Room not found for this quotation.");
+      }
+
+      return apiSuccess(normalizeQuotationRoom(room.toObject ? room.toObject() : room));
+    });
+  } catch (error) {
+    return handleApiError(error, { logPrefix: "GET /api/quotations/[id]/rooms/[roomId]" });
+  }
+}
 
 /** Session required: editing and removing rooms are business operations. */
 export async function PATCH(req: Request, context: RouteContext) {

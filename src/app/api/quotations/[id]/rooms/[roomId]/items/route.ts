@@ -84,7 +84,16 @@ export async function PATCH(req: Request, context: RouteContext) {
 
       const existingItemsMap = new Map(existingItems.map((it) => [Number(it._id), it]));
 
-      // 2. Pre-validate every replacement product and variant before beginning write
+      // 2. Pre-validate every replacement product and variant before beginning write.
+      // Phase C Optimization: Batch fetch all requested products in 1 query instead of looping in series.
+      const uniqueProductIds = Array.from(new Set(requestedItems.map((it) => it.productId)));
+      const products = await Product.find({ _id: { $in: uniqueProductIds } }).populate({
+        path: "variants",
+        match: { isActive: true },
+        options: { sort: { sortOrder: 1 } },
+      });
+      const productsMap = new Map(products.map((p) => [Number(p.id ?? p._id), p]));
+
       interface PreparedUpdate {
         itemId: number;
         data: Record<string, unknown>;
@@ -95,10 +104,7 @@ export async function PATCH(req: Request, context: RouteContext) {
         const existing = existingItemsMap.get(updateReq.itemId);
         if (!existing) continue;
 
-        const product = await Product.findById(updateReq.productId).populate({
-          path: "variants",
-          match: { isActive: true },
-        });
+        const product = productsMap.get(updateReq.productId);
 
         if (!product) {
           throw new ApiError("NOT_FOUND", `Product #${updateReq.productId} not found.`, {
@@ -183,12 +189,17 @@ export async function PATCH(req: Request, context: RouteContext) {
         preparedUpdates.push({ itemId: updateReq.itemId, data: itemData });
       }
 
-      // 3. Atomically update items within transaction
+      // 3. Atomically update items within transaction.
+      // Phase C Optimization: Batch execute updates with QuotationItem.bulkWrite instead of N roundtrips.
       const updatedRoom = await withTransaction(async (session) => {
-        for (const update of preparedUpdates) {
-          await QuotationItem.findByIdAndUpdate(
-            update.itemId,
-            { $set: update.data },
+        if (preparedUpdates.length > 0) {
+          await QuotationItem.bulkWrite(
+            preparedUpdates.map((update) => ({
+              updateOne: {
+                filter: { _id: update.itemId },
+                update: { $set: update.data },
+              },
+            })),
             { session }
           );
         }
@@ -226,6 +237,72 @@ export async function PATCH(req: Request, context: RouteContext) {
   } catch (error) {
     return handleApiError(error, {
       logPrefix: "PATCH /api/quotations/[id]/rooms/[roomId]/items",
+    });
+  }
+}
+
+/**
+ * DELETE /api/quotations/[id]/rooms/[roomId]/items
+ * Clears all items from a room in one operation without deleting the room itself.
+ */
+export async function DELETE(_req: Request, context: RouteContext) {
+  try {
+    return await withSession(async ({ role, userId, permissions }) => {
+      const { id, roomId } = await context.params;
+      const quotationId = parseQuotationId(id);
+      const rId = parseNumericId(roomId, "roomId");
+
+      await connectMongoDB();
+
+      const quotation = await Quotation.findById(quotationId)
+        .select("_id status revision dealerId assignedSalesId createdBy")
+        .lean();
+      if (!quotation) {
+        throw new ApiError("NOT_FOUND", "Quotation not found.");
+      }
+      assertQuotationEditable(quotation);
+      if (!canModifyQuotation(role, userId, quotation, permissions)) {
+        throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
+      }
+
+      const existingRoom = await QuotationRoom.findOne({ _id: rId, quotationId }).lean();
+      if (!existingRoom) {
+        throw new ApiError("NOT_FOUND", "Room not found for this quotation.");
+      }
+
+      const now = new Date();
+      const result = await QuotationItem.collection.updateMany(
+        { quotationRoomId: rId, isDeleted: { $ne: true } },
+        {
+          $set: {
+            isDeleted: true,
+            deletedAt: now,
+            deletedBy: userId,
+            deletionReason: "Cleared all room items",
+          },
+        }
+      );
+
+      const updatedRoom = await QuotationRoom.findById(rId)
+        .populate({ path: "roomType" })
+        .populate({
+          path: "items",
+          match: { isDeleted: { $ne: true } },
+        });
+
+      const plainRoom = updatedRoom?.toObject ? updatedRoom.toObject() : updatedRoom;
+      const normalizedRoom = normalizeQuotationRoom(plainRoom, quotationId);
+      const redactedRoom = redactQuotationRoomForRole(normalizedRoom, role, permissions);
+
+      return apiSuccess({
+        clearedCount: result.modifiedCount,
+        room: redactedRoom,
+        message: "Room items cleared successfully",
+      });
+    });
+  } catch (error) {
+    return handleApiError(error, {
+      logPrefix: "DELETE /api/quotations/[id]/rooms/[roomId]/items",
     });
   }
 }

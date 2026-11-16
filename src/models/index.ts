@@ -108,3 +108,13 @@ export {
   type INotification,
   type INotificationDocument,
 } from "./Notification";
+export {
+  AuthRateLimit,
+  type IAuthRateLimit,
+  type IAuthRateLimitDocument,
+} from "./AuthRateLimit";
+export {
+  RoomTemplate,
+  type IRoomTemplate,
+  type IRoomTemplateDocument,
+} from "./RoomTemplate";

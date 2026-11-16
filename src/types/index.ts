@@ -379,6 +379,40 @@ export interface HouseTypeRoomTemplate {
   sortOrder: number;
 }
 
+export interface RoomTemplateItem {
+  productId: number;
+  variantId?: number | null;
+  defaultQuantity: number;
+  displayOrder: number;
+  isRequired?: boolean;
+  notes?: string | null;
+  variantConfig?: Record<string, unknown> | null;
+  preferredProtocol?: string | null;
+  preferredControl?: string | null;
+  preferredFinish?: string | null;
+  allowAlternativeProtocol?: boolean;
+  accessoryIds?: number[];
+  product?: EditorCatalogProduct;
+  productVariant?: EditorCatalogVariant;
+}
+
+export interface RoomTemplate {
+  id: number;
+  companyId: number;
+  roomTypeId: number;
+  roomType?: RoomType;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  displayOrder: number;
+  defaultProtocol?: string | null;
+  defaultControl?: string | null;
+  defaultFinish?: string | null;
+  items: RoomTemplateItem[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface AdminUser {
   id: number;
   email: string;

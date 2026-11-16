@@ -46,6 +46,8 @@ const PUBLIC_CRON_WORKERS = new Set(["/api/cron/google-calendar-sync", "/api/cro
 // Google is sent to My account with a message (a redirect, no data) instead of a bare 401.
 const GOOGLE_CALENDAR_CALLBACK = "/api/integrations/google-calendar/callback";
 const PUBLIC_CALENDAR_FEED = /^\/api\/calendar\/follow-ups\/[A-Za-z0-9_-]+\.ics$/;
+/** Unauthenticated liveness probe for synthetic uptime monitoring tools (Pingdom, Datadog, UptimeRobot). */
+const PUBLIC_LIVENESS_PROBES: ReadonlySet<string> = new Set(["/api/health/liveness"]);
 const DEALER_LANDING_PAGE = "/dealer/access";
 const ADMIN_ROLES = new Set(["super_admin", "company_owner", "admin", "configurable_admin"]);
 
@@ -90,6 +92,9 @@ export async function proxy(request: NextRequest) {
   }
 
   if (PUBLIC_CRON_WORKERS.has(pathname) && (request.method === "GET" || request.method === "POST")) {
+    return NextResponse.next({ request: { headers: requestHeaders } });
+  }
+  if (PUBLIC_LIVENESS_PROBES.has(pathname) && (request.method === "GET" || request.method === "HEAD")) {
     return NextResponse.next({ request: { headers: requestHeaders } });
   }
   if (pathname === GOOGLE_CALENDAR_CALLBACK && request.method === "GET") {

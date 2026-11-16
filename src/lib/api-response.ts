@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { captureException } from "@/lib/errorMonitoring";
 
 /**
  * The single message returned whenever a request has no valid session.
@@ -270,11 +271,13 @@ export function handleApiError(
     );
   }
 
-  console.error(`${logPrefix} unhandled error:`, error);
+  const { digest } = captureException(error, { logPrefix });
+  console.error(`${logPrefix} unhandled error (digest: ${digest}):`, error);
   return apiErrorResponse(
     new ApiError(
       "INTERNAL_SERVER_ERROR",
-      "Something went wrong on our end. Please try again."
+      "Something went wrong on our end. Please try again.",
+      { details: { referenceId: digest } }
     )
   );
 }

@@ -33,21 +33,23 @@ export async function POST(req: Request, context: RouteContext) {
     const body = createQuotationRoomSchema.parse(await readJsonBody(req));
 
     let roomTypeId: number | null = body.roomTypeId ?? null;
+    let roomTypeDoc: any = null;
     if (roomTypeId) {
-      const roomType = await RoomType.findById(roomTypeId, { name: 1 }).lean();
-      if (!roomType) {
+      roomTypeDoc = await RoomType.findById(roomTypeId).lean();
+      if (!roomTypeDoc) {
         throw new ApiError("NOT_FOUND", "Room type not found.", { field: "roomTypeId" });
       }
       // Bathroom-like rooms are a business rule, not an error: the room is
       // created as a custom (untyped) space instead of being rejected.
-      if (isBathroomLikeRoomName(roomType.name)) {
+      if (isBathroomLikeRoomName(roomTypeDoc.name)) {
         roomTypeId = null;
+        roomTypeDoc = null;
       }
     }
 
     const nextRoomId = await getNextSequence("quotationRoom", QuotationRoom);
 
-    await QuotationRoom.create({
+    const createdRoom = await QuotationRoom.create({
       _id: nextRoomId,
       quotationId,
       roomTypeId,
@@ -57,14 +59,13 @@ export async function POST(req: Request, context: RouteContext) {
       sortOrder: body.sortOrder ?? 0,
     });
 
-    const populatedRoom = await QuotationRoom.findById(nextRoomId)
-      .populate({ path: "roomType" })
-      .populate({ path: "items" });
-
-    // See the matching comment on the items routes: `normalizeQuotationRoom`
-    // spreads its input, so a live Mongoose Document must be converted with
-    // `.toObject()` first or its internal bookkeeping leaks into the response.
-    const plainRoom = populatedRoom?.toObject ? populatedRoom.toObject() : populatedRoom;
+    // In-memory response construction with pre-fetched roomType and empty items array
+    // eliminates redundant findById and empty items population queries.
+    const plainRoom = {
+      ...(createdRoom?.toObject ? createdRoom.toObject() : createdRoom),
+      roomType: roomTypeDoc,
+      items: [],
+    };
     return apiSuccess(normalizeQuotationRoom(plainRoom), { status: 201 });
     });
   } catch (error) {

@@ -19,6 +19,7 @@ export const SOFT_DELETE_ENTITY_TYPES = [
   "quotation",
   "quotationRoom",
   "quotationItem",
+  "roomTemplate",
 ] as const;
 
 export type SoftDeleteEntityType = (typeof SOFT_DELETE_ENTITY_TYPES)[number];

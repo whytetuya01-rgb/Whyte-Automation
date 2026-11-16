@@ -21,9 +21,14 @@ export async function PATCH(req: Request, context: RouteContext) {
       throw new ApiError("VALIDATION_ERROR", "No editable fields were supplied.");
     }
 
-    // Duplicate check excludes the record being updated.
+    // Duplicate check excludes the record being updated (case-insensitive)
     if (data.name) {
-      const duplicate = await RoomType.findOne({ name: data.name, _id: { $ne: roomTypeId } })
+      const escapeRegex = (s: string) => s.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+      const duplicate = await RoomType.findOne({
+        name: { $regex: new RegExp(`^${escapeRegex(data.name.trim())}$`, "i") },
+        _id: { $ne: roomTypeId },
+        isDeleted: { $ne: true },
+      })
         .select("_id")
         .lean();
       if (duplicate) {
