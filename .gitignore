@@ -54,3 +54,20 @@ next-env.d.ts
 
 # Raw data dumps written by migration scripts (contain customer data): never commit
 scripts/backups/
+
+# WhatsApp Web session authentication cache (contains credentials)
+.wwebjs_auth/
+
+# Local agent scratch & assistant metadata
+.gemini/
+
+# Test output, screenshots, and browser recordings (directory-specific)
+tests/screenshots/
+tests/output/
+tests/reports/
+tests/recordings/
+playwright-report/
+test-results/
+
+# Migration dumps
+*.dump.json

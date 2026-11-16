@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  whyte-whatsapp-bridge:
+    build:
+      context: .
+      dockerfile: Dockerfile.whatsapp
+    container_name: whyte-whatsapp-bridge
+    restart: unless-stopped
+    ports:
+      - "5005:5005"
+    environment:
+      - NODE_ENV=production
+      - PORT_WHATSAPP_BRIDGE=5005
+      - HOST_WHATSAPP_BRIDGE=0.0.0.0
+      - WHATSAPP_BRIDGE_SECRET=${WHATSAPP_BRIDGE_SECRET}
+    volumes:
+      - whatsapp_session:/app/.wwebjs_auth
+
+volumes:
+  whatsapp_session:
+    name: whyte_whatsapp_session
+

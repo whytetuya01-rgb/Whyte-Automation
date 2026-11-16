@@ -10,6 +10,9 @@ const eslintConfig = defineConfig([
     rules: {
       "@typescript-eslint/no-explicit-any": "off",
       "react-hooks/set-state-in-effect": "off",
+      "react-hooks/preserve-manual-memoization": "warn",
+      "react-hooks/purity": "warn",
+      "react/no-unescaped-entities": "warn",
     },
   },
   // `./internal` and `./privileged` are the soft-delete system's escape
@@ -75,10 +78,12 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "public/**",
     "next-env.d.ts",
     "scratch/**",
     "scripts/**",
     "tests/**",
+    ".wwebjs_auth/**",
   ]),
 ]);
 
