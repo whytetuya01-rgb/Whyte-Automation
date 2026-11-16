@@ -98,17 +98,20 @@ export async function startIsolatedServer(label, users, options = {}) {
   };
 
   const { spawn } = await import("node:child_process");
+  const isWindows = process.platform === "win32";
+  const shell = isWindows ? "cmd.exe" : "sh";
+  const shellArgs = (cmd) => (isWindows ? ["/d", "/s", "/c", cmd] : ["-c", cmd]);
   let serverOutput = "";
   if (production) {
     // A production build hydrates reliably in a headless browser (dev-mode HMR does not).
-    const build = spawn("cmd.exe", ["/d", "/s", "/c", "npm run build"], { cwd: tempRoot, env: { ...env, NODE_ENV: "production" }, stdio: ["ignore", "pipe", "pipe"] });
+    const build = spawn(shell, shellArgs("npm run build"), { cwd: tempRoot, env: { ...env, NODE_ENV: "production" }, stdio: ["ignore", "pipe", "pipe"] });
     let buildOutput = "";
     build.stdout.on("data", (chunk) => (buildOutput += chunk.toString()));
     build.stderr.on("data", (chunk) => (buildOutput += chunk.toString()));
     const code = await new Promise((resolveExit) => build.on("exit", resolveExit));
     if (code !== 0) throw new Error(`isolated next build failed (${code}): ${buildOutput.slice(-2000)}`);
   }
-  const child = spawn("cmd.exe", ["/d", "/s", "/c", production ? "npm run start" : "npm run dev"], {
+  const child = spawn(shell, shellArgs(production ? "npm run start" : "npm run dev"), {
     cwd: tempRoot,
     env: production ? { ...env, NODE_ENV: "production" } : env,
     stdio: ["ignore", "pipe", "pipe"],
