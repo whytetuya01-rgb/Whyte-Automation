@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { assignDraftItemNumericIds, offlineDraftToQuotation, quotationToOfflineDraft } from "../src/lib/offline/draftStore";
+import { assignDraftItemNumericIds, assignDraftRoomNumericIds, offlineDraftToQuotation, quotationToOfflineDraft } from "../src/lib/offline/draftStore";
 import type { OfflineQuotationDraft, OfflineQuotationDraftItem } from "../src/lib/offline/db";
 import { normalizeQuotation } from "../src/lib/quotationNormalization";
 import type { EditorCatalogProduct } from "../src/types";
@@ -194,6 +194,62 @@ function main() {
   assert.ok(/onAddItem\(/.test(body("handleAddTypedQuantity")), "typed Add creates an entry");
   assert.ok(/key=\{itemId\}/.test(source), "Added Products rows are keyed by the item id");
   pass("the product configuration add handlers only create entries; they never find-and-update an existing line");
+
+  // ── offline draft room restore: no collision across rooms created in same timeframe ──
+  const storedRoomsDraft: OfflineQuotationDraft = {
+    id: "draft_test_rooms",
+    tenantKey: "1:1",
+    companyId: 1,
+    companyName: "Company 1",
+    userId: 1,
+    userName: "Dealer",
+    userRole: "dealer",
+    clientName: "Client",
+    houseTypeId: 1,
+    catalogVersion: "v1",
+    revision: 1,
+    status: "LOCAL_SAVED",
+    createdAt: "2026-10-28T00:00:00.000Z",
+    updatedAt: "2026-10-28T00:00:00.000Z",
+    rooms: [
+      { id: "room_1794888266934", draftId: "draft_test_rooms", roomTypeId: 1, name: "Master Bedroom", sortOrder: 0, items: [] },
+      { id: "room_1794888268000", draftId: "draft_test_rooms", roomTypeId: 1, name: "Room 2", sortOrder: 1, items: [] },
+      { id: "room_1794888270000", draftId: "draft_test_rooms", roomTypeId: 1, name: "Kitchen", sortOrder: 2, items: [] },
+      { id: "room_17948882", draftId: "draft_test_rooms", roomTypeId: 1, name: "Dining Room", sortOrder: 3, items: [] },
+      { id: "room_17948882", draftId: "draft_test_rooms", roomTypeId: 1, name: "Balcony", sortOrder: 4, items: [] },
+    ],
+    roomCount: 5,
+    deviceCount: 0,
+    calculation: {
+      grossSubtotal: 0,
+      discountType: "percentage",
+      discountValue: 0,
+      discountAmount: 0,
+      netSubtotal: 0,
+      cgstPercent: 9,
+      cgstAmount: 0,
+      sgstPercent: 9,
+      sgstAmount: 0,
+      totalGstAmount: 0,
+      grandTotal: 0,
+      dealerDiscountAllocationPercent: 0,
+      customerDiscountPercent: 0,
+      estimatedDealerEarning: 0,
+    },
+  };
+
+  const restoredRoomsQuotation = offlineDraftToQuotation(storedRoomsDraft, catalog, roomTypes);
+  const restoredRooms = restoredRoomsQuotation.rooms;
+  assert.equal(restoredRooms.length, 5, "all 5 rooms restored");
+  const uniqueRoomIds = new Set(restoredRooms.map((r: any) => r.id));
+  assert.equal(uniqueRoomIds.size, 5, "every restored room has a distinct numeric id (no all-selected collision in step 3)");
+  pass("an offline draft restores multiple rooms with distinct numeric IDs without timestamp truncation collisions");
+
+  // ── saving a restored room draft and restoring it again preserves distinct room ids ──
+  const savedRoomsBack = quotationToOfflineDraft(restoredRoomsQuotation, storedRoomsDraft);
+  const reRestoredRooms = offlineDraftToQuotation(savedRoomsBack, catalog, roomTypes).rooms;
+  assert.equal(new Set(reRestoredRooms.map((r: any) => r.id)).size, 5, "room IDs remain distinct across save and restore");
+  pass("saving a restored room draft and restoring again preserves distinct room IDs across reloads");
 
   console.log(`\n${count} tests passed.`);
 }

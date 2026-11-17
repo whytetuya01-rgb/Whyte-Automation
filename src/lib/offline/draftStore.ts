@@ -323,6 +323,46 @@ export async function duplicateOfflineDraft(params: {
 }
 
 /**
+ * Assign a unique, stable, deterministic numeric id for every room in an offline draft.
+ *
+ * Rules:
+ *  - an id of form `room_<digits>` keeps its exact numeric digits;
+ *  - any other id (e.g. UUIDs `room_d3aed98b-...`) gets a deterministic hash;
+ *  - a collision (including legacy drafts where timestamp room ids were truncated to 8 digits
+ *    and collapsed to the same number) moves the later room to the next free candidate number.
+ *
+ * Numbers are assigned in draft order: exact `room_<digits>` ids first, so a hash can never take one of them.
+ */
+export function assignDraftRoomNumericIds(rooms: Array<{ id: string }>): number[] {
+  const used = new Set<number>();
+  const result: number[] = rooms.map(() => 0);
+
+  const claim = (wanted: number): number => {
+    let candidate = wanted;
+    while (used.has(candidate)) candidate += 1;
+    used.add(candidate);
+    return candidate;
+  };
+  const hash = (text: string): number => {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < text.length; i += 1) {
+      h ^= text.charCodeAt(i);
+      h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return (h % 2_000_000_000) + 1;
+  };
+
+  rooms.forEach((room, roomIndex) => {
+    const exact = /^room_(\d{1,15})$/.exec(String(room.id));
+    if (exact && Number(exact[1]) > 0) result[roomIndex] = claim(Number(exact[1]));
+  });
+  rooms.forEach((room, roomIndex) => {
+    if (result[roomIndex] === 0) result[roomIndex] = claim(hash(String(room.id)));
+  });
+  return result;
+}
+
+/**
  * The editor addresses quotation items by a numeric id, while a stored draft keeps string ids (`item_<digits>` for items
  * added in the editor, `item_<uuid>` for items created by cloning a draft). Every item must keep its OWN id when a draft
  * is restored, otherwise two entries of the same product would answer to one id and update / delete each other.
@@ -382,10 +422,11 @@ export function offlineDraftToQuotation(
   const roomTypeMap = new Map<number, any>();
   for (const rt of roomTypes) roomTypeMap.set(rt.id, rt);
 
+  const roomNumericIds = assignDraftRoomNumericIds(draft.rooms || []);
   const itemNumericIds = assignDraftItemNumericIds(draft.rooms || []);
 
   const rooms = (draft.rooms || []).map((r, rIdx) => {
-    const roomId = Number(r.id.replace(/\D/g, "").slice(0, 8)) || rIdx + 1;
+    const roomId = roomNumericIds[rIdx];
     const roomType = roomTypeMap.get(r.roomTypeId);
 
     const items = (r.items || []).map((item, iIdx) => {
@@ -414,6 +455,7 @@ export function offlineDraftToQuotation(
     return {
       id: roomId,
       _id: roomId,
+      _offlineRoomId: r.id,
       quotationId: draft.id as any,
       roomTypeId: r.roomTypeId,
       customName: r.name,
@@ -459,8 +501,24 @@ export function quotationToOfflineDraft(
   quotation: any,
   baseDraft: OfflineQuotationDraft
 ): OfflineQuotationDraft {
+  const seenRoomIds = new Set<string>();
   const rooms: OfflineQuotationDraftRoom[] = (quotation.rooms || []).map((r: any, rIdx: number) => {
-    const roomId = typeof r.id === "string" && r.id.startsWith("room_") ? r.id : `room_${r.id ?? rIdx + 1}`;
+    let roomId =
+      typeof r._offlineRoomId === "string" && r._offlineRoomId.startsWith("room_")
+        ? r._offlineRoomId
+        : typeof r.id === "string" && r.id.startsWith("room_")
+        ? r.id
+        : `room_${r.id ?? rIdx + 1}`;
+
+    // Guarantee that every room in the offline draft has a strictly unique string ID
+    if (seenRoomIds.has(roomId)) {
+      roomId = typeof r.id === "number" ? `room_${r.id}` : generateClientEntityId("room");
+      while (seenRoomIds.has(roomId)) {
+        roomId = generateClientEntityId("room");
+      }
+    }
+    seenRoomIds.add(roomId);
+
     const items: OfflineQuotationDraftItem[] = (r.items || []).map((item: any, iIdx: number) => {
       const itemId = typeof item.id === "string" && item.id.startsWith("item_") ? item.id : `item_${item.id ?? iIdx + 1}`;
       const unitPrice = typeof item.unitPrice === "string" ? item.unitPrice : Number(item.unitPrice || 0).toFixed(2);

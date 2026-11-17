@@ -143,6 +143,21 @@ export default function ProposalBuilder({
   const firstRoomId = initialRooms.length > 0 ? (initialRooms[0].id ?? (initialRooms[0] as any)._id) : null;
   const [activeRoomId, setActiveRoomId] = useState<number | null>(firstRoomId);
 
+  // Keep activeRoomId in sync with valid rooms
+  useEffect(() => {
+    const rooms = quotation?.rooms || [];
+    if (rooms.length === 0) {
+      if (activeRoomId !== null) setActiveRoomId(null);
+      return;
+    }
+    const isActiveValid = rooms.some(
+      (r) => Number(r.id ?? (r as any)._id) === Number(activeRoomId)
+    );
+    if (!isActiveValid) {
+      setActiveRoomId(Number(rooms[0].id ?? (rooms[0] as any)._id));
+    }
+  }, [quotation?.rooms, activeRoomId]);
+
   // Loading & Saving States
   const [isDataLoading, setIsDataLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -609,7 +624,10 @@ export default function ProposalBuilder({
       setOfflineDraft(nextDraft);
       const converted = offlineDraftToQuotation(nextDraft, products, roomTypes);
       setQuotation(converted);
-      setActiveRoomId(newRoomId);
+      const addedRoom = converted.rooms?.[converted.rooms.length - 1];
+      if (addedRoom) {
+        setActiveRoomId(addedRoom.id);
+      }
       triggerAutosave();
       toast.success(`Space "${roomName || "Room"}" added`);
       return;
@@ -1103,7 +1121,13 @@ export default function ProposalBuilder({
         const rId = Number(r.id ?? (r as any)._id);
         return updatedMap.get(rId) || r;
       });
-      return { ...prev, rooms: nextRooms };
+      const nextQuote = { ...prev, rooms: nextRooms };
+      if (isOfflineDraft && offlineDraft) {
+        const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+        setOfflineDraft(nextDraft);
+        triggerAutosave();
+      }
+      return nextQuote;
     });
   };
 
