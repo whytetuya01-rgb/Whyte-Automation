@@ -43,12 +43,13 @@ async function runAll() {
 
     const start = Date.now();
     const isMjs = suite.endsWith(".mjs");
+    const tsNodeScript = resolve(__dirname, "../node_modules/ts-node/dist/bin.js");
 
-    const cmd = isMjs ? "node" : "npx";
+    const cmd = process.execPath;
     const args = isMjs
       ? [suite]
       : [
-          "ts-node",
+          tsNodeScript,
           "-T",
           "-P",
           "tsconfig.testrun.json",
@@ -60,7 +61,8 @@ async function runAll() {
     const proc = spawnSync(cmd, args, {
       cwd: resolve(__dirname, ".."),
       encoding: "utf8",
-      shell: true,
+      shell: false,
+      timeout: 45_000,
       env: {
         ...process.env,
         NODE_ENV: "test",

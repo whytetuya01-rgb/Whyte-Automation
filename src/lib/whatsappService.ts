@@ -153,7 +153,8 @@ export async function sendViaWhatsAppBridge({
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000); // 30s timeout for PDF dispatch
+    const timeoutDuration = process.env.NODE_ENV === "test" ? 3000 : 30_000;
+    const timeout = setTimeout(() => controller.abort(), timeoutDuration);
 
     const pdfBase64 = pdfBuffer ? Buffer.from(pdfBuffer).toString("base64") : undefined;
 
