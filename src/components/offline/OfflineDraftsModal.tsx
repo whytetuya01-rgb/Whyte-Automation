@@ -18,6 +18,7 @@ import {
   X,
   CheckCircle2,
   FolderOpen,
+  CloudUpload,
 } from "lucide-react";
 import {
   listOfflineDrafts,
@@ -49,6 +50,55 @@ export default function OfflineDraftsModal({ isOpen, onClose }: Props) {
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [renamingDraft, setRenamingDraft] = useState<OfflineQuotationDraft | null>(null);
   const [renameValue, setRenameValue] = useState("");
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== "undefined" ? navigator.onLine : true));
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, []);
+
+  const handleSyncDraft = async (draft: OfflineQuotationDraft) => {
+    if (syncingId) return;
+    if (!isOnline) {
+      toast.error("You are currently offline. Please connect to the internet to sync this draft.");
+      return;
+    }
+
+    setSyncingId(draft.id);
+    const toastId = toast.loading(`Syncing "${draft.clientName || "draft"}" to cloud...`);
+
+    try {
+      const res = await fetch("/api/quotations/sync-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || "Failed to sync draft");
+      }
+
+      const json = await res.json();
+      const created = json?.data ?? json;
+
+      await deleteOfflineDraft(draft.companyId, draft.userId, draft.id);
+      toast.success(`Quotation ${created.quotationNumber || ""} synced to cloud!`, { id: toastId });
+      onClose();
+      router.push(`/quotation/${created.id}`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to sync draft", { id: toastId });
+    } finally {
+      setSyncingId(null);
+    }
+  };
 
   const refreshDrafts = useCallback(async () => {
     if (!companyId || !userId) {
@@ -359,16 +409,29 @@ export default function OfflineDraftsModal({ isOpen, onClose }: Props) {
                       </button>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        onClose();
-                        router.push(`/quotation/draft/${draft.id}`);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-medium hover:bg-gray-800 transition-colors shadow-2xs"
-                    >
-                      Continue
-                      <ExternalLink size={12} />
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      {isOnline && (
+                        <button
+                          onClick={() => handleSyncDraft(draft)}
+                          disabled={syncingId === draft.id}
+                          title="Sync this draft to cloud and assign an official quotation number"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white rounded-lg text-xs font-semibold transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
+                        >
+                          <CloudUpload size={13} className={syncingId === draft.id ? "animate-spin" : ""} />
+                          <span>{syncingId === draft.id ? "Syncing..." : "Sync to Cloud"}</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          onClose();
+                          router.push(`/quotation/draft/${draft.id}`);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-medium hover:bg-gray-800 transition-colors shadow-2xs"
+                      >
+                        Continue
+                        <ExternalLink size={12} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

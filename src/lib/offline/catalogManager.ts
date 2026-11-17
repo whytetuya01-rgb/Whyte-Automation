@@ -119,6 +119,13 @@ export async function downloadOfflineCatalog(
     const houseTypes: HouseType[] = data.houseTypes || [];
     const roomTypes: RoomType[] = data.roomTypes || [];
 
+    // Cache company profile in localStorage for offline proposal preview & PDF generation
+    if (data.company && typeof window !== "undefined") {
+      try {
+        localStorage.setItem(`whyte:company_profile:${tenant.companyId}`, JSON.stringify(data.company));
+      } catch {}
+    }
+
     // 3. Atomically Commit Data to IndexedDB
     const newMeta: CatalogMetadata = {
       tenantKey,

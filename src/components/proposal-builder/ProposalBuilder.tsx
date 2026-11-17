@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import toast from "react-hot-toast";
 import { useSession } from "next-auth/react";
-import { AlertTriangle, ArrowLeft, Check, Clock, Copy, Home, Save, X, WifiOff, Database } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Check, Clock, Copy, Home, Save, X, WifiOff, Database, CloudUpload } from "lucide-react";
 import CloneQuotationModal, { type CloneSource } from "@/components/admin/quotations/CloneQuotationModal";
 import {
   Quotation,
@@ -39,6 +39,7 @@ import { isMultiFloorHouseType } from "@/lib/roomUtils";
 import { calculateIntelligentDefaultFloor } from "@/lib/floorAssignment";
 import {
   saveOfflineDraft,
+  deleteOfflineDraft,
   offlineDraftToQuotation,
   quotationToOfflineDraft,
 } from "@/lib/offline/draftStore";
@@ -107,7 +108,25 @@ export default function ProposalBuilder({
   const [products, setProducts] = useState<EditorCatalogProduct[]>(initialProducts);
   const [categories, setCategories] = useState<Category[]>(normalizeCategories(initialCategories));
   const [roomTypes, setRoomTypes] = useState<RoomType[]>(normalizeRoomTypes(initialRoomTypes));
-  const [company, setCompany] = useState<Company | null>(initialCompany);
+  const [company, setCompany] = useState<Company | null>(() => {
+    if (initialCompany) return initialCompany;
+    if (typeof window !== "undefined") {
+      const cId = (initialQuotation as any)?.companyId || initialOfflineDraft?.companyId;
+      if (cId) {
+        try {
+          const cached = localStorage.getItem(`whyte:company_profile:${cId}`);
+          if (cached) return JSON.parse(cached);
+        } catch {}
+      }
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (initialCompany) {
+      setCompany(initialCompany);
+    }
+  }, [initialCompany]);
 
   // "Clone this quotation": the dialog and, for Admins, the dealers a clone can be given to.
   const { data: authSession } = useSession();
@@ -221,6 +240,90 @@ export default function ProposalBuilder({
       toast.error(`Local save error: ${err}`);
     },
   });
+
+  // Network connectivity status for offline drafts
+  const [isOnline, setIsOnline] = useState(() => (typeof navigator !== "undefined" ? navigator.onLine : true));
+  const [isSyncingToCloud, setIsSyncingToCloud] = useState(false);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
+
+  // Always ensure company details are loaded & cached (works both online and offline)
+  useEffect(() => {
+    const cId = (quotation as any)?.companyId || initialCompany?.id || offlineDraft?.companyId;
+    if (!cId) return;
+
+    // Load from localStorage if not yet set
+    if (!company && typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem(`whyte:company_profile:${cId}`);
+        if (cached) setCompany(JSON.parse(cached));
+      } catch {}
+    }
+
+    // Refresh from /api/company if online
+    if (typeof navigator === "undefined" || navigator.onLine) {
+      fetch("/api/company")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (data && typeof data === "object" && !data.error) {
+            setCompany(data);
+            try {
+              localStorage.setItem(`whyte:company_profile:${cId}`, JSON.stringify(data));
+            } catch {}
+          }
+        })
+        .catch(() => {});
+    }
+  }, [(quotation as any)?.companyId, initialCompany, offlineDraft?.companyId, company]);
+
+  const handleSyncToCloud = async () => {
+    if (!offlineDraft || isSyncingToCloud) return;
+    if (!isOnline) {
+      toast.error("You are currently offline. Please connect to the internet to sync this draft.");
+      return;
+    }
+
+    setIsSyncingToCloud(true);
+    const toastId = toast.loading("Syncing draft to cloud...");
+
+    try {
+      flushDraftAutosave();
+
+      const res = await fetch("/api/quotations/sync-draft", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft: offlineDraft }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(extractErrorMessage(err, "Failed to sync quotation to cloud"));
+      }
+
+      const json = await res.json();
+      const createdQuote = json?.data ?? json;
+
+      try {
+        await deleteOfflineDraft(offlineDraft.companyId, offlineDraft.userId, offlineDraft.id);
+      } catch {}
+
+      toast.success(`Quotation ${createdQuote.quotationNumber || ""} synced to cloud!`, { id: toastId });
+
+      window.location.href = `/quotation/${createdQuote.id}?step=${currentStep}`;
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to sync draft to cloud", { id: toastId });
+      setIsSyncingToCloud(false);
+    }
+  };
 
   // Keep URL updated with current step
   const navigateToStep = useCallback(
@@ -1436,18 +1539,41 @@ export default function ProposalBuilder({
 
       {/* Offline Draft Banner */}
       {isOfflineDraft && (
-        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-gradient-to-r from-amber-500/10 via-amber-50/50 to-emerald-500/10 border border-amber-200/80 rounded-2xl text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 bg-gradient-to-r from-amber-500/10 via-amber-50/50 to-emerald-500/10 border border-amber-200/80 rounded-2xl text-xs">
           <div className="flex items-center gap-2 text-amber-900 font-medium">
-            <Database size={14} className="text-amber-600 shrink-0" />
+            <Database size={15} className="text-amber-600 shrink-0" />
             <span>
-              <strong>Offline Draft Mode:</strong> Working offline using cached catalog. All calculations are local estimates. Server synchronization and official quotation numbering will occur online in Phase 5.
+              <strong>Offline Draft Mode:</strong> Saved locally in browser storage.
+              {isOnline ? (
+                <span className="ml-1 text-emerald-800 font-semibold">
+                  • You are online. You can sync this draft to the cloud to get an official quotation number.
+                </span>
+              ) : (
+                <span className="ml-1 text-amber-800">
+                  • Working offline. Connect to the internet to sync to cloud.
+                </span>
+              )}
             </span>
           </div>
-          {offlineDraft?.catalogVersion && (
-            <span className="text-[11px] font-mono text-gray-500 bg-white/80 px-2 py-0.5 rounded-md border border-gray-200/60">
-              Catalog: {offlineDraft.catalogVersion.slice(0, 10)}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {offlineDraft?.catalogVersion && (
+              <span className="text-[11px] font-mono text-gray-500 bg-white/80 px-2 py-1 rounded-md border border-gray-200/60 hidden sm:inline">
+                Catalog: {offlineDraft.catalogVersion.slice(0, 10)}
+              </span>
+            )}
+            {isOnline && offlineDraft && (
+              <button
+                type="button"
+                onClick={handleSyncToCloud}
+                disabled={isSyncingToCloud}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-semibold rounded-xl text-xs transition shadow-xs disabled:opacity-50 cursor-pointer"
+                title="Upload draft to server and assign official quotation number"
+              >
+                <CloudUpload size={14} className={isSyncingToCloud ? "animate-spin" : ""} />
+                <span>{isSyncingToCloud ? "Syncing to Cloud..." : "Sync to Cloud"}</span>
+              </button>
+            )}
+          </div>
         </div>
       )}
 

@@ -13,6 +13,7 @@ import {
 import { buildEditorCatalog, loadEditorCatalogSources } from "@/lib/editorCatalog";
 import { normalizeCategories, normalizeHouseTypes, normalizeRoomTypes } from "@/lib/quotationNormalization";
 import { isBathroomLikeRoomName } from "@/lib/utils";
+import { toCompanyProfile } from "@/lib/companyProfile";
 
 export const dynamic = "force-dynamic";
 
@@ -119,7 +120,7 @@ export async function GET(request: Request) {
       // 1. Fetch Company details and Dealer discount allocation
       const [companyDoc, userDoc] = await tracer.measure("Tenant Context Lookups", () =>
         Promise.all([
-          Company.findById(companyId).select("name status").lean(),
+          Company.findById(companyId).lean(),
           AdminUser.findById(userId).select("discountAllocationPercent isActive").lean(),
         ])
       );
@@ -235,6 +236,7 @@ export async function GET(request: Request) {
           role,
           allocatedDiscountPercent: allocatedDiscount,
         },
+        company: toCompanyProfile(companyDoc as any),
         counts: {
           products: products.length,
           variants: totalVariants,

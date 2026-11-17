@@ -66,6 +66,7 @@ export default function OfflineDraftPage() {
   const [draft, setDraft] = useState<OfflineQuotationDraft | null>(null);
   const [catalogSnapshot, setCatalogSnapshot] = useState<OfflineCatalogSnapshot | null>(null);
   const [catalogModalOpen, setCatalogModalOpen] = useState(false);
+  const [company, setCompany] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -88,6 +89,25 @@ export default function OfflineDraftPage() {
         const snapshot = await OfflineCatalogRepository.getCatalogSnapshot(companyId, userId);
         if (!isMounted) return;
         setCatalogSnapshot(snapshot);
+
+        // Fetch & cache company profile for proposal preview (Step 5)
+        if (typeof window !== "undefined" && companyId) {
+          try {
+            const cached = localStorage.getItem(`whyte:company_profile:${companyId}`);
+            if (cached) setCompany(JSON.parse(cached));
+          } catch {}
+        }
+        fetch("/api/company")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((data) => {
+            if (data && typeof data === "object" && !data.error && isMounted) {
+              setCompany(data);
+              try {
+                localStorage.setItem(`whyte:company_profile:${companyId}`, JSON.stringify(data));
+              } catch {}
+            }
+          })
+          .catch(() => {});
 
         if (!snapshot.isAvailable || snapshot.products.length === 0) {
           setLoading(false);
@@ -238,6 +258,7 @@ export default function OfflineDraftPage() {
       initialProducts={catalogSnapshot.products}
       initialCategories={catalogSnapshot.categories}
       initialRoomTypes={catalogSnapshot.roomTypes}
+      initialCompany={company}
       initialStep={initialStep}
     />
   );
