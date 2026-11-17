@@ -21,7 +21,10 @@ import {
   Building2,
   MapPin,
   X,
+  LayoutTemplate,
 } from "lucide-react";
+import type { QuotationTemplate } from "@/types/template";
+import { DEFAULT_CONFIGURABLE_COLUMNS } from "@/types/template";
 import { Quotation, QuotationRoom, QuotationItem, Company } from "@/types";
 import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
 import { getRoomFullTitle, getRoomDisplayName, getRoomFloorLabel, isMultiFloorHouseType } from "@/lib/roomUtils";
@@ -518,9 +521,22 @@ function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation,
 /**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  */
-function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, showOverview: boolean, seriesCount: number, specsOf: SpecsOf): ProposalPageSlice[] {
+function paginateQuotation(
+  quotation: Quotation,
+  introPages: IntroPageMode,
+  showOverview: boolean,
+  seriesCount: number,
+  specsOf: SpecsOf,
+  template?: QuotationTemplate | null
+): ProposalPageSlice[] {
   const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
+
+  const isSectionEnabled = (sectionId: string) => {
+    if (!template || !template.sectionOrder) return true;
+    const found = template.sectionOrder.find((s) => s.id === sectionId);
+    return found ? found.enabled : true;
+  };
 
   // Height-budget constants are calibrated against the REAL rendered pixel
   // height of each element (measured from actual captured PDF pages), not a
@@ -540,28 +556,36 @@ function paginateQuotation(quotation: Quotation, introPages: IntroPageMode, show
   const getCapacity = () => PAGE_CAPACITY - RUNNING_HEADER - FOOTER_RESERVE;
 
   // PAGE 1: Executive Cover
-  pages.push({
-    pageNumber: 1,
-    totalPages: 0,
-    isFirstPage: true,
-    isLastPage: false,
-    sections: [{ type: "cover" }],
-  });
+  if (isSectionEnabled("cover")) {
+    pages.push({
+      pageNumber: 1,
+      totalPages: 0,
+      isFirstPage: true,
+      isLastPage: false,
+      sections: [{ type: "cover" }],
+    });
+  }
 
   // Introduction pages depend on the company's document settings: the built-in Whyte About page (default company
   // only) or one custom About page, then the Project Overview page when the company includes it (the standard
   // pages always do).
-  if (introPages === "standard") {
-    pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_whyte" }] });
-  } else if (introPages === "custom") {
-    pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_company" }] });
+  if (isSectionEnabled("about_company")) {
+    if (introPages === "standard") {
+      pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_whyte" }] });
+    } else if (introPages === "custom") {
+      pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "about_company" }] });
+    }
   }
-  if (showOverview) {
+
+  if (showOverview && isSectionEnabled("project_overview")) {
     pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "project_overview_and_scope" }] });
   }
+
   // The product series the quotation uses (marked "show on PDF"), a fixed number per page.
-  for (let start = 0; start < seriesCount; start += SERIES_PER_PAGE) {
-    pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "product_series", start }] });
+  if (isSectionEnabled("product_series")) {
+    for (let start = 0; start < seriesCount; start += SERIES_PER_PAGE) {
+      pages.push({ pageNumber: pages.length + 1, totalPages: 0, isFirstPage: false, isLastPage: false, sections: [{ type: "product_series", start }] });
+    }
   }
 
   let currentPage = pages.length + 1;
@@ -898,9 +922,46 @@ export default function StepProposalPreview({
     [specCatalog]
   );
 
+  // Dynamic Quotation Templates
+  const [templates, setTemplates] = useState<QuotationTemplate[]>([]);
+  const [activeTemplate, setActiveTemplate] = useState<QuotationTemplate | null>(null);
+
+  useEffect(() => {
+    fetch("/api/templates")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json?.data && Array.isArray(json.data) && json.data.length > 0) {
+          const list: QuotationTemplate[] = json.data;
+          setTemplates(list);
+          const current =
+            list.find((t) => t.id === quotation.templateId) ||
+            list.find((t) => t.isDefault) ||
+            list[0];
+          setActiveTemplate(current);
+        }
+      })
+      .catch(() => {});
+  }, [quotation.templateId]);
+
+  const handleSwitchTemplate = async (templateId: string) => {
+    const target = templates.find((t) => t.id === templateId);
+    if (!target) return;
+    setActiveTemplate(target);
+    try {
+      if (quotation.id) {
+        await fetch(`/api/quotations/${quotation.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ templateId }),
+        });
+        toast.success(`Applied "${target.name}" template`);
+      }
+    } catch {}
+  };
+
   const proposalPages = useMemo(() => {
-    return paginateQuotation(quotation, content.introPages, content.showOverview, documentSeries.length, specsOf);
-  }, [quotation, content.introPages, content.showOverview, documentSeries.length, specsOf]);
+    return paginateQuotation(quotation, content.introPages, content.showOverview, documentSeries.length, specsOf, activeTemplate);
+  }, [quotation, content.introPages, content.showOverview, documentSeries.length, specsOf, activeTemplate]);
 
   const A4_WIDTH_MM = 210;
   const A4_HEIGHT_MM = 297;
@@ -1417,6 +1478,24 @@ export default function StepProposalPreview({
           </div>
 
           <div className="flex items-center gap-2.5">
+            {templates.length > 0 && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-xl shadow-xs">
+                <LayoutTemplate size={14} className="text-gray-500 shrink-0" />
+                <select
+                  value={activeTemplate?.id || ""}
+                  onChange={(e) => handleSwitchTemplate(e.target.value)}
+                  className="bg-transparent text-xs font-semibold text-gray-800 border-none outline-hidden cursor-pointer"
+                  title="Choose Proposal Template"
+                >
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      Template: {t.name} {t.isDefault ? "(Default)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={handleShare}
@@ -1703,6 +1782,26 @@ export default function StepProposalPreview({
                                 </span>
                               </div>
                             </div>
+
+                            {/* Template Custom Fields */}
+                            {activeTemplate?.customFields && activeTemplate.customFields.length > 0 && (
+                              <div className="grid grid-cols-2 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50/40 py-2">
+                                {activeTemplate.customFields.map((field) => {
+                                  const val = quotation.customFieldValues?.[field.key] || field.defaultValue;
+                                  if (!val) return null;
+                                  return (
+                                    <div key={field.id} className="px-5 min-w-0">
+                                      <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                                        {field.label}
+                                      </span>
+                                      <span className="mt-0.5 text-xs font-semibold text-gray-900 block truncate">
+                                        {val}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
 
                             {/* Row 3 — Slim Investment Strip */}
                             <div className="px-5 py-2.5 bg-accent-light/40 border-t border-accent-border/50 flex items-center justify-between">
@@ -2319,27 +2418,29 @@ export default function StepProposalPreview({
                                       style={{ minHeight: PRODUCT_ROW_MIN_PX }}
                                     >
                                       {/* The product itself, straight on white: no frame, no grey tile, never cropped or stretched */}
-                                      <div
-                                        className="shrink-0 flex items-center justify-center"
-                                        style={{ width: PRODUCT_IMAGE_PX, height: PRODUCT_IMAGE_PX }}
-                                      >
-                                        {imgUrl ? (
-                                          <img
-                                            src={imgUrl}
-                                            alt={formattedName}
-                                            className="max-h-full max-w-full object-contain"
-                                            crossOrigin="anonymous"
-                                            onError={(e) => {
-                                              (e.target as HTMLElement).style.display = "none";
-                                            }}
-                                          />
-                                        ) : (
-                                          <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-200 text-gray-300">
-                                            <Package size={28} />
-                                            <span className="text-[9px] font-semibold uppercase tracking-wider">{content.text.noImage}</span>
-                                          </div>
-                                        )}
-                                      </div>
+                                      {activeTemplate?.configurableColumns?.showProductImage !== false && (
+                                        <div
+                                          className="shrink-0 flex items-center justify-center"
+                                          style={{ width: PRODUCT_IMAGE_PX, height: PRODUCT_IMAGE_PX }}
+                                        >
+                                          {imgUrl ? (
+                                            <img
+                                              src={imgUrl}
+                                              alt={formattedName}
+                                              className="max-h-full max-w-full object-contain"
+                                              crossOrigin="anonymous"
+                                              onError={(e) => {
+                                                (e.target as HTMLElement).style.display = "none";
+                                              }}
+                                            />
+                                          ) : (
+                                            <div className="flex h-full w-full flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-gray-200 text-gray-300">
+                                              <Package size={28} />
+                                              <span className="text-[9px] font-semibold uppercase tracking-wider">{content.text.noImage}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
 
                                       <div className="min-w-0 flex-1 space-y-1.5">
                                         <div className="flex items-start gap-2 min-w-0">
@@ -2436,16 +2537,20 @@ export default function StepProposalPreview({
                                             </p>
                                           </div>
                                         )}
-                                        <p
-                                          className={`font-mono font-extrabold text-lg leading-none ${excluded ? "text-gray-400 line-through" : "text-gray-950"
-                                            }`}
-                                        >
-                                          {formatCurrency(unitPrice)}
-                                        </p>
-                                        <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">
-                                          {hasItemDiscount ? "Final · " : ""}
-                                          {content.text.perUnit}
-                                        </p>
+                                        {activeTemplate?.configurableColumns?.showUnitPrice !== false && (
+                                          <>
+                                            <p
+                                              className={`font-mono font-extrabold text-lg leading-none ${excluded ? "text-gray-400 line-through" : "text-gray-950"
+                                                }`}
+                                            >
+                                              {formatCurrency(unitPrice)}
+                                            </p>
+                                            <p className="text-[10px] uppercase tracking-wider font-semibold text-gray-400">
+                                              {hasItemDiscount ? "Final · " : ""}
+                                              {content.text.perUnit}
+                                            </p>
+                                          </>
+                                        )}
                                         {/* Grouped entries: the sum of each entry's own line total. */}
                                         {isGrouped && (
                                           <p

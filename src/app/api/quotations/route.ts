@@ -26,6 +26,7 @@ import { dealerVisibilityFilter, salesExecutiveVisibilityFilter } from "@/lib/qu
 import { redactQuotationForRole } from "@/lib/variantRedaction";
 import { dealerSnapshot, recordQuotationEvents } from "@/lib/quotationAudit";
 import { isItemUnavailable, isProtectedQuotationStatus, isRoomUnavailable } from "@/lib/quotationAvailability";
+import { resolveQuotationTemplate } from "@/lib/templateService";
 
 export const dynamic = "force-dynamic";
 
@@ -434,10 +435,13 @@ async function createQuotation(
     const createdOn = new Date();
     const year = createdOn.getFullYear();
 
+    const template = companyId ? await resolveQuotationTemplate(companyId, rest.templateId) : null;
+    const numberingFormat = template?.numberingFormat || null;
+
     // One numbering service for every way of creating a quotation. If a simultaneous request took the number, the
     // whole transaction is tried again (a bounded number of times) with a fresh one.
     const createdQuotation = await withQuotationNumberRetry(() => withTransaction(async (dbSession) => {
-      const { quotationNumber } = await issueQuotationNumber(year, dbSession);
+      const { quotationNumber } = await issueQuotationNumber(year, dbSession, numberingFormat);
       const quotationId = "q_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 9);
 
       const finalDiscountType = requestedCustomerDiscount > 0 ? "percentage" : (rest.discountType ?? "none");
@@ -454,6 +458,8 @@ async function createQuotation(
       const newQuotation = new Quotation({
         _id: quotationId,
         ...rest,
+        templateId: template?.id || rest.templateId || null,
+        customFieldValues: rest.customFieldValues || {},
         customerId: resolvedCustomerId,
         quotationNumber,
         houseTypeId: houseTypeId ?? null,

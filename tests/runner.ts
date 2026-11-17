@@ -25,6 +25,7 @@ const SUITES = [
   "tests/auth-rate-limit.test.ts",
   "tests/whatsapp-service-security.test.ts",
   "tests/independent-quotation-items.test.ts",
+  "tests/quotation-template-designer.test.ts",
   "tests/phase7-safety-and-failure.test.ts",
   "tests/phase7-db-failure.test.ts",
 ];

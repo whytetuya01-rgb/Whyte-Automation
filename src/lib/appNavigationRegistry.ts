@@ -107,6 +107,7 @@ export const APP_NAVIGATION_REGISTRY: readonly AppNavigationEntry[] = [
     landingRoute: "/admin/quotations",
     permittedHrefs: [
       "/admin/quotations",
+      "/admin/templates",
       "/admin/deliveries",
       "/admin/dealers",
     ],
@@ -287,6 +288,7 @@ export function getDefaultAppForRoute(pathname: string): AppNavigationEntry {
 
   if (
     pathname.startsWith("/admin/quotations") ||
+    pathname.startsWith("/admin/templates") ||
     pathname.startsWith("/admin/deliveries")
   ) {
     return getAppById("sales");

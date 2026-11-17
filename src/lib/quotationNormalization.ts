@@ -430,6 +430,8 @@ export function normalizeQuotation(quotation: any): Quotation & {
     houseTypeId,
     houseType,
     premisesName: typeof quotation.premisesName === "string" && quotation.premisesName.trim() ? quotation.premisesName.trim() : null,
+    templateId: quotation.templateId ? String(quotation.templateId) : null,
+    customFieldValues: quotation.customFieldValues || {},
     rooms,
     subtotal: gst.grossSubtotal,
     productsCount,

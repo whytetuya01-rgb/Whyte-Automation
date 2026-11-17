@@ -63,6 +63,8 @@ export interface IQuotation extends SoftDeleteFields {
   deliveredAt: Date | null;
   deliveredBy: number | null;
   clonedFromQuotationId: string | null;
+  templateId?: string | null;
+  customFieldValues?: Record<string, string> | null;
   /** Which issued version this is (1 = the first). Changing an issued quotation means creating revision N+1; see `QuotationRevision`. */
   revision: number;
   /** A request to revise an approved / delivered quotation that an approver has not decided yet (or the last decision). */
@@ -129,6 +131,8 @@ const QuotationSchema = new Schema<IQuotationDocument>(
     deliveredAt: { type: Date, default: null },
     deliveredBy: { type: Number, ref: "AdminUser", default: null },
     clonedFromQuotationId: { type: String, default: null },
+    templateId: { type: String, ref: "QuotationTemplate", default: null, index: true },
+    customFieldValues: { type: Schema.Types.Mixed, default: {} },
     revision: { type: Number, default: 1, min: 1 },
     revisionRequest: { type: Schema.Types.Mixed, default: null },
     revisionReason: { type: String, default: null, maxlength: 500 },

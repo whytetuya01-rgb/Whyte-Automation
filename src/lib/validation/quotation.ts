@@ -110,6 +110,8 @@ export const createQuotationSchema = strictObject({
   validUntil: validUntilField,
   defaultTier: optionalText(120),
   defaultFinish: optionalText(120),
+  templateId: optionalText(64),
+  customFieldValues: z.record(z.string(), z.string()).optional().nullable(),
 });
 
 /** PATCH body: every field optional, same allowlist as create. */
@@ -134,6 +136,8 @@ export const updateQuotationSchema = strictObject({
   validUntil: validUntilField,
   defaultTier: optionalText(120),
   defaultFinish: optionalText(120),
+  templateId: optionalText(64),
+  customFieldValues: z.record(z.string(), z.string()).optional().nullable(),
 });
 
 export const transitionQuotationSchema = strictObject({

@@ -18,12 +18,14 @@ import LogoCustomizer, { appendLogoDraft, emptyLogoDraft, isLogoDraftDirty, type
 import { normalizeLogoSettings } from "@/lib/logoSettings";
 import { refreshCachedBranding } from "@/lib/offline/identity";
 import { useCompanyBranding } from "@/components/providers/BrandingProvider";
+import TemplateDesignerStudio from "@/components/templates/TemplateDesignerStudio";
 
-type TabId = "profile" | "logo" | "document";
+type TabId = "profile" | "logo" | "document" | "templates";
 const TABS: ReadonlyArray<{ id: TabId; label: string }> = [
   { id: "profile", label: "Company Profile" },
   { id: "logo", label: "Logo Customization" },
   { id: "document", label: "Document & Social Links" },
+  { id: "templates", label: "Quotation Templates" },
 ];
 
 export default function CompanyPage() {
@@ -253,6 +255,12 @@ export default function CompanyPage() {
             />
           </div>
           <DocumentContentEditor company={fetched} saving={documentSaving} onSave={saveDocumentContent} />
+        </div>
+      )}
+
+      {tab === "templates" && (
+        <div id="company-panel-templates" role="tabpanel" aria-labelledby="company-tab-templates" className="pt-1">
+          <TemplateDesignerStudio />
         </div>
       )}
 

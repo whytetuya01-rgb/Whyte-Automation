@@ -293,6 +293,8 @@ export interface Quotation {
   deliveredAt?: string | null;
   deliveredBy?: number | null;
   clonedFromQuotationId?: string | null;
+  templateId?: string | null;
+  customFieldValues?: Record<string, string> | null;
   terms: string | null;
   validUntil: string | null;
   defaultTier: string | null;
@@ -456,3 +458,4 @@ export interface PaginatedResponse<T> {
 }
 
 export * from "./crm";
+export * from "./template";

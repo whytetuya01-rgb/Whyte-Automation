@@ -85,6 +85,7 @@ const navGroups: NavGroup[] = [
     title: "PROPOSALS & DEALERS",
     items: [
       { href: "/admin/quotations", label: "Quotations", icon: FileText },
+      { href: "/admin/templates", label: "Template Designer", icon: Palette },
       { href: "/admin/deliveries", label: "Deliveries", icon: Send },
       { href: "/admin/dealers", label: "Dealers", icon: Store },
     ],

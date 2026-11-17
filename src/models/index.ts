@@ -15,6 +15,11 @@ export {
   type IHouseTypeRoomTemplateDocument,
 } from "./HouseTypeRoomTemplate";
 export { Quotation, type IQuotation, type IQuotationDocument } from "./Quotation";
+export {
+  QuotationTemplate,
+  type IQuotationTemplate,
+  type IQuotationTemplateDocument,
+} from "./QuotationTemplate";
 export { CalendarFeed, type ICalendarFeed, type ICalendarFeedDocument } from "./CalendarFeed";
 export { PriceChangeBatch, type IPriceChangeBatch, type IPriceChangeBatchDocument } from "./PriceChangeBatch";
 export { VariantPriceChange, type IVariantPriceChange, type IVariantPriceChangeDocument, type IPriceSnapshot } from "./VariantPriceChange";

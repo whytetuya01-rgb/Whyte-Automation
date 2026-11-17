@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Building, User, Mail, FileText } from "lucide-react";
+import { ArrowLeft, ArrowRight, Building, User, Mail, FileText, LayoutTemplate } from "lucide-react";
 import { HouseType, Quotation } from "@/types";
+import type { QuotationTemplate } from "@/types/template";
 import { CUSTOM_PREMISES_VALUE, PREMISES_NAME_MAX } from "@/lib/premises";
 import { Select, SelectOption } from "@/components/ui/Select";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
@@ -44,6 +45,8 @@ export interface ProjectFormData {
   assignedSalesId?: number | null;
   customerId?: number | null;
   leadId?: string | null;
+  templateId?: string | null;
+  customFieldValues?: Record<string, string>;
 }
 
 interface DealerOption {
@@ -125,6 +128,27 @@ export default function StepProjectDetails({
   const [ownerMode, setOwnerMode] = useState<"self" | "dealer">(initialData?.dealerId ? "dealer" : "self");
   const [dealers, setDealers] = useState<DealerOption[]>([]);
   const [salesExecutives, setSalesExecutives] = useState<SalesExecutiveOption[]>([]);
+
+  const [templates, setTemplates] = useState<QuotationTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>((initialData as any)?.templateId || "");
+  const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>((initialData as any)?.customFieldValues || {});
+
+  useEffect(() => {
+    fetch("/api/templates")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json?.data && Array.isArray(json.data) && json.data.length > 0) {
+          setTemplates(json.data);
+          if (!selectedTemplateId) {
+            const defaultTmpl = json.data.find((t: any) => t.isDefault) || json.data[0];
+            setSelectedTemplateId(defaultTmpl.id);
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const activeTemplate = templates.find((t) => t.id === selectedTemplateId) || templates[0];
 
   useEffect(() => {
     let cancelled = false;
@@ -281,6 +305,8 @@ export default function StepProjectDetails({
       assignedSalesId: canAssignSales ? form.assignedSalesId : undefined,
       customerId: form.customerId !== undefined ? form.customerId : null,
       leadId: form.leadId ?? null,
+      templateId: selectedTemplateId || null,
+      customFieldValues,
     });
   };
 
@@ -633,6 +659,56 @@ export default function StepProjectDetails({
                     placeholder="Specific client requirements, preferred automation ecosystem, site visit observations..."
                     className="w-full p-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition bg-white text-gray-900 resize-none leading-relaxed"
                   />
+                </div>
+              </div>
+
+              {/* Section: Proposal Template & Custom Specifications */}
+              <div className="pt-5 border-t border-gray-100">
+                <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold mb-4 flex items-center gap-1.5">
+                  <LayoutTemplate size={14} className="text-gray-950" />
+                  Proposal Template & Custom Specifications
+                </h3>
+
+                <div className="space-y-4">
+                  {templates.length > 0 && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                        Quotation Proposal Template
+                      </label>
+                      <select
+                        value={selectedTemplateId}
+                        onChange={(e) => setSelectedTemplateId(e.target.value)}
+                        className="w-full h-11 px-3.5 border border-gray-200 rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
+                      >
+                        {templates.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name} {t.isDefault ? "(Default)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {activeTemplate?.customFields && activeTemplate.customFields.length > 0 && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                      {activeTemplate.customFields.map((field) => (
+                        <div key={field.id}>
+                          <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                            {field.label} {field.required && <span className="text-red-500">*</span>}
+                          </label>
+                          <input
+                            type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
+                            value={customFieldValues[field.key] ?? field.defaultValue ?? ""}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                            }
+                            placeholder={field.placeholder || `Enter ${field.label}`}
+                            className="w-full h-11 px-3.5 border border-gray-200 rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
