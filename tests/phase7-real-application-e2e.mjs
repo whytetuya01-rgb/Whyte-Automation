@@ -251,7 +251,7 @@ async function runRealE2E() {
     const fetchedQuote = (await api(dealerCookie, "GET", `/api/quotations/${quoteId}`)).data;
     assert.ok(fetchedQuote.subtotal > 0, "Subtotal must be positive");
     assert.equal(fetchedQuote.customerDiscountPercent, 10, "10% dealer discount must be applied");
-    assert.ok(fetchedQuote.taxTotal > 0, "GST must be calculated");
+    assert.ok((fetchedQuote.totalGstAmount || fetchedQuote.taxTotal || 0) > 0, "GST must be calculated");
     pass("7. Pricing & GST: Authoritative pricing, 10% discount, and 18% GST verified on server");
 
     // 8. Generate & Download Real PDF
