@@ -78,7 +78,7 @@ async function runRealE2E() {
     console.log(`In GitHub Actions CI, MongoDB 7.0 Replica Set is provisioned via service container.`);
     console.log(`To run real browser E2E locally: start MongoDB on 127.0.0.1:27017, then re-run.\n`);
     console.log(`Verifying E2E test suite contract and Playwright Chromium readiness...`);
-    
+
     // Validate Chromium headless boot
     const browser = await chromium.launch({ headless: true });
     const context = await browser.newContext();
@@ -87,7 +87,7 @@ async function runRealE2E() {
     const heading = await page.textContent("h1");
     assert.equal(heading, "Whyte Quotation E2E Contract Ready");
     await browser.close();
-    
+
     pass("Playwright Chromium headless engine verified and ready for CI execution");
     pass("All 14 real application workflow assertions declared in automated test contract");
     console.log(`\n===============================================================`);
@@ -169,13 +169,14 @@ async function runRealE2E() {
     );
     const page = await context.newPage();
 
-    // 2. Customer Creation & Selection
-    const customerRes = await api(dealerCookie, "POST", "/api/crm/customers", {
+    // 2. Customer Creation & Selection (created by Company Owner as dealers cannot hold crm:manage)
+    const customerRes = await api(ownerCookie, "POST", "/api/crm/customers", {
       name: "Siddharth Rao",
       phone: "+91 98450 12345",
       email: "siddharth@example.com",
       siteAddress: "Villa 42, Palm Meadows, Whitefield, Bengaluru",
       customerType: "individual",
+      dealerId: 2,
     });
     assert.equal(customerRes.status, 201, "Customer creation must succeed");
     const customerId = customerRes.data.id || customerRes.data._id;
@@ -211,17 +212,24 @@ async function runRealE2E() {
     const masterBedRoomId = quoteRes.data.rooms[1].id || quoteRes.data.rooms[1]._id;
 
     // Add device to living room first
-    await api(dealerCookie, "POST", `/api/quotations/${quoteId}/items`, {
+    const addItemRes = await api(dealerCookie, "POST", `/api/quotations/${quoteId}/items`, {
       quotationRoomId: livingRoomId,
       productId: 901,
       productVariantId: 1001,
       quantity: 2,
     });
+    if (addItemRes.status !== 201) {
+      console.error("addItemRes failed:", addItemRes);
+    }
 
     const cloneRes = await api(dealerCookie, "POST", `/api/quotations/${quoteId}/rooms/${livingRoomId}/clone-to`, {
       targetRoomIds: [masterBedRoomId],
       replaceExisting: true,
     });
+    if (cloneRes.status !== 200) {
+      console.error("cloneRes failed:", cloneRes);
+      console.error("SERVER LOG OUTPUT:\n", server.getOutput().slice(-4000));
+    }
     assert.equal(cloneRes.status, 200, "Room cloning must succeed");
     pass("5. Room Cloning: Cloned devices from Living Room to Master Bedroom via atomic transaction");
 
@@ -232,6 +240,10 @@ async function runRealE2E() {
         { quotationRoomId: livingRoomId, productId: 903, productVariantId: 1004, quantity: 1 },
       ],
     });
+    if (bulkRes.status !== 201) {
+      console.error("bulkRes failed:", bulkRes);
+      console.error("SERVER LOG OUTPUT:\n", server.getOutput().slice(-4000));
+    }
     assert.equal(bulkRes.status, 201, "Bulk device addition must succeed");
     pass("6. Device Addition: Added individual and bulk devices with contiguous sequence IDs");
 

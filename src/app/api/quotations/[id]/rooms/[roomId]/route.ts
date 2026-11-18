@@ -5,7 +5,7 @@ import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } from "@/lib/api-response";
 import { parseQuotationId, updateQuotationRoomSchema } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
-import { canModifyQuotation, canViewQuotation } from "@/lib/quotationAccess";
+import { canModifyQuotation, canViewQuotation, tenantQuotationFilter } from "@/lib/quotationAccess";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
 
@@ -14,22 +14,31 @@ type RouteContext = { params: Promise<{ id: string; roomId: string }> };
 /** GET — fetches a single room with all its active line items populated */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, companyId }) => {
       const { id, roomId } = await context.params;
       const quotationId = parseQuotationId(id);
       const rId = parseNumericId(roomId, "roomId");
 
       await connectMongoDB();
 
-      const quotation = await Quotation.findById(quotationId).select("_id dealerId assignedSalesId createdBy").lean();
+      const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+        .select("_id dealerId assignedSalesId createdBy companyId")
+        .lean();
       if (!quotation) {
         throw new ApiError("NOT_FOUND", "Quotation not found.");
       }
-      if (!canViewQuotation(role, userId, quotation, permissions)) {
+      if (!canViewQuotation(role, userId, quotation, permissions, companyId)) {
         throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
       }
 
-      const room = await QuotationRoom.findOne({ _id: rId, quotationId, isDeleted: { $ne: true } })
+      const effectiveCompanyId = (quotation as any).companyId ?? companyId ?? null;
+
+      const room = await QuotationRoom.findOne({
+        _id: rId,
+        quotationId,
+        ...(effectiveCompanyId != null ? { companyId: effectiveCompanyId } : {}),
+        isDeleted: { $ne: true },
+      })
         .populate({ path: "roomType" })
         .populate({
           path: "items",
@@ -60,28 +69,38 @@ export async function GET(_req: Request, context: RouteContext) {
 /** Session required: editing and removing rooms are business operations. */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, companyId }) => {
     const { id, roomId } = await context.params;
     const quotationId = parseQuotationId(id);
     const rId = parseNumericId(roomId, "roomId");
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status revision dealerId assignedSalesId createdBy").lean();
+    const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+      .select("_id status revision dealerId assignedSalesId createdBy companyId")
+      .lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
     assertQuotationEditable(quotation);
-    if (!canModifyQuotation(role, userId, quotation, permissions)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions, companyId)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
+
+    const effectiveCompanyId = (quotation as any).companyId ?? companyId ?? null;
 
     const data = updateQuotationRoomSchema.parse(await readJsonBody(req));
     if (Object.keys(data).length === 0) {
       throw new ApiError("VALIDATION_ERROR", "No editable fields were supplied.");
     }
 
-    const existingRoom = await QuotationRoom.findOne({ _id: rId, quotationId }).select("_id").lean();
+    const existingRoom = await QuotationRoom.findOne({
+      _id: rId,
+      quotationId,
+      ...(effectiveCompanyId != null ? { companyId: effectiveCompanyId } : {}),
+    })
+      .select("_id")
+      .lean();
     if (!existingRoom) {
       throw new ApiError("NOT_FOUND", "Room not found for this quotation.");
     }
@@ -121,7 +140,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ session, role, userId, permissions }) => {
+    return await withSession(async ({ session, role, userId, permissions, companyId }) => {
     const actor = actorFromSession(session);
 
     const { id, roomId } = await context.params;
@@ -130,16 +149,26 @@ export async function DELETE(_req: Request, context: RouteContext) {
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status revision dealerId assignedSalesId createdBy").lean();
+    const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+      .select("_id status revision dealerId assignedSalesId createdBy companyId")
+      .lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
     assertQuotationEditable(quotation);
-    if (!canModifyQuotation(role, userId, quotation, permissions)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions, companyId)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 
-    const existing = await QuotationRoom.findOne({ _id: rId, quotationId }).select("_id").lean();
+    const effectiveCompanyId = (quotation as any).companyId ?? companyId ?? null;
+
+    const existing = await QuotationRoom.findOne({
+      _id: rId,
+      quotationId,
+      ...(effectiveCompanyId != null ? { companyId: effectiveCompanyId } : {}),
+    })
+      .select("_id")
+      .lean();
     if (!existing) {
       throw new ApiError("NOT_FOUND", "Room not found for this quotation.");
     }

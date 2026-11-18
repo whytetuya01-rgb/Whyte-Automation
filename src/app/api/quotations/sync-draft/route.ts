@@ -106,6 +106,9 @@ export async function POST(req: Request) {
             premisesName: draft.premisesName?.trim() || null,
             notes: draft.notes?.trim() || null,
             customerId: resolvedCustomerId,
+            templateId: (draft as any).templateId || null,
+            templateVersion: (draft as any).templateVersion ?? null,
+            customFieldValues: (draft as any).customFieldValues || {},
             status: "draft",
             discountType,
             discountValue,
@@ -123,65 +126,95 @@ export async function POST(req: Request) {
             await newQuotation.save();
           }
 
-          // Bulk insert rooms and items from draft
+          // Bulk insert rooms and items from draft (both room items and direct items)
           const draftRooms = draft.rooms || [];
-          if (draftRooms.length > 0) {
-            const roomIds = await reserveSequenceBlock("quotationRoom", draftRooms.length, QuotationRoom, dbSession);
+          const draftDirectItems = draft.items || [];
 
-            const totalItems = draftRooms.reduce((acc, r) => acc + (r.items?.length || 0), 0);
-            const itemIds = totalItems > 0 ? await reserveSequenceBlock("quotationItem", totalItems, QuotationItem, dbSession) : [];
-            let itemCursor = 0;
+          const totalRoomItems = draftRooms.reduce((acc, r) => acc + (r.items?.length || 0), 0);
+          const totalAllItems = totalRoomItems + draftDirectItems.length;
 
-            const roomsToInsert: any[] = [];
-            const itemsToInsert: any[] = [];
+          const roomIds = draftRooms.length > 0
+            ? await reserveSequenceBlock("quotationRoom", draftRooms.length, QuotationRoom, dbSession)
+            : [];
+          const itemIds = totalAllItems > 0
+            ? await reserveSequenceBlock("quotationItem", totalAllItems, QuotationItem, dbSession)
+            : [];
+          let itemCursor = 0;
 
-            draftRooms.forEach((r, rIdx) => {
-              const assignedRoomId = roomIds[rIdx];
-              roomsToInsert.push({
-                _id: assignedRoomId,
-                companyId,
-                quotationId,
-                roomTypeId: r.roomTypeId ? Number(r.roomTypeId) : null,
-                customName: r.name?.trim() || null,
-                subArea: r.floor?.trim() || null,
-                notes: (r as any).notes?.trim() || null,
-                sortOrder: typeof r.sortOrder === "number" ? r.sortOrder : rIdx * 10,
-              });
+          const roomsToInsert: any[] = [];
+          const itemsToInsert: any[] = [];
 
-              (r.items || []).forEach((item, iIdx) => {
-                const assignedItemId = itemIds[itemCursor++];
-                const unitPriceNum = Number(item.unitPrice || 0);
-
-                itemsToInsert.push({
-                  _id: assignedItemId,
-                  companyId,
-                  quotationRoomId: assignedRoomId,
-                  productId: Number(item.productId),
-                  productVariantId: item.variantId ? Number(item.variantId) : null,
-                  variantLabel: item.variantName || item.automationTier || null,
-                  quantity: Math.max(1, Number(item.quantity || 1)),
-                  unitPrice: mongoose.Types.Decimal128.fromString(unitPriceNum.toFixed(2)),
-                  isCustomPrice: Boolean(item.isCustomPrice),
-                  notes: item.notes?.trim() || null,
-                  sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : iIdx,
-                });
-              });
+          draftRooms.forEach((r, rIdx) => {
+            const assignedRoomId = roomIds[rIdx];
+            roomsToInsert.push({
+              _id: assignedRoomId,
+              companyId,
+              quotationId,
+              roomTypeId: r.roomTypeId ? Number(r.roomTypeId) : null,
+              customName: r.name?.trim() || null,
+              subArea: r.floor?.trim() || null,
+              notes: (r as any).notes?.trim() || null,
+              sortOrder: typeof r.sortOrder === "number" ? r.sortOrder : rIdx * 10,
             });
 
-            if (roomsToInsert.length > 0) {
-              if (dbSession) {
-                await QuotationRoom.insertMany(roomsToInsert, { session: dbSession });
-              } else {
-                await QuotationRoom.insertMany(roomsToInsert);
-              }
-            }
+            (r.items || []).forEach((item, iIdx) => {
+              const assignedItemId = itemIds[itemCursor++];
+              const unitPriceNum = Number(item.unitPrice || 0);
 
-            if (itemsToInsert.length > 0) {
-              if (dbSession) {
-                await QuotationItem.insertMany(itemsToInsert, { session: dbSession });
-              } else {
-                await QuotationItem.insertMany(itemsToInsert);
-              }
+              itemsToInsert.push({
+                _id: assignedItemId,
+                companyId,
+                quotationId,
+                quotationRoomId: assignedRoomId,
+                productId: item.productId ? Number(item.productId) : null,
+                productVariantId: item.variantId ? Number(item.variantId) : null,
+                variantLabel: item.variantName || item.automationTier || null,
+                quantity: Math.max(1, Number(item.quantity || 1)),
+                unitPrice: mongoose.Types.Decimal128.fromString(unitPriceNum.toFixed(2)),
+                isCustomPrice: Boolean(item.isCustomPrice),
+                notes: item.notes?.trim() || null,
+                title: item.title ?? null,
+                itemType: item.itemType ?? "product",
+                sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : iIdx,
+              });
+            });
+          });
+
+          draftDirectItems.forEach((item, dIdx) => {
+            const assignedItemId = itemIds[itemCursor++];
+            const unitPriceNum = Number(item.unitPrice || 0);
+
+            itemsToInsert.push({
+              _id: assignedItemId,
+              companyId,
+              quotationId,
+              quotationRoomId: null,
+              productId: item.productId ? Number(item.productId) : null,
+              productVariantId: item.variantId ? Number(item.variantId) : null,
+              variantLabel: item.variantName || item.automationTier || null,
+              quantity: Math.max(1, Number(item.quantity || 1)),
+              unitPrice: mongoose.Types.Decimal128.fromString(unitPriceNum.toFixed(2)),
+              isCustomPrice: Boolean(item.isCustomPrice),
+              notes: item.notes?.trim() || null,
+              title: item.title ?? item.productName ?? null,
+              itemType: item.itemType ?? (item.productId ? "product" : "service"),
+              sortOrder: typeof item.sortOrder === "number" ? item.sortOrder : dIdx,
+            });
+          });
+
+          if (roomsToInsert.length > 0) {
+            if (dbSession) {
+              await QuotationRoom.insertMany(roomsToInsert, { session: dbSession });
+            } else {
+              await QuotationRoom.insertMany(roomsToInsert);
+            }
+          }
+
+          if (itemsToInsert.length > 0) {
+            if (dbSession) {
+              await QuotationItem.insertMany(itemsToInsert, { session: dbSession });
+            } else {
+              await QuotationItem.insertMany(itemsToInsert);
             }
           }
 
@@ -223,6 +256,11 @@ export async function POST(req: Request) {
               populate: [{ path: "product" }, { path: "productVariant" }],
             },
           ],
+        })
+        .populate({
+          path: "items",
+          options: { sort: { sortOrder: 1 } },
+          populate: [{ path: "product" }, { path: "productVariant" }],
         })
         .lean({ virtuals: true });
 

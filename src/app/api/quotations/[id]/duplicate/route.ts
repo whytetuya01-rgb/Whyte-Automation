@@ -8,7 +8,7 @@ import { withTransaction } from "@/lib/transaction";
 import { withSession } from "@/lib/api-auth";
 import { hasPermission } from "@/lib/permissions";
 import { ApiError, apiSuccess, handleApiError } from "@/lib/api-response";
-import { canViewQuotation } from "@/lib/quotationAccess";
+import { canViewQuotation, tenantQuotationFilter } from "@/lib/quotationAccess";
 import { resolveNewQuotationOwnership } from "@/lib/quotationOwnership";
 import { dealerSnapshot, recordQuotationEvents } from "@/lib/quotationAudit";
 import { duplicateQuotationSchema, parseQuotationId } from "@/lib/validation/quotation";
@@ -26,7 +26,7 @@ type RouteContext = { params: Promise<{ id: string }> };
 /** Session required: duplicating a quotation is a business operation. */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, companyId }) => {
     if (!hasPermission(role, permissions, "quotations:create")) {
       throw new ApiError("FORBIDDEN", "You do not have permission to create quotations.");
     }
@@ -55,27 +55,37 @@ export async function POST(req: Request, context: RouteContext) {
     // same shared availability rule (`@/lib/quotationAvailability`) a clone
     // must never copy an unavailable item from, without duplicating that
     // logic or querying anything this route didn't already need.
-    const original = await Quotation.findById(quotationId).populate({
-      path: "rooms",
-      populate: [
-        { path: "roomType", select: "name isDeleted" },
-        {
-          path: "items",
-          populate: [
-            { path: "product", select: "name isDeleted" },
-            { path: "productVariant", select: "isDeleted price priceWithoutTax taxPercent isActive" },
-          ],
-        },
-      ],
-    });
+    const original = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+      .populate({
+        path: "rooms",
+        populate: [
+          { path: "roomType", select: "name isDeleted" },
+          {
+            path: "items",
+            populate: [
+              { path: "product", select: "name isDeleted" },
+              { path: "productVariant", select: "isDeleted price priceWithoutTax taxPercent isActive" },
+            ],
+          },
+        ],
+      })
+      .populate({
+        path: "items",
+        populate: [
+          { path: "product", select: "name isDeleted" },
+          { path: "productVariant", select: "isDeleted price priceWithoutTax taxPercent isActive" },
+        ],
+      });
 
     if (!original) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
 
-    if (!canViewQuotation(role, userId, original, permissions)) {
+    if (!canViewQuotation(role, userId, original, permissions, companyId)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to duplicate this quotation.");
     }
+
+    const effectiveCompanyId = (original as any).companyId ?? companyId ?? null;
 
     // A clone is a brand-new quotation: the cloning user is its creator, the audit
     // history is NOT copied, and ownership is re-derived from the session.
@@ -131,6 +141,7 @@ export async function POST(req: Request, context: RouteContext) {
 
       const newQuotation = new Quotation({
         _id: newQuotationId,
+        companyId: effectiveCompanyId,
         quotationNumber,
         clientName: overrides.clientName ?? `${String(origDoc.clientName)} (Revision)`,
         clientGstNumber: origDoc.clientGstNumber ?? null,
@@ -237,6 +248,7 @@ export async function POST(req: Request, context: RouteContext) {
         const nextRoomId = roomIds[roomIdx];
         const newRoom = new QuotationRoom({
           _id: nextRoomId,
+          companyId: effectiveCompanyId,
           quotationId: newQuotationId,
           roomTypeId: room.roomTypeId ?? null,
           customName: room.customName ?? null,
@@ -305,6 +317,8 @@ export async function POST(req: Request, context: RouteContext) {
 
           itemsToCreate.push({
             _id: nextItemId,
+            companyId: effectiveCompanyId,
+            quotationId: newQuotationId,
             quotationRoomId: nextRoomId,
             productId: item.productId,
             productVariantId: item.productVariantId ?? null,
@@ -329,6 +343,40 @@ export async function POST(req: Request, context: RouteContext) {
           } else {
             await QuotationItem.insertMany(itemsToCreate);
           }
+        }
+      }
+
+      // Clone room-less / direct line items
+      const directItems = ((origDoc as any).items || []).filter((it: any) => !it.quotationRoomId);
+      if (directItems.length > 0) {
+        const directItemIds = await reserveSequenceBlock("quotationItem", directItems.length, QuotationItem, dbSession);
+        const directToCreate = directItems.map((item: any, idx: number) => ({
+          _id: directItemIds[idx],
+          companyId: effectiveCompanyId,
+          quotationId: newQuotationId,
+          quotationRoomId: null,
+          productId: item.productId ?? null,
+          productVariantId: item.productVariantId ?? null,
+          variantLabel: item.variantLabel ?? null,
+          variantConfig: item.variantConfig ?? null,
+          sbNumber: item.sbNumber ?? null,
+          quantity: item.quantity ?? 1,
+          unitPrice: item.unitPrice ?? mongoose.Types.Decimal128.fromString("0.00"),
+          priceWithoutTax: item.priceWithoutTax ?? item.unitPrice ?? mongoose.Types.Decimal128.fromString("0.00"),
+          taxPercent: item.taxPercent ?? mongoose.Types.Decimal128.fromString("18.00"),
+          taxAmount: item.taxAmount ?? mongoose.Types.Decimal128.fromString("0.00"),
+          isCustomPrice: item.isCustomPrice ?? false,
+          originalUnitPrice: item.originalUnitPrice ?? null,
+          notes: item.notes ?? null,
+          title: item.title ?? null,
+          itemType: item.itemType ?? "product",
+          sortOrder: item.sortOrder ?? idx,
+        }));
+
+        if (dbSession) {
+          await QuotationItem.insertMany(directToCreate, { session: dbSession });
+        } else {
+          await QuotationItem.insertMany(directToCreate);
         }
       }
 

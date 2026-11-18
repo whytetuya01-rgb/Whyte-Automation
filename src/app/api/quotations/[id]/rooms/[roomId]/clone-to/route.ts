@@ -6,9 +6,11 @@ import { ApiError, apiSuccess, handleApiError, parseNumericId, readJsonBody } fr
 import { parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
 import { redactQuotationRoomForRole } from "@/lib/variantRedaction";
-import { canModifyQuotation } from "@/lib/quotationAccess";
+import { canModifyQuotation, tenantQuotationFilter } from "@/lib/quotationAccess";
 import { reserveSequenceBlock } from "@/lib/counter";
 import { withTransaction } from "@/lib/transaction";
+import { actorFromSession } from "@/lib/softDelete/actor";
+import { softDeleteMany } from "@/lib/softDelete/service";
 
 export const dynamic = "force-dynamic";
 
@@ -25,23 +27,25 @@ interface CloneToBody {
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ session, role, userId, permissions, companyId }) => {
       const { id, roomId } = await context.params;
       const quotationId = parseQuotationId(id);
       const sourceRoomId = parseNumericId(roomId, "roomId");
 
       await connectMongoDB();
 
-      const quotation = await Quotation.findById(quotationId)
-        .select("_id status revision dealerId assignedSalesId createdBy")
+      const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+        .select("_id status revision dealerId assignedSalesId createdBy companyId")
         .lean();
       if (!quotation) {
         throw new ApiError("NOT_FOUND", "Quotation not found.");
       }
       assertQuotationEditable(quotation);
-      if (!canModifyQuotation(role, userId, quotation, permissions)) {
+      if (!canModifyQuotation(role, userId, quotation, permissions, companyId)) {
         throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
       }
+
+      const effectiveCompanyId = (quotation as any).companyId ?? companyId ?? null;
 
       const body = (await readJsonBody(req)) as CloneToBody;
       const targetRoomIds = Array.isArray(body?.targetRoomIds)
@@ -52,20 +56,22 @@ export async function POST(req: Request, context: RouteContext) {
         throw new ApiError("VALIDATION_ERROR", "Please select at least one destination room.");
       }
 
-      // Verify source room belongs to this quotation
+      // Verify source room belongs to this quotation and company
       const sourceRoom = await QuotationRoom.findOne({
         _id: sourceRoomId,
         quotationId,
+        ...(effectiveCompanyId != null ? { companyId: effectiveCompanyId } : {}),
         isDeleted: { $ne: true },
       }).lean();
       if (!sourceRoom) {
         throw new ApiError("NOT_FOUND", "Source room not found.");
       }
 
-      // Verify all target rooms belong to this quotation
+      // Verify all target rooms belong to this quotation and company
       const targetRooms = await QuotationRoom.find({
         _id: { $in: targetRoomIds },
         quotationId,
+        ...(effectiveCompanyId != null ? { companyId: effectiveCompanyId } : {}),
         isDeleted: { $ne: true },
       }).lean();
 
@@ -105,24 +111,23 @@ export async function POST(req: Request, context: RouteContext) {
 
           // If replacing, soft-delete existing items in target room
           if (replaceExisting) {
-            await QuotationItem.updateMany(
-              { quotationRoomId: targetRoomId, isDeleted: { $ne: true } },
-              {
-                $set: {
-                  isDeleted: true,
-                  deletedAt: now,
-                  deletedBy: userId,
-                  deletionReason: `Replaced by cloning from room #${sourceRoomId}`,
-                },
-              },
-              { session: dbSession }
-            );
+            const actor = actorFromSession(session);
+            await softDeleteMany({
+              model: QuotationItem,
+              entityType: "quotationItem",
+              filter: { quotationRoomId: targetRoomId, quotationId },
+              actor,
+              reason: `Replaced by cloning from room #${sourceRoomId}`,
+              session: dbSession,
+            });
           }
 
           // Prepare cloned item payloads
           for (const item of sourceItems) {
             allClonedItems.push({
               _id: allocatedIds[idCursor++],
+              companyId: effectiveCompanyId,
+              quotationId,
               quotationRoomId: targetRoomId,
               productId: item.productId,
               productVariantId: item.productVariantId ?? null,

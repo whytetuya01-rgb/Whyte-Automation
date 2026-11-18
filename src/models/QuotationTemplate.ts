@@ -5,12 +5,15 @@ import type {
   TemplateConfigurableColumns,
   TemplateSectionItem,
   TemplateCustomField,
+  WorkflowDefinition,
+  DocumentLayoutDefinition,
 } from "@/types/template";
 import {
   DEFAULT_TEMPLATE_SECTIONS,
   DEFAULT_CONFIGURABLE_COLUMNS,
   DEFAULT_LAYOUT_SETTINGS,
   DEFAULT_NUMBERING_FORMAT,
+  DEFAULT_WORKFLOW_STEPS,
 } from "@/types/template";
 
 export interface IQuotationTemplate {
@@ -20,6 +23,10 @@ export interface IQuotationTemplate {
   name: string;
   description: string | null;
   isDefault: boolean;
+  version: number;
+  isPublished: boolean;
+  workflow: WorkflowDefinition;
+  documentLayout?: DocumentLayoutDefinition | null;
   numberingFormat: TemplateNumberingFormat;
   layoutSettings: TemplateLayoutSettings;
   configurableColumns: TemplateConfigurableColumns;
@@ -94,12 +101,12 @@ const CustomFieldSchema = new Schema(
     id: { type: String, required: true },
     key: { type: String, required: true, trim: true },
     label: { type: String, required: true, trim: true },
-    type: { type: String, enum: ["text", "date", "number", "select"], default: "text" },
+    type: { type: String, default: "text" },
     options: { type: [String], default: [] },
     defaultValue: { type: String, default: "" },
     placeholder: { type: String, default: "" },
     required: { type: Boolean, default: false },
-    section: { type: String, enum: ["header", "footer", "metadata"], default: "metadata" },
+    section: { type: String, default: "metadata" },
   },
   { _id: false }
 );
@@ -111,6 +118,10 @@ const QuotationTemplateSchema = new Schema<IQuotationTemplateDocument>(
     name: { type: String, required: true, trim: true },
     description: { type: String, default: null },
     isDefault: { type: Boolean, default: false, index: true },
+    version: { type: Number, default: 1 },
+    isPublished: { type: Boolean, default: true },
+    workflow: { type: Schema.Types.Mixed, default: () => ({ steps: [...DEFAULT_WORKFLOW_STEPS] }) },
+    documentLayout: { type: Schema.Types.Mixed, default: null },
     numberingFormat: { type: NumberingFormatSchema, default: () => ({ ...DEFAULT_NUMBERING_FORMAT }) },
     layoutSettings: { type: LayoutSettingsSchema, default: () => ({ ...DEFAULT_LAYOUT_SETTINGS }) },
     configurableColumns: { type: ConfigurableColumnsSchema, default: () => ({ ...DEFAULT_CONFIGURABLE_COLUMNS }) },

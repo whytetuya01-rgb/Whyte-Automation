@@ -7,28 +7,32 @@ import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { createQuotationRoomSchema, parseQuotationId } from "@/lib/validation/quotation";
 import { normalizeQuotationRoom } from "@/lib/quotationNormalization";
-import { canModifyQuotation } from "@/lib/quotationAccess";
+import { canModifyQuotation, tenantQuotationFilter } from "@/lib/quotationAccess";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 /** Session required: adding rooms to a quotation is a business operation. */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, companyId }) => {
     const { id } = await context.params;
     const quotationId = parseQuotationId(id);
 
     await connectMongoDB();
-    const quotation = await Quotation.findById(quotationId).select("_id status revision dealerId assignedSalesId createdBy").lean();
+    const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+      .select("_id status revision dealerId assignedSalesId createdBy companyId")
+      .lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
 
     assertQuotationEditable(quotation);
 
-    if (!canModifyQuotation(role, userId, quotation, permissions)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions, companyId)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
+
+    const effectiveCompanyId = (quotation as any).companyId ?? companyId ?? null;
 
     const body = createQuotationRoomSchema.parse(await readJsonBody(req));
 
@@ -51,6 +55,7 @@ export async function POST(req: Request, context: RouteContext) {
 
     const createdRoom = await QuotationRoom.create({
       _id: nextRoomId,
+      companyId: effectiveCompanyId,
       quotationId,
       roomTypeId,
       customName: body.customName ?? null,

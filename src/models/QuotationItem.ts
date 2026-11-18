@@ -9,8 +9,11 @@ export interface IQuotationItem extends SoftDeleteFields {
   _id: number;
   id?: number;
   companyId: number;
-  quotationRoomId: number;
-  productId: number;
+  quotationId?: string | null;
+  quotationRoomId?: number | null;
+  productId?: number | null;
+  title?: string | null;
+  itemType?: "product" | "service" | "custom";
   productVariantId: number | null;
   variantLabel: string | null;
   variantConfig: Record<string, unknown> | null;
@@ -37,8 +40,11 @@ export interface IQuotationItemDocument extends Omit<IQuotationItem, "id">, Docu
 const QuotationItemSchema = new Schema<IQuotationItemDocument>(
   {
     _id: { type: Number, required: true },
-    quotationRoomId: { type: Number, ref: "QuotationRoom", required: true, index: true },
-    productId: { type: Number, ref: "Product", required: true, index: true },
+    quotationId: { type: String, ref: "Quotation", default: null, index: true },
+    quotationRoomId: { type: Number, ref: "QuotationRoom", default: null, index: true },
+    productId: { type: Number, ref: "Product", default: null, index: true },
+    title: { type: String, default: null, trim: true },
+    itemType: { type: String, enum: ["product", "service", "custom"], default: "product" },
     productVariantId: { type: Number, ref: "ProductVariant", default: null, index: true },
     variantLabel: { type: String, default: null },
     variantConfig: { type: mongoose.Schema.Types.Mixed, default: null },
@@ -114,7 +120,8 @@ QuotationItemSchema.virtual("productVariant", {
   options: historicalReferenceOptions(),
 });
 
-// Compound index for querying items belonging to a room in display order
+// Compound index for querying items belonging to a quotation or room in display order
+QuotationItemSchema.index({ companyId: 1, quotationId: 1, sortOrder: 1 });
 QuotationItemSchema.index({ companyId: 1, quotationRoomId: 1, sortOrder: 1 });
 QuotationItemSchema.index({ companyId: 1, productId: 1, productVariantId: 1 });
 
@@ -124,6 +131,21 @@ tenantScopePlugin(QuotationItemSchema);
 const existingQuotationItemModel = mongoose.models.QuotationItem as Model<IQuotationItemDocument> | undefined;
 
 if (existingQuotationItemModel) {
+  if (!existingQuotationItemModel.schema.path("quotationId")) {
+    existingQuotationItemModel.schema.add({
+      quotationId: { type: String, ref: "Quotation", default: null, index: true },
+    });
+  }
+  if (!existingQuotationItemModel.schema.path("title")) {
+    existingQuotationItemModel.schema.add({
+      title: { type: String, default: null, trim: true },
+    });
+  }
+  if (!existingQuotationItemModel.schema.path("itemType")) {
+    existingQuotationItemModel.schema.add({
+      itemType: { type: String, enum: ["product", "service", "custom"], default: "product" },
+    });
+  }
   if (!existingQuotationItemModel.schema.path("priceWithoutTax")) {
     existingQuotationItemModel.schema.add({
       priceWithoutTax: createDecimalField({ default: null, min: 0 }),

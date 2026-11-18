@@ -9,7 +9,7 @@ import { normalizeQuotationItem } from "@/lib/quotationNormalization";
 import { redactQuotationItemForRole } from "@/lib/variantRedaction";
 import { calculateFromTaxInclusivePrice, resolveStoredVariantPricing } from "@/lib/pricing";
 import { formatTierLabel, formatFinishLabel } from "@/lib/categoryConfig";
-import { canModifyQuotation } from "@/lib/quotationAccess";
+import { canModifyQuotation, tenantQuotationFilter } from "@/lib/quotationAccess";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
 import { basePriceBeforeDiscount, canGiveItemDiscount, canOverrideItemPrice, netUnitPrice, validateItemDiscount, intactItemDiscount } from "@/lib/itemDiscount";
@@ -32,21 +32,25 @@ function storedItemPrice(item: unknown) {
 /** Session required: editing and removing items are business operations. */
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions, actingAsCompany }) => {
+    return await withSession(async ({ role, userId, permissions, actingAsCompany, companyId }) => {
     const { id, itemId } = await context.params;
     const quotationId = parseQuotationId(id);
     const itId = parseNumericId(itemId, "itemId");
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status revision dealerId assignedSalesId createdBy").lean();
+    const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+      .select("_id status revision dealerId assignedSalesId createdBy companyId")
+      .lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
     assertQuotationEditable(quotation);
-    if (!canModifyQuotation(role, userId, quotation, permissions)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions, companyId)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
+
+    const effectiveCompanyId = (quotation as any).companyId ?? companyId ?? null;
 
     const parsed = updateQuotationItemSchema.parse(await readJsonBody(req));
     const { unitPrice: requestedUnitPrice, resetToDefaultPrice, isCustomPrice, discountType, discountValue, ...rest } = parsed;
@@ -67,12 +71,16 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
     }
 
-    // Ownership check: the item must belong to a room of THIS quotation.
-    const existingItem = await QuotationItem.findById(itId)
-      .populate({ path: "room", select: "quotationId" })
+    // Ownership check: the item must belong to THIS quotation (either directly or via a room) and active company.
+    const existingItem = await QuotationItem.findOne({
+      _id: itId,
+      ...(effectiveCompanyId != null ? { companyId: effectiveCompanyId } : {}),
+    })
+      .populate({ path: "room", select: "quotationId companyId" })
       .lean();
-    const owningQuotationId = (existingItem as unknown as { room?: { quotationId?: string } } | null)
-      ?.room?.quotationId;
+    const owningQuotationId =
+      (existingItem as any)?.quotationId ||
+      (existingItem as unknown as { room?: { quotationId?: string } } | null)?.room?.quotationId;
     if (!existingItem || owningQuotationId !== quotationId) {
       throw new ApiError("NOT_FOUND", "Item not found for this quotation.");
     }
@@ -164,11 +172,12 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
     }
 
-    // Moving an item to another room is only allowed inside the same quotation.
-    if (parsed.quotationRoomId !== undefined) {
+    // Moving an item to another room (or detaching to quotation level) inside the same quotation and company.
+    if (parsed.quotationRoomId !== undefined && parsed.quotationRoomId !== null) {
       const targetRoom = await QuotationRoom.findOne({
         _id: parsed.quotationRoomId,
         quotationId,
+        ...(effectiveCompanyId != null ? { companyId: effectiveCompanyId } : {}),
       }).select("_id");
       if (!targetRoom) {
         throw new ApiError("NOT_FOUND", "Target room not found for this quotation.", {
@@ -318,7 +327,7 @@ export async function PATCH(req: Request, context: RouteContext) {
 
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ session, role, userId, permissions }) => {
+    return await withSession(async ({ session, role, userId, permissions, companyId }) => {
     const actor = actorFromSession(session);
 
     const { id, itemId } = await context.params;
@@ -327,20 +336,28 @@ export async function DELETE(_req: Request, context: RouteContext) {
 
     await connectMongoDB();
 
-    const quotation = await Quotation.findById(quotationId).select("_id status revision dealerId assignedSalesId createdBy").lean();
+    const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+      .select("_id status revision dealerId assignedSalesId createdBy companyId")
+      .lean();
     if (!quotation) {
       throw new ApiError("NOT_FOUND", "Quotation not found.");
     }
     assertQuotationEditable(quotation);
-    if (!canModifyQuotation(role, userId, quotation, permissions)) {
+    if (!canModifyQuotation(role, userId, quotation, permissions, companyId)) {
       throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
     }
 
-    const existingItem = await QuotationItem.findById(itId)
-      .populate({ path: "room", select: "quotationId" })
+    const effectiveCompanyId = (quotation as any).companyId ?? companyId ?? null;
+
+    const existingItem = await QuotationItem.findOne({
+      _id: itId,
+      ...(effectiveCompanyId != null ? { companyId: effectiveCompanyId } : {}),
+    })
+      .populate({ path: "room", select: "quotationId companyId" })
       .lean();
-    const owningQuotationId = (existingItem as unknown as { room?: { quotationId?: string } } | null)
-      ?.room?.quotationId;
+    const owningQuotationId =
+      (existingItem as any)?.quotationId ||
+      (existingItem as unknown as { room?: { quotationId?: string } } | null)?.room?.quotationId;
     if (!existingItem || owningQuotationId !== quotationId) {
       throw new ApiError("NOT_FOUND", "Item not found for this quotation.");
     }

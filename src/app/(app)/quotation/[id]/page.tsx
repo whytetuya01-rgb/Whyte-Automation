@@ -21,6 +21,7 @@ import { redactQuotationForRole } from "@/lib/variantRedaction";
 import { getSessionActor } from "@/lib/sessionGuard";
 import { resolveActAsCompanyId } from "@/lib/tenant/actAs";
 import { withTenant } from "@/lib/tenant/context";
+import { resolveQuotationTemplate } from "@/lib/templateService";
 
 export const dynamic = "force-dynamic";
 
@@ -55,7 +56,7 @@ export default async function QuotationPage(props: PageProps) {
     notFound();
   }
 
-  const { quotation, houseTypes, products, categories, roomTypes, company } = await withTenant(
+  const { quotation, houseTypes, products, categories, roomTypes, company, initialTemplate } = await withTenant(
     { userId, role: userRole, companyId, actingAsCompany: userRole === "super_admin" && companyId !== null },
     async () => {
       const [qDoc, htDocs, products, cDocs, rtDocs, compDoc] = await Promise.all([
@@ -140,20 +141,20 @@ export default async function QuotationPage(props: PageProps) {
       // The company's own users (dealers included) never receive the platform's internal review fields.
       const company = compDoc ? toCompanyProfile(JSON.parse(JSON.stringify(compDoc)) as CompanyProfile) : null;
 
-      return { quotation, houseTypes, products, categories, roomTypes, company };
+      const initialTemplate = companyId
+        ? await resolveQuotationTemplate(companyId, quotation.templateId, quotation.templateVersion)
+        : null;
+
+      return { quotation, houseTypes, products, categories, roomTypes, company, initialTemplate };
     }
   );
 
-  // Determine initial step: query param > rooms exist (Step 3) > Step 1
-  let step: ProposalStep = 3;
-  if (searchParams.step) {
-    const parsed = parseInt(searchParams.step, 10);
-    if (parsed >= 1 && parsed <= 5) {
-      step = parsed as ProposalStep;
-    }
-  } else if (!quotation.rooms || quotation.rooms.length === 0) {
-    step = 2;
-  }
+  // Determine initial step: query param > rooms exist (Products / Step 3) > Spaces (Step 2)
+  const initialStep: ProposalStep = searchParams.step
+    ? searchParams.step
+    : (!quotation.rooms || quotation.rooms.length === 0)
+    ? 2
+    : 3;
 
   return (
     <div className="w-full mx-auto py-1">
@@ -164,7 +165,8 @@ export default async function QuotationPage(props: PageProps) {
         initialCategories={categories}
         initialRoomTypes={roomTypes}
         initialCompany={company}
-        initialStep={step}
+        initialStep={initialStep}
+        initialTemplate={initialTemplate ? JSON.parse(JSON.stringify(initialTemplate)) : null}
       />
     </div>
   );

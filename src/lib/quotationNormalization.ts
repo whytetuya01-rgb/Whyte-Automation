@@ -163,7 +163,9 @@ export function normalizeHouseTypes(hts: any[]): HouseType[] {
 export function normalizeQuotationItem(item: any, fallbackRoomId?: number): QuotationItem {
   if (!item || typeof item !== "object") return item;
   const id = Number(item.id ?? item._id ?? 0);
-  const quotationRoomId = Number(item.quotationRoomId ?? fallbackRoomId ?? 0);
+  const quotationRoomId = item.quotationRoomId != null
+    ? Number(item.quotationRoomId)
+    : (fallbackRoomId != null ? Number(fallbackRoomId) : null);
   const quantity = Math.max(1, Number(item.quantity || 1));
   const rawUnitPrice = item.unitPrice !== undefined && item.unitPrice !== null
     ? (typeof item.unitPrice === "object" && "$numberDecimal" in item.unitPrice
@@ -266,8 +268,11 @@ export function normalizeQuotationItem(item: any, fallbackRoomId?: number): Quot
     ...item,
     id,
     _id: id,
+    quotationId: item.quotationId ? String(item.quotationId) : null,
     quotationRoomId,
-    productId: Number(item.productId ?? product?.id ?? 0),
+    productId: item.productId != null ? Number(item.productId) : (product?.id != null ? Number(product.id) : null),
+    title: item.title ? String(item.title) : null,
+    itemType: item.itemType || (item.productId != null ? "product" : "service"),
     product,
     productVariantId: item.productVariantId ? Number(item.productVariantId) : (productVariant?.id ?? null),
     productVariant,
@@ -398,6 +403,18 @@ export function normalizeQuotation(quotation: any): Quotation & {
     }
   }
 
+  // Room-independent line items
+  const rawItems = Array.isArray(quotation.items) ? quotation.items : [];
+  const directItems = rawItems.map((it: any) => normalizeQuotationItem(it));
+  for (const item of directItems) {
+    if (item.isUnavailable) hasUnavailableItems = true;
+    if (!protected_ && item.isUnavailable) continue;
+    const q = Math.max(1, item.quantity || 1);
+    const p = Number(item.unitPrice || 0);
+    subtotal += q * p;
+    productsCount += q;
+  }
+
   // Financial calculations
   const discountType = quotation.discountType ?? "none";
   const rawDiscountVal = (() => { const v: any = quotation.discountValue; if (v == null) return 0; if (typeof v === 'object' && v && '$numberDecimal' in (v as any)) return Number((v as any).$numberDecimal); if (typeof v === 'object' && typeof (v as any).toString === 'function') return Number((v as any).toString()); const n = Number(v); return isNaN(n) ? 0 : n; })();
@@ -431,8 +448,10 @@ export function normalizeQuotation(quotation: any): Quotation & {
     houseType,
     premisesName: typeof quotation.premisesName === "string" && quotation.premisesName.trim() ? quotation.premisesName.trim() : null,
     templateId: quotation.templateId ? String(quotation.templateId) : null,
+    templateVersion: typeof quotation.templateVersion === "number" ? quotation.templateVersion : null,
     customFieldValues: quotation.customFieldValues || {},
     rooms,
+    items: directItems,
     subtotal: gst.grossSubtotal,
     productsCount,
     totalProducts: productsCount,

@@ -15,16 +15,19 @@ import { calculateDealerEarning, customerDiscountError, toPlainNumber } from "@/
 import { eligibleSubtotalFromRooms } from "@/lib/quotationTotals";
 import { attachQuotationActors } from "@/lib/quotationActors";
 import { recordQuotationEvent } from "@/lib/quotationAudit";
-import { canDeleteQuotation, canModifyQuotation, canViewQuotation, isAdminRole } from "@/lib/quotationAccess";
+import { canDeleteQuotation, canModifyQuotation, canViewQuotation, isAdminRole, tenantQuotationFilter } from "@/lib/quotationAccess";
 import { hasPermission } from "@/lib/permissions";
+import { resolveQuotationTemplate } from "@/lib/templateService";
+import { validateCustomFieldValues } from "@/lib/templateValidation";
 import { requireActiveDealer, requireActiveSalesExecutive } from "@/lib/quotationOwnership";
 import { actorFromSession } from "@/lib/softDelete/actor";
 import { softDeleteOne } from "@/lib/softDelete/service";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
-async function fetchPopulatedQuotation(quotationId: string) {
-  return Quotation.findById(quotationId)
+async function fetchPopulatedQuotation(target: string | Record<string, unknown>) {
+  const query = typeof target === "string" ? { _id: target } : target;
+  return Quotation.findOne(query)
     .populate({ path: "houseType" })
     .populate({ path: "dealer", select: "id name email firstName lastName contactNumber companyName gstNumber businessEmail address" })
     .populate({ path: "customer", select: "id name phone whatsapp email billingAddress siteAddress gstNumber customerType" })
@@ -59,6 +62,21 @@ async function fetchPopulatedQuotation(quotationId: string) {
         },
       ],
     })
+    .populate({
+      path: "items",
+      match: { quotationRoomId: null },
+      options: { sort: { sortOrder: 1 } },
+      populate: [
+        {
+          path: "product",
+          select: "name code type imageUrl imagePublicId categoryId moduleSize surfaceFinish automationTier notes specs isDeleted",
+        },
+        {
+          path: "productVariant",
+          select: "surfaceFinish automationTier isDeleted",
+        },
+      ],
+    })
     .lean({ virtuals: true });
 }
 
@@ -70,19 +88,19 @@ async function fetchPopulatedQuotation(quotationId: string) {
 
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, companyId }) => {
       const { id } = await context.params;
       const quotationId = parseQuotationId(id);
 
       await connectMongoDB();
-      const quotation = await fetchPopulatedQuotation(quotationId);
+      const quotation = await fetchPopulatedQuotation(tenantQuotationFilter(quotationId, role, companyId));
 
       if (!quotation) {
         throw new ApiError("NOT_FOUND", "Quotation not found.");
       }
 
-      // Role-based access control: Dealers can only access their own quotations
-      if (!canViewQuotation(role, userId, quotation, permissions)) {
+      // Role-based access control with strict company isolation
+      if (!canViewQuotation(role, userId, quotation, permissions, companyId)) {
         throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
       }
 
@@ -110,16 +128,14 @@ export async function GET(_req: Request, context: RouteContext) {
 
 export async function PATCH(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, companyId }) => {
       const { id } = await context.params;
       const quotationId = parseQuotationId(id);
 
       await connectMongoDB();
 
-      // Minimal nested populate (just `isDeleted`) so the eligible-subtotal
-      // check below can tell a soft-deleted product/variant/room type apart
-      // from a legacy/missing reference — see `eligibleSubtotalFromRooms`.
-      const existing = await Quotation.findById(quotationId).populate({
+      // Tenant-scoped lookup: ensures the quotation belongs to the authenticated company
+      const existing = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId)).populate({
         path: "rooms",
         populate: [
           { path: "roomType", select: "isDeleted" },
@@ -133,8 +149,8 @@ export async function PATCH(req: Request, context: RouteContext) {
       // LOCK: Approved or Delivered quotations cannot be modified through normal edit APIs
       assertQuotationEditable(existing);
 
-      // Role-based access control: Dealers can only modify their own quotations
-      if (!canModifyQuotation(role, userId, existing, permissions)) {
+      // Role-based access control with strict company isolation
+      if (!canModifyQuotation(role, userId, existing, permissions, companyId)) {
         throw new ApiError("FORBIDDEN", "You do not have permission to modify this quotation.");
       }
 
@@ -170,6 +186,34 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
 
       const data: Record<string, unknown> = { ...rest };
+
+      if (data.customFieldValues && typeof data.customFieldValues === "object") {
+        const targetTemplateId = (data.templateId as string) || existing.templateId;
+        const targetVersion = (data.templateVersion as number) ?? existing.templateVersion;
+        const activeTmpl = await resolveQuotationTemplate(
+          existing.companyId,
+          targetTemplateId,
+          targetVersion
+        );
+        if (activeTmpl) {
+          const customFormFields = (activeTmpl.workflow?.steps || [])
+            .filter((s: any) => s.type === "custom_form")
+            .flatMap((s: any) => (s.sections || []).flatMap((sec: any) => sec.fields || []));
+          if (customFormFields.length > 0) {
+            const fieldValResult = validateCustomFieldValues(customFormFields, data.customFieldValues as Record<string, any>);
+            if (!fieldValResult.isValid) {
+              throw new ApiError("VALIDATION_ERROR", `Custom field validation failed: ${Object.values(fieldValResult.errors).join("; ")}`, {
+                details: fieldValResult.errors,
+              });
+            }
+          }
+        }
+        // Merge with existing customFieldValues to avoid discarding data from other steps
+        data.customFieldValues = {
+          ...((existing.customFieldValues as Record<string, any>) || {}),
+          ...(data.customFieldValues as Record<string, any>),
+        };
+      }
 
       // `customerId` / `leadId` come from the client. A value equal to the current link, or null / missing, changes
       // nothing (unlinking is not done through a quotation edit). A different value is a re-link, which needs the CRM
@@ -422,13 +466,13 @@ export async function DELETE(_req: Request, context: RouteContext) {
   const { id } = await context.params;
 
   try {
-    return await withSession(async ({ session, role, userId, permissions }) => {
+    return await withSession(async ({ session, role, userId, permissions, companyId }) => {
       const actor = actorFromSession(session);
 
       const quotationId = parseQuotationId(id);
       await connectMongoDB();
 
-      const target = await Quotation.findById(quotationId);
+      const target = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId));
       if (!target) {
         throw new ApiError("NOT_FOUND", "Quotation not found.");
       }
@@ -440,18 +484,13 @@ export async function DELETE(_req: Request, context: RouteContext) {
         );
       }
 
-      if (!canDeleteQuotation(role, userId, target, permissions)) {
+      if (!canDeleteQuotation(role, userId, target, permissions, companyId)) {
         throw new ApiError("FORBIDDEN", "You do not have permission to delete this quotation.");
       }
 
       // Soft delete. Quotation rooms and items have no meaning without their
-      // parent quotation, so they are cascaded with it — but, like the
-      // quotation itself, never physically removed: an approved/delivered
-      // quotation can never reach this path anyway (blocked above), and a
-      // draft/sent/rejected one that gets deleted keeps its full snapshot
-      // (pricing, GST, discounts, room/item detail) intact for audit purposes,
-      // just hidden from normal listings. Items are matched through their room
-      // BEFORE rooms are cascaded, so the lookup still sees live rooms.
+      // parent quotation, so they are cascaded with it — including both
+      // room-linked items and direct quotation items.
       const result = await softDeleteOne({
         model: Quotation,
         entityType: "quotation",
@@ -464,7 +503,12 @@ export async function DELETE(_req: Request, context: RouteContext) {
             model: QuotationItem,
             match: async (parentId) => {
               const roomIds = await QuotationRoom.find({ quotationId: String(parentId) }).distinct("_id");
-              return { quotationRoomId: { $in: roomIds } };
+              return {
+                $or: [
+                  { quotationRoomId: { $in: roomIds } },
+                  { quotationId: String(parentId) },
+                ],
+              };
             },
           },
           { entityType: "quotationRoom", model: QuotationRoom, foreignField: "quotationId" },

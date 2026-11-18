@@ -111,7 +111,8 @@ export const createQuotationSchema = strictObject({
   defaultTier: optionalText(120),
   defaultFinish: optionalText(120),
   templateId: optionalText(64),
-  customFieldValues: z.record(z.string(), z.string()).optional().nullable(),
+  templateVersion: z.number().int().positive().optional().nullable(),
+  customFieldValues: z.record(z.string(), z.any()).optional().nullable(),
 });
 
 /** PATCH body: every field optional, same allowlist as create. */
@@ -137,7 +138,8 @@ export const updateQuotationSchema = strictObject({
   defaultTier: optionalText(120),
   defaultFinish: optionalText(120),
   templateId: optionalText(64),
-  customFieldValues: z.record(z.string(), z.string()).optional().nullable(),
+  templateVersion: z.number().int().positive().optional().nullable(),
+  customFieldValues: z.record(z.string(), z.any()).optional().nullable(),
 });
 
 export const transitionQuotationSchema = strictObject({
@@ -187,25 +189,33 @@ const itemQuantityField = quantityField.pipe(
  * always taken from the resolved ProductVariant so a client cannot invent one.
  */
 export const createQuotationItemSchema = strictObject({
-  quotationRoomId: numericIdSchema,
-  productId: numericIdSchema,
+  quotationRoomId: numericIdSchema.optional().nullable(),
+  productId: numericIdSchema.optional().nullable(),
+  title: optionalText(200),
+  itemType: z.enum(["product", "service", "custom"]).optional(),
+  unitPrice: z.union([z.number(), z.string()]).optional(),
+  taxPercent: z.union([z.number(), z.string()]).optional(),
   productVariantId: numericIdSchema.optional().nullable(),
   variantConfig: z.record(z.string(), z.string()).optional().nullable(),
   quantity: itemQuantityField.optional(),
   sbNumber: optionalText(60),
   notes: optionalText(500),
-  sortOrder: intField(),
+  sortOrder: intField().optional(),
 });
 
 export const bulkCreateQuotationItemSchema = strictObject({
-  quotationRoomId: numericIdSchema.optional(),
-  productId: numericIdSchema,
+  quotationRoomId: numericIdSchema.optional().nullable(),
+  productId: numericIdSchema.optional().nullable(),
+  title: optionalText(200),
+  itemType: z.enum(["product", "service", "custom"]).optional(),
+  unitPrice: z.union([z.number(), z.string()]).optional(),
+  taxPercent: z.union([z.number(), z.string()]).optional(),
   productVariantId: numericIdSchema.optional().nullable(),
   variantConfig: z.record(z.string(), z.string()).optional().nullable(),
   quantity: itemQuantityField.optional(),
   sbNumber: optionalText(60),
   notes: optionalText(500),
-  sortOrder: intField(),
+  sortOrder: intField().optional(),
 });
 
 export const bulkCreateQuotationItemsSchema = strictObject({
@@ -219,6 +229,8 @@ export const bulkCreateQuotationItemsSchema = strictObject({
  * quotation before the move is applied.
  */
 export const updateQuotationItemSchema = strictObject({
+  quotationRoomId: numericIdSchema.optional().nullable(),
+  title: optionalText(200),
   quantity: itemQuantityField.optional(),
   sbNumber: optionalText(60),
   notes: optionalText(500),
@@ -244,7 +256,6 @@ export const updateQuotationItemSchema = strictObject({
   discountType: z.enum(["percentage", "fixed", "none"]).optional(),
   discountValue: z.number().finite().min(0).max(100000000).optional().nullable(),
   sortOrder: intField(),
-  quotationRoomId: numericIdSchema.optional(),
 });
 
 /** Duplicate accepts an optional override set; the rest is copied server-side. */

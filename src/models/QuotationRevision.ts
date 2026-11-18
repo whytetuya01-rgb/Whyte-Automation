@@ -14,7 +14,7 @@ import { tenantScopePlugin } from "@/lib/tenant/plugin";
 
 export interface RevisionSnapshotItem {
   itemId: number;
-  productId: number;
+  productId: number | null;
   productName: string;
   productCode: string | null;
   variantId: number | null;
@@ -30,6 +30,8 @@ export interface RevisionSnapshotItem {
   discountValue?: number | null;
   /** The unit price before that discount (`unitPrice` is the price after it). */
   preDiscountUnitPrice?: number | null;
+  title?: string | null;
+  itemType?: "product" | "service" | "custom" | null;
 }
 
 export interface RevisionSnapshotRoom {
@@ -61,6 +63,7 @@ export interface RevisionSnapshot {
     dealerId: number | null;
   };
   rooms: RevisionSnapshotRoom[];
+  directItems?: RevisionSnapshotItem[];
   totals: { subtotal: number; discountAmount: number; netSubtotal: number; totalGstAmount: number; grandTotal: number };
 }
 

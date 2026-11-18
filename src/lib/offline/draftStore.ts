@@ -18,10 +18,9 @@ import {
   type OfflineQuotationDraftRoom,
   type OfflineQuotationDraftItem,
   type OfflineCalculationSnapshot,
-  type OfflineDraftStatus,
 } from "./db";
 import { calculateQuotationGst, round2, parseFinancialNumber } from "@/lib/pricing";
-import { calculateDealerEarning, toPlainNumber } from "@/lib/dealerEarnings";
+import { calculateDealerEarning } from "@/lib/dealerEarnings";
 import type { EditorCatalogProduct } from "@/types";
 
 /**
@@ -47,12 +46,14 @@ export function generateClientEntityId(prefix: "room" | "item"): string {
  */
 export function calculateDraftTotals(params: {
   rooms: OfflineQuotationDraftRoom[];
+  directItems?: OfflineQuotationDraftItem[];
   discountType?: "percentage" | "fixed";
   discountValue?: number;
   dealerDiscountAllocationPercent?: number;
 }): OfflineCalculationSnapshot {
   const {
     rooms,
+    directItems = [],
     discountType = "percentage",
     discountValue = 0,
     dealerDiscountAllocationPercent = 0,
@@ -68,6 +69,14 @@ export function calculateDraftTotals(params: {
       item.lineTotal = lineTotal.toFixed(2);
       grossSubtotal += lineTotal;
     }
+  }
+
+  for (const item of directItems || []) {
+    const qty = Math.max(1, Number(item.quantity || 1));
+    const unitPrice = parseFinancialNumber(item.unitPrice, 0);
+    const lineTotal = round2(qty * unitPrice);
+    item.lineTotal = lineTotal.toFixed(2);
+    grossSubtotal += lineTotal;
   }
 
   grossSubtotal = round2(grossSubtotal);
@@ -151,6 +160,7 @@ export function createEmptyOfflineDraft(params: {
     createdAt: now,
     updatedAt: now,
     rooms: [],
+    items: [],
     calculation: emptyCalculation,
     roomCount: 0,
     deviceCount: 0,
@@ -267,7 +277,7 @@ export async function duplicateOfflineDraft(params: {
     const newItems: OfflineQuotationDraftItem[] = [];
 
     for (const srcItem of srcRoom.items || []) {
-      const defaultCatalogPrice = variantPriceMap.get(srcItem.variantId);
+      const defaultCatalogPrice = srcItem.variantId != null ? variantPriceMap.get(srcItem.variantId) : null;
 
       if (!defaultCatalogPrice) {
         // Item is no longer available in the downloaded catalog
@@ -431,8 +441,8 @@ export function offlineDraftToQuotation(
 
     const items = (r.items || []).map((item, iIdx) => {
       const itemId = itemNumericIds[rIdx][iIdx];
-      const product = productMap.get(item.productId);
-      const variant = product?.variants?.find((v) => v.id === item.variantId);
+      const product = item.productId != null ? productMap.get(item.productId) : undefined;
+      const variant = item.variantId != null ? product?.variants?.find((v) => v.id === item.variantId) : undefined;
 
       return {
         id: itemId,
@@ -466,6 +476,32 @@ export function offlineDraftToQuotation(
     };
   });
 
+  const directItems = (draft.items || []).map((item, dIdx) => {
+    const itemId = 900000 + dIdx;
+    const product = item.productId ? productMap.get(item.productId) : null;
+    const variant = product?.variants?.find((v) => v.id === item.variantId);
+
+    return {
+      id: itemId,
+      _id: itemId,
+      quotationId: draft.id as any,
+      quotationRoomId: null,
+      productId: item.productId ?? null,
+      productVariantId: item.variantId ?? null,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+      taxPercent: item.taxPercent || 18,
+      product: product as any,
+      productVariant: variant as any,
+      variantLabel: item.variantName || item.automationTier || "Standard",
+      isCustomPrice: item.isCustomPrice,
+      notes: item.notes,
+      title: item.title ?? item.productName ?? null,
+      itemType: item.itemType ?? (item.productId ? "product" : "service"),
+      sortOrder: item.sortOrder || 0,
+    };
+  });
+
   return {
     id: draft.id as any,
     _id: draft.id as any,
@@ -478,6 +514,9 @@ export function offlineDraftToQuotation(
     clientGstNumber: draft.clientGstNumber,
     houseTypeId: draft.houseTypeId,
     premisesName: draft.premisesName ?? null,
+    templateId: draft.templateId ?? null,
+    templateVersion: draft.templateVersion ?? null,
+    customFieldValues: draft.customFieldValues ?? {},
     notes: draft.notes,
     status: "draft",
     subtotal: draft.calculation?.grossSubtotal || 0,
@@ -489,6 +528,7 @@ export function offlineDraftToQuotation(
     sgstAmount: draft.calculation?.sgstAmount || 0,
     totalGstAmount: draft.calculation?.totalGstAmount || 0,
     rooms: rooms as any,
+    items: directItems as any,
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt,
   };
@@ -560,8 +600,41 @@ export function quotationToOfflineDraft(
     };
   });
 
+  const directItems: OfflineQuotationDraftItem[] = (quotation.items || []).map((item: any, iIdx: number) => {
+    const itemId = typeof item.id === "string" && item.id.startsWith("item_") ? item.id : `item_direct_${item.id ?? iIdx + 1}`;
+    const unitPrice = typeof item.unitPrice === "string" ? item.unitPrice : Number(item.unitPrice || 0).toFixed(2);
+    const defaultPrice = (item.productVariant as any)?.price ? String((item.productVariant as any).price) : unitPrice;
+    const qty = Math.max(1, Number(item.quantity || 1));
+    const lineTotal = (Number(unitPrice) * qty).toFixed(2);
+
+    return {
+      id: itemId,
+      draftId: baseDraft.id,
+      roomId: null,
+      productId: item.productId ? Number(item.productId) : null,
+      variantId: item.productVariantId ?? item.variantId ? Number(item.productVariantId ?? item.variantId) : null,
+      productName: item.title || item.product?.name || item.productName || "Line Item",
+      variantName: item.variantLabel || (item.productVariant as any)?.name || "Default",
+      code: item.product?.code || (item.productVariant as any)?.code,
+      variantCode: (item.productVariant as any)?.variantCode,
+      automationTier: (item.productVariant as any)?.automationTier || item.product?.automationTier,
+      surfaceFinish: (item.productVariant as any)?.surfaceFinish || item.product?.surfaceFinish,
+      quantity: qty,
+      defaultUnitPrice: defaultPrice,
+      unitPrice,
+      isCustomPrice: Boolean(item.isCustomPrice || unitPrice !== defaultPrice),
+      taxPercent: Number(item.taxPercent || 18),
+      lineTotal,
+      notes: item.notes,
+      sortOrder: item.sortOrder || 0,
+      title: item.title ?? null,
+      itemType: item.itemType ?? (item.productId ? "product" : "service"),
+    };
+  });
+
   const calculation = calculateDraftTotals({
     rooms,
+    directItems,
     discountType: quotation.discountType,
     discountValue: Number(quotation.discountValue || 0),
     dealerDiscountAllocationPercent: baseDraft.calculation?.dealerDiscountAllocationPercent || 0,
@@ -576,11 +649,17 @@ export function quotationToOfflineDraft(
     clientGstNumber: quotation.clientGstNumber || baseDraft.clientGstNumber,
     houseTypeId: quotation.houseTypeId || baseDraft.houseTypeId,
     premisesName: quotation.premisesName !== undefined ? quotation.premisesName : baseDraft.premisesName ?? null,
+    templateId: quotation.templateId ?? baseDraft.templateId ?? null,
+    templateVersion: quotation.templateVersion ?? baseDraft.templateVersion ?? null,
+    customFieldValues: quotation.customFieldValues ?? baseDraft.customFieldValues ?? {},
     notes: quotation.notes || baseDraft.notes,
     rooms,
+    items: directItems,
     calculation,
     roomCount: rooms.length,
-    deviceCount: rooms.reduce((acc, r) => acc + r.items.reduce((sum, i) => sum + (i.quantity || 1), 0), 0),
+    deviceCount:
+      rooms.reduce((acc, r) => acc + r.items.reduce((sum, i) => sum + (i.quantity || 1), 0), 0) +
+      directItems.reduce((sum, i) => sum + (i.quantity || 1), 0),
     updatedAt: new Date().toISOString(),
   };
 }

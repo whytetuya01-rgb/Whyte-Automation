@@ -24,6 +24,7 @@ export type QuotationActorRole =
   | undefined;
 
 export interface QuotationOwnershipFields {
+  companyId?: number | null;
   dealerId?: number | null;
   assignedSalesId?: number | null;
   createdBy?: string | null;
@@ -42,14 +43,46 @@ export function isAdminRole(role: QuotationActorRole): boolean {
   return ADMIN_QUOTATION_ROLES.includes(norm);
 }
 
+/**
+ * Builds a strict tenant-scoped query filter for looking up a single quotation.
+ * If companyId is supplied, it strictly scopes the query to that company.
+ * If missing, it returns an unsatisfiable filter { companyId: -1 } (fail closed).
+ */
+export function tenantQuotationFilter(
+  quotationId: string,
+  role?: QuotationActorRole,
+  companyId?: number | null
+): Record<string, unknown> {
+  const filter: Record<string, unknown> = { _id: quotationId };
+
+  if (companyId != null) {
+    filter.companyId = companyId;
+  } else {
+    // Missing company context fails closed for all tenant roles
+    filter.companyId = -1;
+  }
+
+  return filter;
+}
+
 export function canViewQuotation(
   role: QuotationActorRole,
   userId: number,
   quotation: QuotationOwnershipFields,
-  permissions?: string[] | null
+  permissions?: string[] | null,
+  activeCompanyId?: number | null
 ): boolean {
   if (!role) return false;
   const normRole = role.trim().toLowerCase();
+
+  // Strict tenant isolation: verify company scope matches if both are present
+  if (activeCompanyId != null && quotation.companyId != null) {
+    if (Number(quotation.companyId) !== Number(activeCompanyId)) {
+      return false; // Cross-company access forbidden
+    }
+  } else if (!activeCompanyId && normRole !== "super_admin") {
+    return false; // Missing company context fails closed
+  }
 
   if (normRole === "super_admin") return true;
 
@@ -73,10 +106,20 @@ export function canModifyQuotation(
   role: QuotationActorRole,
   userId: number,
   quotation: QuotationOwnershipFields,
-  permissions?: string[] | null
+  permissions?: string[] | null,
+  activeCompanyId?: number | null
 ): boolean {
   if (!role) return false;
   const normRole = role.trim().toLowerCase();
+
+  // Strict tenant isolation: verify company scope matches if both are present
+  if (activeCompanyId != null && quotation.companyId != null) {
+    if (Number(quotation.companyId) !== Number(activeCompanyId)) {
+      return false; // Cross-company modification forbidden
+    }
+  } else if (!activeCompanyId && normRole !== "super_admin") {
+    return false; // Missing company context fails closed
+  }
 
   if (normRole === "super_admin") return true;
 
@@ -100,10 +143,20 @@ export function canDeleteQuotation(
   role: QuotationActorRole,
   userId: number,
   quotation: QuotationOwnershipFields,
-  permissions?: string[] | null
+  permissions?: string[] | null,
+  activeCompanyId?: number | null
 ): boolean {
   if (!role) return false;
   const normRole = role.trim().toLowerCase();
+
+  // Strict tenant isolation: verify company scope matches if both are present
+  if (activeCompanyId != null && quotation.companyId != null) {
+    if (Number(quotation.companyId) !== Number(activeCompanyId)) {
+      return false; // Cross-company deletion forbidden
+    }
+  } else if (!activeCompanyId && normRole !== "super_admin") {
+    return false; // Missing company context fails closed
+  }
 
   if (normRole === "super_admin") return true;
 
@@ -131,19 +184,27 @@ export function salesExecutiveVisibilityFilter(userId: number): Record<string, u
   return { assignedSalesId: userId };
 }
 
-/** Returns the strict visibility query filter for a given actor role and user ID. */
+/** Returns the strict visibility query filter for a given actor role, user ID, and company ID. */
 export function quotationVisibilityFilter(
   role: string | null | undefined,
   userId: number,
-  permissions?: string[] | null
-): Record<string, unknown> | null {
-  if (!role) return { companyId: -1 };
-  const normRole = role.trim().toLowerCase();
+  permissions?: string[] | null,
+  companyId?: number | null
+): Record<string, unknown> {
+  const normRole = (role || "").trim().toLowerCase();
+  const filter: Record<string, unknown> = {};
 
-  if (normRole === "super_admin") return null;
-  if (normRole === "dealer") return dealerVisibilityFilter(userId);
-  if (normRole === "sales_executive") return salesExecutiveVisibilityFilter(userId);
-  if (hasPermission(role, permissions, "quotations:read_all")) return null;
-  return { createdBy: String(userId) };
+  if (companyId != null) {
+    filter.companyId = companyId;
+  } else if (normRole !== "super_admin") {
+    // Missing company context fails closed for all tenant roles
+    return { companyId: -1 };
+  }
+
+  if (normRole === "super_admin") return filter;
+  if (normRole === "dealer") return { ...filter, ...dealerVisibilityFilter(userId) };
+  if (normRole === "sales_executive") return { ...filter, ...salesExecutiveVisibilityFilter(userId) };
+  if (hasPermission(role, permissions, "quotations:read_all")) return filter;
+  return { ...filter, createdBy: String(userId) };
 }
 

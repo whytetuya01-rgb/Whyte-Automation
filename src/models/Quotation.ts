@@ -64,7 +64,8 @@ export interface IQuotation extends SoftDeleteFields {
   deliveredBy: number | null;
   clonedFromQuotationId: string | null;
   templateId?: string | null;
-  customFieldValues?: Record<string, string> | null;
+  templateVersion?: number | null;
+  customFieldValues?: Record<string, any> | null;
   /** Which issued version this is (1 = the first). Changing an issued quotation means creating revision N+1; see `QuotationRevision`. */
   revision: number;
   /** A request to revise an approved / delivered quotation that an approver has not decided yet (or the last decision). */
@@ -132,6 +133,7 @@ const QuotationSchema = new Schema<IQuotationDocument>(
     deliveredBy: { type: Number, ref: "AdminUser", default: null },
     clonedFromQuotationId: { type: String, default: null },
     templateId: { type: String, ref: "QuotationTemplate", default: null, index: true },
+    templateVersion: { type: Number, default: null },
     customFieldValues: { type: Schema.Types.Mixed, default: {} },
     revision: { type: Number, default: 1, min: 1 },
     revisionRequest: { type: Schema.Types.Mixed, default: null },
@@ -190,6 +192,14 @@ QuotationSchema.virtual("rooms", {
   ref: "QuotationRoom",
   localField: "_id",
   foreignField: "quotationId",
+});
+
+// Direct quotation items virtual relation (for room-less line items)
+QuotationSchema.virtual("items", {
+  ref: "QuotationItem",
+  localField: "_id",
+  foreignField: "quotationId",
+  match: { quotationRoomId: null },
 });
 
 // Customer virtual relation

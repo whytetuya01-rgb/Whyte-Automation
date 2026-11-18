@@ -170,8 +170,11 @@ export interface QuotationItemVariantSummary {
 
 export interface QuotationItem {
   id: number;
-  quotationRoomId: number;
-  productId: number;
+  quotationId?: string | null;
+  quotationRoomId?: number | null;
+  productId?: number | null;
+  title?: string | null;
+  itemType?: "product" | "service" | "custom";
   product?: Product;
   productVariantId: number | null;
   productVariant?: QuotationItemVariantSummary | null;
@@ -294,7 +297,8 @@ export interface Quotation {
   deliveredBy?: number | null;
   clonedFromQuotationId?: string | null;
   templateId?: string | null;
-  customFieldValues?: Record<string, string> | null;
+  templateVersion?: number | null;
+  customFieldValues?: Record<string, any> | null;
   terms: string | null;
   validUntil: string | null;
   defaultTier: string | null;
@@ -302,6 +306,7 @@ export interface Quotation {
   createdAt: string;
   updatedAt?: string;
   rooms: QuotationRoom[];
+  items?: QuotationItem[];
 }
 
 export interface QuotationActor {

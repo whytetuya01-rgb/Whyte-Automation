@@ -58,9 +58,7 @@ export default function OfflineDraftPage() {
 
   const draftId = decodeURIComponent((pathname || "").split("/").filter(Boolean)[2] ?? "");
   const stepParam = searchParams.get("step");
-  const initialStep: ProposalStep = stepParam
-    ? (Math.min(5, Math.max(1, parseInt(stepParam, 10))) as ProposalStep)
-    : 1;
+  const initialStep: ProposalStep = stepParam || 1;
 
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<OfflineQuotationDraft | null>(null);

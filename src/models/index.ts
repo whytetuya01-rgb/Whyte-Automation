@@ -20,6 +20,10 @@ export {
   type IQuotationTemplate,
   type IQuotationTemplateDocument,
 } from "./QuotationTemplate";
+export {
+  QuotationTemplateVersion,
+  type IQuotationTemplateVersionDocument,
+} from "./QuotationTemplateVersion";
 export { CalendarFeed, type ICalendarFeed, type ICalendarFeedDocument } from "./CalendarFeed";
 export { PriceChangeBatch, type IPriceChangeBatch, type IPriceChangeBatchDocument } from "./PriceChangeBatch";
 export { VariantPriceChange, type IVariantPriceChange, type IVariantPriceChangeDocument, type IPriceSnapshot } from "./VariantPriceChange";

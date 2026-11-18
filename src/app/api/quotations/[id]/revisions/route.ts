@@ -3,7 +3,7 @@ import { Quotation } from "@/models";
 import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
 import { hasPermission } from "@/lib/permissions";
-import { canModifyQuotation, canViewQuotation } from "@/lib/quotationAccess";
+import { canModifyQuotation, canViewQuotation, tenantQuotationFilter } from "@/lib/quotationAccess";
 import { parseQuotationId } from "@/lib/validation/quotation";
 import { requiredText, strictObject } from "@/lib/validation/common";
 import { listRevisions, reviseQuotation } from "@/lib/quotationRevisionService";
@@ -17,12 +17,14 @@ const reviseSchema = strictObject({ reason: requiredText(500, "Say why the quota
 /** GET /api/quotations/[id]/revisions — every issued version (newest first), the current version number and any pending request. */
 export async function GET(_req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, companyId }) => {
       const quotationId = parseQuotationId((await context.params).id);
       await connectMongoDB();
-      const quotation = await Quotation.findById(quotationId).select("dealerId assignedSalesId createdBy").lean();
+      const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+        .select("dealerId assignedSalesId createdBy companyId")
+        .lean();
       if (!quotation) throw new ApiError("NOT_FOUND", "Quotation not found.");
-      if (!canViewQuotation(role, userId, quotation, permissions)) throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
+      if (!canViewQuotation(role, userId, quotation, permissions, companyId)) throw new ApiError("FORBIDDEN", "You do not have permission to view this quotation.");
       return apiSuccess({ ...(await listRevisions(quotationId)), canApprove: hasPermission(role, permissions, "quotations:transition") });
     });
   } catch (error) {
@@ -39,13 +41,15 @@ export async function GET(_req: Request, context: RouteContext) {
  */
 export async function POST(req: Request, context: RouteContext) {
   try {
-    return await withSession(async ({ role, userId, permissions }) => {
+    return await withSession(async ({ role, userId, permissions, companyId }) => {
       const quotationId = parseQuotationId((await context.params).id);
       const input = reviseSchema.parse(await readJsonBody(req));
       await connectMongoDB();
-      const quotation = await Quotation.findById(quotationId).select("dealerId assignedSalesId createdBy").lean();
+      const quotation = await Quotation.findOne(tenantQuotationFilter(quotationId, role, companyId))
+        .select("dealerId assignedSalesId createdBy companyId")
+        .lean();
       if (!quotation) throw new ApiError("NOT_FOUND", "Quotation not found.");
-      if (!canModifyQuotation(role, userId, quotation, permissions)) throw new ApiError("FORBIDDEN", "You do not have permission to revise this quotation.");
+      if (!canModifyQuotation(role, userId, quotation, permissions, companyId)) throw new ApiError("FORBIDDEN", "You do not have permission to revise this quotation.");
       const outcome = await reviseQuotation(quotationId, { actor: { userId, canApprove: hasPermission(role, permissions, "quotations:transition") }, reason: input.reason });
       return apiSuccess(outcome, { status: outcome.kind === "revised" ? 201 : 202 });
     });

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Building, User, Mail, FileText, LayoutTemplate } from "lucide-react";
+import { ArrowLeft, ArrowRight, Building, User, Mail, FileText, LayoutTemplate, Sparkles } from "lucide-react";
 import { HouseType, Quotation } from "@/types";
-import type { QuotationTemplate } from "@/types/template";
+import type { QuotationTemplate, WorkflowStepDefinition, WorkflowFieldDefinition } from "@/types/template";
 import { CUSTOM_PREMISES_VALUE, PREMISES_NAME_MAX } from "@/lib/premises";
 import { Select, SelectOption } from "@/components/ui/Select";
 import { SearchableSelect } from "@/components/ui/SearchableSelect";
@@ -20,6 +20,7 @@ interface Props {
   houseTypes: HouseType[];
   onSaveAndContinue: (formData: ProjectFormData) => Promise<void>;
   isSaving: boolean;
+  step?: WorkflowStepDefinition;
 }
 
 export interface ProjectFormData {
@@ -66,12 +67,55 @@ export default function StepProjectDetails({
   houseTypes,
   onSaveAndContinue,
   isSaving,
+  step,
 }: Props) {
   // Parse any existing property name from notes or initialize
   const existingNotes = initialData?.notes ?? "";
   const matchProject = existingNotes.match(/^Project:\s*([^\n|]+)/i);
   const initialProjectName = matchProject ? matchProject[1].trim() : "";
   const cleanNotes = matchProject ? existingNotes.replace(/^Project:\s*[^\n|]+(\||\n)?/i, "").trim() : existingNotes;
+
+  // Derive field customizations from workflow step definition
+  const fieldLookup = useMemo(() => {
+    const map = new Map<string, WorkflowFieldDefinition>();
+    if (!step?.sections) return map;
+    for (const sec of step.sections) {
+      for (const f of sec.fields || []) {
+        if (f.systemBinding) {
+          map.set(f.systemBinding, f);
+        }
+        map.set(f.key, f);
+      }
+    }
+    return map;
+  }, [step]);
+
+  const extraStepFields = useMemo(() => {
+    if (!step?.sections) return [];
+    const standardBindings = new Set([
+      "clientName",
+      "clientPhone",
+      "clientEmail",
+      "clientGstNumber",
+      "projectName",
+      "clientAddress",
+      "premisesName",
+      "notes",
+      "customerId",
+      "leadId",
+    ]);
+    const list: WorkflowFieldDefinition[] = [];
+    for (const sec of step.sections) {
+      for (const f of sec.fields || []) {
+        const isBound = f.systemBinding && standardBindings.has(f.systemBinding);
+        const isStdKey = standardBindings.has(f.key);
+        if (!isBound && !isStdKey) {
+          list.push(f);
+        }
+      }
+    }
+    return list;
+  }, [step]);
 
   const [linkedCustomer, setLinkedCustomer] = useState<any>((initialData as any)?.customer ?? null);
 
@@ -370,14 +414,14 @@ export default function StepProjectDetails({
                   {/* Client Name */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-800 mb-1.5">
-                      Client / Customer Name <span className="text-red-500">*</span>
+                      {fieldLookup.get("clientName")?.label || "Client / Customer Name"} <span className="text-red-500">*</span>
                     </label>
                     <CustomerCombobox
                       value={form.clientName}
                       linked={Boolean(form.customerId)}
                       invalid={Boolean(errors.clientName)}
                       disabled={isSaving}
-                      placeholder="Search a customer or type a new name"
+                      placeholder={fieldLookup.get("clientName")?.placeholder || "Search a customer or type a new name"}
                       onChangeText={(name) => {
                         setForm((prev) => ({ ...prev, clientName: name }));
                         if (errors.clientName) setErrors((prev) => ({ ...prev, clientName: "" }));
@@ -391,27 +435,29 @@ export default function StepProjectDetails({
                   </div>
 
                   {/* Project / Property Name */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-800 mb-1.5">
-                      Project / Property Name
-                    </label>
-                    <div className="relative">
-                      <Building size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="text"
-                        value={form.projectName}
-                        onChange={(e) => setForm({ ...form, projectName: e.target.value })}
-                        placeholder="e.g. Sharma Residence, Villa 42"
-                        className="w-full h-11 pl-10 pr-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition bg-white text-gray-900"
-                      />
+                  {(!step?.sections || fieldLookup.has("projectName")) && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                        {fieldLookup.get("projectName")?.label || "Project / Property Name"}
+                      </label>
+                      <div className="relative">
+                        <Building size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          value={form.projectName}
+                          onChange={(e) => setForm({ ...form, projectName: e.target.value })}
+                          placeholder={fieldLookup.get("projectName")?.placeholder || "e.g. Sharma Residence, Villa 42"}
+                          className="w-full h-11 pl-10 pr-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition bg-white text-gray-900"
+                        />
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-1">Identifies this property in proposals</p>
                     </div>
-                    <p className="text-[11px] text-gray-400 mt-1">Identifies this property in proposals</p>
-                  </div>
+                  )}
 
                   {/* Project Type */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-800 mb-1.5">
-                      Project Type / Premices
+                      {fieldLookup.get("premisesName")?.label || "Project Type / Premises"}
                     </label>
                     <Select
                       value={form.houseTypeId ? String(form.houseTypeId) : (form.projectType || "")}
@@ -567,100 +613,149 @@ export default function StepProjectDetails({
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Phone */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-800 mb-1.5">
-                      Contact Phone Number
-                    </label>
-                    <IndiaPhoneInput
-                      value={form.clientPhone}
-                      onChange={(val) => {
-                        setForm({ ...form, clientPhone: val });
-                        if (errors.clientPhone) setErrors({ ...errors, clientPhone: "" });
-                      }}
-                      onBlur={() => {
-                        if (!form.clientPhone.trim()) return;
-                        const nationalDigits = extractNationalDigits(form.clientPhone);
-                        if (nationalDigits.length > 0 && nationalDigits.length < 10) {
-                          setErrors((prev) => ({ ...prev, clientPhone: "Please enter a valid 10-digit mobile number" }));
-                        } else {
-                          setErrors((prev) => ({ ...prev, clientPhone: phoneError(form.clientPhone) ?? "" }));
-                        }
-                      }}
-                      placeholder="98765 43210"
-                      error={errors.clientPhone}
-                    />
-                    {errors.clientPhone && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientPhone}</p>}
-                  </div>
+                  {(!step?.sections || fieldLookup.has("clientPhone")) && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                        {fieldLookup.get("clientPhone")?.label || "Contact Phone Number"}
+                      </label>
+                      <IndiaPhoneInput
+                        value={form.clientPhone}
+                        onChange={(val) => {
+                          setForm({ ...form, clientPhone: val });
+                          if (errors.clientPhone) setErrors({ ...errors, clientPhone: "" });
+                        }}
+                        onBlur={() => {
+                          if (!form.clientPhone.trim()) return;
+                          const nationalDigits = extractNationalDigits(form.clientPhone);
+                          if (nationalDigits.length > 0 && nationalDigits.length < 10) {
+                            setErrors((prev) => ({ ...prev, clientPhone: "Please enter a valid 10-digit mobile number" }));
+                          } else {
+                            setErrors((prev) => ({ ...prev, clientPhone: phoneError(form.clientPhone) ?? "" }));
+                          }
+                        }}
+                        placeholder={fieldLookup.get("clientPhone")?.placeholder || "98765 43210"}
+                        error={errors.clientPhone}
+                      />
+                      {errors.clientPhone && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientPhone}</p>}
+                    </div>
+                  )}
 
                   {/* Email */}
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-800 mb-1.5">
-                      Email Address
-                    </label>
-                    <div className="relative">
-                      <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                      <input
-                        type="email"
-                        value={form.clientEmail}
-                        onChange={(e) => {
-                          setForm({ ...form, clientEmail: e.target.value });
-                          if (errors.clientEmail) setErrors({ ...errors, clientEmail: "" });
-                        }}
-                        onBlur={() => setErrors((prev) => ({ ...prev, clientEmail: emailError(form.clientEmail) ?? "" }))}
-                        placeholder="client@example.com"
-                        autoComplete="email"
-                        aria-invalid={Boolean(errors.clientEmail)}
-                        className={`w-full h-11 pl-10 pr-3.5 border rounded-xl text-sm focus:outline-none focus:ring-2 transition bg-white text-gray-900 ${
-                          errors.clientEmail ? "border-red-400 focus:ring-red-500/20" : "border-gray-200 focus:border-accent focus:ring-accent/20"
-                        }`}
-                      />
+                  {(!step?.sections || fieldLookup.has("clientEmail")) && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                        {fieldLookup.get("clientEmail")?.label || "Email Address"}
+                      </label>
+                      <div className="relative">
+                        <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="email"
+                          value={form.clientEmail}
+                          onChange={(e) => {
+                            setForm({ ...form, clientEmail: e.target.value });
+                            if (errors.clientEmail) setErrors({ ...errors, clientEmail: "" });
+                          }}
+                          onBlur={() => setErrors((prev) => ({ ...prev, clientEmail: emailError(form.clientEmail) ?? "" }))}
+                          placeholder={fieldLookup.get("clientEmail")?.placeholder || "client@example.com"}
+                          autoComplete="email"
+                          aria-invalid={Boolean(errors.clientEmail)}
+                          className={`w-full h-11 pl-10 pr-3.5 border rounded-xl text-sm focus:outline-none focus:ring-2 transition bg-white text-gray-900 ${
+                            errors.clientEmail ? "border-red-400 focus:ring-red-500/20" : "border-gray-200 focus:border-accent focus:ring-accent/20"
+                          }`}
+                        />
+                      </div>
+                      {errors.clientEmail && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientEmail}</p>}
                     </div>
-                    {errors.clientEmail && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientEmail}</p>}
-                  </div>
+                  )}
 
                   {/* Customer GSTIN */}
-                  <div className="sm:col-span-2">
-                    <label className="block text-xs font-semibold text-gray-800 mb-1.5">
-                      Client GSTIN (Optional)
-                    </label>
-                    <input
-                      type="text"
-                      value={form.clientGstNumber}
-                      onChange={(e) => {
-                        setForm({ ...form, clientGstNumber: e.target.value.toUpperCase().replace(/\s+/g, "") });
-                        if (errors.clientGstNumber) setErrors({ ...errors, clientGstNumber: "" });
-                      }}
-                      onBlur={() => setErrors((prev) => ({ ...prev, clientGstNumber: gstinError(form.clientGstNumber) ?? "" }))}
-                      placeholder="27AAPFU0939F1ZV"
-                      maxLength={15}
-                      autoComplete="off"
-                      aria-invalid={Boolean(errors.clientGstNumber)}
-                      className={`w-full h-11 px-3.5 border rounded-xl text-sm font-mono focus:outline-none focus:ring-2 transition bg-white text-gray-900 uppercase ${
-                        errors.clientGstNumber ? "border-red-400 focus:ring-red-500/20" : "border-gray-200 focus:border-accent focus:ring-accent/20"
-                      }`}
-                    />
-                    {errors.clientGstNumber && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientGstNumber}</p>}
-                  </div>
+                  {(!step?.sections || fieldLookup.has("clientGstNumber")) && (
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                        {fieldLookup.get("clientGstNumber")?.label || "Client GSTIN (Optional)"}
+                      </label>
+                      <input
+                        type="text"
+                        value={form.clientGstNumber}
+                        onChange={(e) => {
+                          setForm({ ...form, clientGstNumber: e.target.value.toUpperCase().replace(/\s+/g, "") });
+                          if (errors.clientGstNumber) setErrors({ ...errors, clientGstNumber: "" });
+                        }}
+                        onBlur={() => setErrors((prev) => ({ ...prev, clientGstNumber: gstinError(form.clientGstNumber) ?? "" }))}
+                        placeholder={fieldLookup.get("clientGstNumber")?.placeholder || "27AAPFU0939F1ZV"}
+                        maxLength={15}
+                        autoComplete="off"
+                        aria-invalid={Boolean(errors.clientGstNumber)}
+                        className={`w-full h-11 px-3.5 border rounded-xl text-sm font-mono focus:outline-none focus:ring-2 transition bg-white text-gray-900 uppercase ${
+                          errors.clientGstNumber ? "border-red-400 focus:ring-red-500/20" : "border-gray-200 focus:border-accent focus:ring-accent/20"
+                        }`}
+                      />
+                      {errors.clientGstNumber && <p className="text-xs text-red-500 mt-1 font-medium">{errors.clientGstNumber}</p>}
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Section: Project Notes */}
-              <div className="pt-5 border-t border-gray-100">
-                <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold mb-4 flex items-center gap-1.5">
-                  <FileText size={14} className="text-gray-950" />
-                  Project Notes & Requirements
-                </h3>
+              {(!step?.sections || fieldLookup.has("notes")) && (
+                <div className="pt-5 border-t border-gray-100">
+                  <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold mb-4 flex items-center gap-1.5">
+                    <FileText size={14} className="text-gray-950" />
+                    {fieldLookup.get("notes")?.label || "Project Notes & Requirements"}
+                  </h3>
 
-                <div>
-                  <textarea
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    rows={4}
-                    placeholder="Specific client requirements, preferred automation ecosystem, site visit observations..."
-                    className="w-full p-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition bg-white text-gray-900 resize-none leading-relaxed"
-                  />
+                  <div>
+                    <textarea
+                      value={form.notes}
+                      onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                      rows={4}
+                      placeholder={fieldLookup.get("notes")?.placeholder || "Specific client requirements, preferred automation ecosystem, site visit observations..."}
+                      className="w-full p-3.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition bg-white text-gray-900 resize-none leading-relaxed"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
+
+              {/* Section: Additional Configured Step Fields */}
+              {extraStepFields.length > 0 && (
+                <div className="pt-5 border-t border-gray-100">
+                  <h3 className="text-xs uppercase tracking-wider text-gray-400 font-bold mb-4 flex items-center gap-1.5">
+                    <Sparkles size={14} className="text-gray-950" />
+                    Additional Project Details
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {extraStepFields.map((field) => (
+                      <div key={field.id} className={field.layout?.width === "full" ? "sm:col-span-2" : "col-span-1"}>
+                        <label className="block text-xs font-semibold text-gray-800 mb-1.5">
+                          {field.label} {field.required && <span className="text-red-500">*</span>}
+                        </label>
+                        {field.type === "textarea" ? (
+                          <textarea
+                            value={customFieldValues[field.key] ?? field.defaultValue ?? ""}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                            }
+                            placeholder={field.placeholder || `Enter ${field.label}...`}
+                            rows={3}
+                            className="w-full p-3 border border-gray-200 rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition resize-none"
+                          />
+                        ) : (
+                          <input
+                            type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
+                            value={customFieldValues[field.key] ?? field.defaultValue ?? ""}
+                            onChange={(e) =>
+                              setCustomFieldValues((prev) => ({ ...prev, [field.key]: e.target.value }))
+                            }
+                            placeholder={field.placeholder || `Enter ${field.label}...`}
+                            className="w-full h-11 px-3.5 border border-gray-200 rounded-xl text-sm bg-white text-gray-900 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition"
+                          />
+                        )}
+                        {field.helpText && <p className="text-[11px] text-gray-400 mt-1">{field.helpText}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Section: Proposal Template & Custom Specifications */}
               <div className="pt-5 border-t border-gray-100">

@@ -4,7 +4,7 @@ import type { ClientSession } from "mongoose";
 import { connectMongoDB } from "@/lib/mongodb";
 import {
   AdminUser, Product, Quotation, QuotationDelivery, QuotationDeliveryFile, QuotationItem, QuotationRevision, QuotationRevisionFile, QuotationRoom, RoomType,
-  type IQuotationDocument, type IQuotationRevision, type IRevisionPdf, type RevisionSnapshot, type RevisionSnapshotRoom,
+  type IQuotationDocument, type IQuotationRevision, type IRevisionPdf, type RevisionSnapshot, type RevisionSnapshotItem, type RevisionSnapshotRoom,
 } from "@/models";
 import type { QuotationRevisionRequest } from "@/models/Quotation";
 import { ApiError } from "@/lib/api-response";
@@ -53,8 +53,41 @@ export async function buildSnapshot(quotation: Pick<IQuotationDocument, "_id" | 
   const s = session ?? null;
   const rooms = await QuotationRoom.find({ quotationId: quotation._id }).sort({ sortOrder: 1, _id: 1 }).session(s).lean<Array<{ _id: number; roomTypeId: number | null; customName: string | null; subArea: string | null; notes: string | null }>>();
   const roomIds = rooms.map((room) => room._id);
-  const items = roomIds.length === 0 ? [] : await QuotationItem.find({ quotationRoomId: { $in: roomIds } }).sort({ sortOrder: 1, _id: 1 }).session(s).lean<Array<{ _id: number; quotationRoomId: number; productId: number; productVariantId: number | null; variantLabel: string | null; quantity: number; unitPrice: unknown; priceWithoutTax?: unknown; taxPercent?: unknown; taxAmount?: unknown; notes: string | null; discountType?: "percentage" | "fixed" | null; discountValue?: number | null; preDiscountUnitPrice?: unknown }>>();
-  const productIds = [...new Set(items.map((item) => item.productId))];
+
+  // Backwards-compatible query: find items either belonging directly to quotationId or via roomIds, de-duplicating by _id
+  const itemConditions: Record<string, unknown>[] = [{ quotationId: quotation._id }];
+  if (roomIds.length > 0) {
+    itemConditions.push({ quotationRoomId: { $in: roomIds } });
+  }
+  const rawItems = await QuotationItem.find({ $or: itemConditions })
+    .sort({ sortOrder: 1, _id: 1 })
+    .session(s)
+    .lean<Array<{
+      _id: number;
+      quotationRoomId?: number | null;
+      productId?: number | null;
+      productVariantId?: number | null;
+      variantLabel?: string | null;
+      title?: string | null;
+      itemType?: "product" | "service" | "custom" | null;
+      quantity: number;
+      unitPrice: unknown;
+      priceWithoutTax?: unknown;
+      taxPercent?: unknown;
+      taxAmount?: unknown;
+      notes: string | null;
+      discountType?: "percentage" | "fixed" | null;
+      discountValue?: number | null;
+      preDiscountUnitPrice?: unknown;
+    }>>();
+
+  const itemMap = new Map<number, (typeof rawItems)[0]>();
+  for (const it of rawItems) {
+    itemMap.set(Number(it._id), it);
+  }
+  const items = Array.from(itemMap.values());
+
+  const productIds = [...new Set(items.map((item) => item.productId).filter((id): id is number => typeof id === "number" && id > 0))];
   const products = productIds.length === 0 ? [] : await includeSoftDeleted(Product.find({ _id: { $in: productIds } }).select("name code").session(s), "historical-reference").lean<Array<{ _id: number; name: string; code?: string | null }>>();
   const typeIds = [...new Set(rooms.map((room) => room.roomTypeId).filter((id): id is number => id !== null))];
   const roomTypes = typeIds.length === 0 ? [] : await includeSoftDeleted(RoomType.find({ _id: { $in: typeIds } }).select("name").session(s), "historical-reference").lean<Array<{ _id: number; name: string }>>();
@@ -62,29 +95,45 @@ export async function buildSnapshot(quotation: Pick<IQuotationDocument, "_id" | 
   const typeName = new Map(roomTypes.map((type) => [type._id, type.name]));
 
   const optionalNumber = (value: unknown) => (value === null || value === undefined ? null : toNumber(value));
+
+  const toSnapshotItem = (item: (typeof items)[0]): RevisionSnapshotItem => ({
+    itemId: item._id,
+    productId: item.productId ?? null,
+    productName: item.title || (item.productId ? productById.get(item.productId)?.name : undefined) || "Line Item",
+    productCode: (item.productId ? productById.get(item.productId)?.code : null) ?? null,
+    variantId: item.productVariantId ?? null,
+    variantLabel: item.variantLabel ?? null,
+    quantity: item.quantity,
+    unitPrice: toNumber(item.unitPrice),
+    priceWithoutTax: optionalNumber(item.priceWithoutTax),
+    taxPercent: optionalNumber(item.taxPercent),
+    taxAmount: optionalNumber(item.taxAmount),
+    notes: item.notes ?? null,
+    discountType: item.discountType ?? null,
+    discountValue: item.discountType ? optionalNumber(item.discountValue) : null,
+    preDiscountUnitPrice: item.discountType ? optionalNumber(item.preDiscountUnitPrice) : null,
+    title: item.title ?? null,
+    itemType: item.itemType ?? (item.productId ? "product" : "service"),
+  });
+
   const snapshotRooms: RevisionSnapshotRoom[] = rooms.map((room) => ({
     roomId: room._id,
     name: room.customName || (room.roomTypeId !== null ? typeName.get(room.roomTypeId) : undefined) || "Room",
     subArea: room.subArea ?? null,
     notes: room.notes ?? null,
-    items: items.filter((item) => item.quotationRoomId === room._id).map((item) => ({
-      itemId: item._id,
-      productId: item.productId,
-      productName: productById.get(item.productId)?.name ?? "Product",
-      productCode: productById.get(item.productId)?.code ?? null,
-      variantId: item.productVariantId ?? null,
-      variantLabel: item.variantLabel ?? null,
-      quantity: item.quantity,
-      unitPrice: toNumber(item.unitPrice),
-      priceWithoutTax: optionalNumber(item.priceWithoutTax),
-      taxPercent: optionalNumber(item.taxPercent),
-      taxAmount: optionalNumber(item.taxAmount),
-      notes: item.notes ?? null,
-      discountType: item.discountType ?? null,
-      discountValue: item.discountType ? optionalNumber(item.discountValue) : null,
-      preDiscountUnitPrice: item.discountType ? optionalNumber(item.preDiscountUnitPrice) : null,
-    })),
+    items: items.filter((item) => item.quotationRoomId === room._id).map(toSnapshotItem),
   }));
+
+  const directItems = items.filter((item) => !item.quotationRoomId || item.quotationRoomId === null);
+  if (directItems.length > 0) {
+    snapshotRooms.push({
+      roomId: 0,
+      name: "Direct Items",
+      subArea: null,
+      notes: null,
+      items: directItems.map(toSnapshotItem),
+    });
+  }
 
   const subtotal = items.reduce((sum, item) => sum + (item.quantity || 1) * toNumber(item.unitPrice), 0);
   const financials = deriveQuotationFinancials({
@@ -114,6 +163,7 @@ export async function buildSnapshot(quotation: Pick<IQuotationDocument, "_id" | 
       dealerId: quotation.dealerId ?? null,
     },
     rooms: snapshotRooms,
+    directItems: directItems.map(toSnapshotItem),
     totals: { subtotal: financials.subtotal, discountAmount: financials.discountAmount, netSubtotal: financials.netSubtotal, totalGstAmount: financials.totalGstAmount, grandTotal: financials.grandTotal },
   };
 }

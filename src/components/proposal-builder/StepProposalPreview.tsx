@@ -23,8 +23,14 @@ import {
   X,
   LayoutTemplate,
 } from "lucide-react";
-import type { QuotationTemplate } from "@/types/template";
+import type {
+  QuotationTemplate,
+  DocumentSectionDefinition,
+  DocumentBlockDefinition,
+  DocumentLayoutDefinition,
+} from "@/types/template";
 import { DEFAULT_CONFIGURABLE_COLUMNS } from "@/types/template";
+import DynamicDocumentSectionRenderer from "./DynamicDocumentSectionRenderer";
 import { Quotation, QuotationRoom, QuotationItem, Company } from "@/types";
 import { formatCurrency, formatDate, getRoomIcon } from "@/lib/utils";
 import { getRoomFullTitle, getRoomDisplayName, getRoomFloorLabel, isMultiFloorHouseType } from "@/lib/roomUtils";
@@ -60,6 +66,8 @@ interface Props {
   quotation: Quotation;
   company?: Company | null;
   onBackToEdit?: () => void;
+  activeTemplateOverride?: QuotationTemplate | null;
+  isStudioPreview?: boolean;
 }
 
 export interface ProposalPageSlice {
@@ -94,6 +102,11 @@ export interface ProposalPageSlice {
       showRoomFooter: boolean;
     }
     | { type: "closing_and_financials" }
+    | {
+        type: "dynamic_block_section";
+        section: DocumentSectionDefinition;
+        blocks: DocumentBlockDefinition[];
+      }
   >;
 }
 
@@ -519,6 +532,71 @@ function estimateProductRowHeight(row: ProposalProductRow, quotation: Quotation,
 }
 
 /**
+ * Dynamic block-based document pagination (Phase 4).
+ * Slices custom sections and blocks into A4 pages respecting pageBreakBefore and explicit page_break blocks.
+ */
+function paginateDynamicDocument(layout: DocumentLayoutDefinition): ProposalPageSlice[] {
+  const pages: ProposalPageSlice[] = [];
+  const enabledSections = (layout.sections || []).filter((s) => s.enabled);
+
+  for (let sIdx = 0; sIdx < enabledSections.length; sIdx++) {
+    const section = enabledSections[sIdx];
+    let currentBlocks: DocumentBlockDefinition[] = [];
+
+    const flushPage = () => {
+      if (currentBlocks.length === 0) return;
+      pages.push({
+        pageNumber: pages.length + 1,
+        totalPages: 0,
+        isFirstPage: pages.length === 0,
+        isLastPage: false,
+        sections: [
+          {
+            type: "dynamic_block_section",
+            section,
+            blocks: [...currentBlocks],
+          },
+        ],
+      });
+      currentBlocks = [];
+    };
+
+    if (section.pageBreakBefore && pages.length > 0) {
+      flushPage();
+    }
+
+    for (const block of section.blocks || []) {
+      if (block.type === "page_break") {
+        flushPage();
+      } else {
+        currentBlocks.push(block);
+      }
+    }
+
+    flushPage();
+  }
+
+  if (pages.length === 0) {
+    pages.push({
+      pageNumber: 1,
+      totalPages: 1,
+      isFirstPage: true,
+      isLastPage: true,
+      sections: [],
+    });
+  }
+
+  const totalPages = pages.length;
+  pages.forEach((p, idx) => {
+    p.totalPages = totalPages;
+    p.isFirstPage = idx === 0;
+    p.isLastPage = idx === totalPages - 1;
+  });
+
+  return pages;
+}
+
+/**
  * Deterministic multi-page pagination algorithm for architectural Whyte proposals.
  */
 function paginateQuotation(
@@ -529,6 +607,11 @@ function paginateQuotation(
   specsOf: SpecsOf,
   template?: QuotationTemplate | null
 ): ProposalPageSlice[] {
+  // If the active template defines a block-based dynamic documentLayout, render it dynamically!
+  if (template?.documentLayout?.sections && template.documentLayout.sections.length > 0) {
+    return paginateDynamicDocument(template.documentLayout);
+  }
+
   const rooms = getRenderableProposalRooms(quotation.rooms);
   const pages: ProposalPageSlice[] = [];
 
@@ -703,6 +786,8 @@ export default function StepProposalPreview({
   quotation,
   company,
   onBackToEdit,
+  activeTemplateOverride,
+  isStudioPreview = false,
 }: Props) {
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -896,10 +981,6 @@ export default function StepProposalPreview({
   const content = useMemo(() => resolveProposalContent(company), [company]);
   // The faint watermark follows the company's accent; Whyte on its own rose theme keeps its original tint exactly.
   const { brandColor: customBrandColor, theme: brandTheme } = useCompanyBranding();
-  const watermarkStyle =
-    content.isDefaultCompany && !customBrandColor && brandTheme === "whyte-rose"
-      ? { color: "rgba(212, 106, 140, 0.1)" }
-      : { color: "var(--accent)", opacity: 0.1 };
   const hasIncludes = content.includes.length > 0 || configuredTiers.length > 0 || configuredFinishes.length > 0;
 
   // Product series used by this quotation (top-level categories marked "show on PDF"). Not loadable (offline draft,
@@ -927,6 +1008,9 @@ export default function StepProposalPreview({
   const [activeTemplate, setActiveTemplate] = useState<QuotationTemplate | null>(null);
 
   useEffect(() => {
+    if (activeTemplateOverride !== undefined) {
+      return;
+    }
     fetch("/api/templates")
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
@@ -941,7 +1025,9 @@ export default function StepProposalPreview({
         }
       })
       .catch(() => {});
-  }, [quotation.templateId]);
+  }, [quotation.templateId, activeTemplateOverride]);
+
+  const effectiveTemplate = activeTemplateOverride !== undefined ? activeTemplateOverride : activeTemplate;
 
   const handleSwitchTemplate = async (templateId: string) => {
     const target = templates.find((t) => t.id === templateId);
@@ -959,9 +1045,37 @@ export default function StepProposalPreview({
     } catch {}
   };
 
+  const watermarkStyle =
+    effectiveTemplate?.layoutSettings?.accentColor
+      ? { color: effectiveTemplate.layoutSettings.accentColor, opacity: 0.1 }
+      : content.isDefaultCompany && !customBrandColor && brandTheme === "whyte-rose"
+      ? { color: "rgba(212, 106, 140, 0.1)" }
+      : { color: "var(--accent)", opacity: 0.1 };
+
+  const showWatermark =
+    effectiveTemplate?.layoutSettings?.showWatermark !== undefined
+      ? effectiveTemplate.layoutSettings.showWatermark
+      : content.showWatermark;
+
+  const watermarkText =
+    effectiveTemplate?.layoutSettings?.showWatermark && effectiveTemplate?.layoutSettings?.watermarkText
+      ? effectiveTemplate.layoutSettings.watermarkText
+      : content.watermark;
+
+  const templateFontClass =
+    effectiveTemplate?.layoutSettings?.fontFamily === "roboto"
+      ? "font-['Roboto',sans-serif]"
+      : effectiveTemplate?.layoutSettings?.fontFamily === "playfair"
+      ? "font-serif"
+      : effectiveTemplate?.layoutSettings?.fontFamily === "outfit"
+      ? "font-['Outfit',sans-serif]"
+      : effectiveTemplate?.layoutSettings?.fontFamily === "montserrat"
+      ? "font-['Montserrat',sans-serif]"
+      : "";
+
   const proposalPages = useMemo(() => {
-    return paginateQuotation(quotation, content.introPages, content.showOverview, documentSeries.length, specsOf, activeTemplate);
-  }, [quotation, content.introPages, content.showOverview, documentSeries.length, specsOf, activeTemplate]);
+    return paginateQuotation(quotation, content.introPages, content.showOverview, documentSeries.length, specsOf, effectiveTemplate);
+  }, [quotation, content.introPages, content.showOverview, documentSeries.length, specsOf, effectiveTemplate]);
 
   const A4_WIDTH_MM = 210;
   const A4_HEIGHT_MM = 297;
@@ -1379,49 +1493,140 @@ export default function StepProposalPreview({
         </div>
       )}
 
-      {/* Top Header & Action Bar (Hidden in Print) */}
-      <div className="pb-4 mb-6 sm:mb-8 border-b border-gray-200 print:hidden">
-        {/* Mobile Action Bar (< md): 2-Tier Stack, No Overflow, Full-width Download CTA */}
-        <div className="md:hidden flex flex-col gap-2.5 w-full">
-          <div className="flex items-center justify-between gap-2">
-            {onBackToEdit ? (
-              <button
-                type="button"
-                onClick={onBackToEdit}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs shrink-0"
-              >
-                <ArrowLeft size={14} />
-                <span>Review</span>
-              </button>
-            ) : (
-              <Link
-                href={`/quotation/${quotation.id}?step=4`}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs shrink-0"
-              >
-                <ArrowLeft size={14} />
-                <span>Review</span>
-              </Link>
-            )}
+      {/* Top Header & Action Bar (Hidden in Print or Studio Preview) */}
+      {!isStudioPreview && (
+        <div className="pb-4 mb-6 sm:mb-8 border-b border-gray-200 print:hidden">
+          {/* Mobile Action Bar (< md): 2-Tier Stack, No Overflow, Full-width Download CTA */}
+          <div className="md:hidden flex flex-col gap-2.5 w-full">
+            <div className="flex items-center justify-between gap-2">
+              {onBackToEdit ? (
+                <button
+                  type="button"
+                  onClick={onBackToEdit}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs shrink-0"
+                >
+                  <ArrowLeft size={14} />
+                  <span>Review</span>
+                </button>
+              ) : (
+                <Link
+                  href={`/quotation/${quotation.id}?step=4`}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs shrink-0"
+                >
+                  <ArrowLeft size={14} />
+                  <span>Review</span>
+                </Link>
+              )}
 
-            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleShare}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs"
+                  title="Share proposal"
+                >
+                  {copied ? <Check size={14} className="text-emerald-600" /> : <Share2 size={14} />}
+                  <span>{copied ? "Copied" : "Share"}</span>
+                </button>
+
+                {/* Email the PDF and track its delivery (saved quotations only; local offline drafts cannot be sent). */}
+                {quotation.id && !String(quotation.id).startsWith("draft_") && (
+                  <button
+                    type="button"
+                    onClick={() => void handleSend()}
+                    disabled={renderableRooms.length === 0 || !!invalidGstinReason}
+                    title={invalidGstinReason ?? "Send this quotation by email or WhatsApp and track it"}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs disabled:opacity-50"
+                  >
+                    <Mail size={14} />
+                    <span>Send</span>
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  disabled={renderableRooms.length === 0 || !!invalidGstinReason}
+                  title={invalidGstinReason ?? undefined}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs disabled:opacity-50"
+                >
+                  <Printer size={14} />
+                  <span>Print</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Full-Width Primary Action: Download Proposal PDF */}
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              disabled={downloading || renderableRooms.length === 0 || !!invalidGstinReason}
+              title={invalidGstinReason ?? undefined}
+              className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 text-sm font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 active:scale-[0.99] transition shadow-xs disabled:opacity-50"
+            >
+              <Download size={15} />
+              <span>{downloading ? "Building PDF..." : "Download Proposal PDF"}</span>
+            </button>
+          </div>
+
+          {/* Desktop Action Bar (>= md) */}
+          <div className="hidden md:flex items-center justify-between gap-4">
+            <div>
+              {onBackToEdit ? (
+                <button
+                  type="button"
+                  onClick={onBackToEdit}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
+                >
+                  <ArrowLeft size={14} />
+                  <span>Back to Review</span>
+                </button>
+              ) : (
+                <Link
+                  href={`/quotation/${quotation.id}?step=4`}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
+                >
+                  <ArrowLeft size={14} />
+                  <span>Back to Review</span>
+                </Link>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2.5">
+              {templates.length > 0 && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-xl shadow-xs">
+                  <LayoutTemplate size={14} className="text-gray-500 shrink-0" />
+                  <select
+                    value={effectiveTemplate?.id || ""}
+                    onChange={(e) => handleSwitchTemplate(e.target.value)}
+                    className="bg-transparent text-xs font-semibold text-gray-800 border-none outline-hidden cursor-pointer"
+                    title="Choose Proposal Template"
+                  >
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        Template: {t.name} {t.isDefault ? "(Default)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={handleShare}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs"
-                title="Share proposal"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
               >
                 {copied ? <Check size={14} className="text-emerald-600" /> : <Share2 size={14} />}
                 <span>{copied ? "Copied" : "Share"}</span>
               </button>
 
-              {/* Email the PDF and track its delivery (saved quotations only; local offline drafts cannot be sent). */}
               {quotation.id && !String(quotation.id).startsWith("draft_") && (
                 <button
                   type="button"
                   onClick={() => void handleSend()}
                   disabled={renderableRooms.length === 0 || !!invalidGstinReason}
                   title={invalidGstinReason ?? "Send this quotation by email or WhatsApp and track it"}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
                 >
                   <Mail size={14} />
                   <span>Send</span>
@@ -1433,115 +1638,26 @@ export default function StepProposalPreview({
                 onClick={handlePrint}
                 disabled={renderableRooms.length === 0 || !!invalidGstinReason}
                 title={invalidGstinReason ?? undefined}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 active:bg-gray-100 transition shadow-2xs disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
               >
                 <Printer size={14} />
-                <span>Print</span>
+                <span>Print / Save as PDF</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadPDF}
+                disabled={downloading || renderableRooms.length === 0 || !!invalidGstinReason}
+                title={invalidGstinReason ?? undefined}
+                className="inline-flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 transition active:scale-[0.99] shadow-sm disabled:opacity-50"
+              >
+                <Download size={14} />
+                <span>{downloading ? "Building PDF..." : "Download PDF"}</span>
               </button>
             </div>
           </div>
-
-          {/* Full-Width Primary Action: Download Proposal PDF */}
-          <button
-            type="button"
-            onClick={handleDownloadPDF}
-            disabled={downloading || renderableRooms.length === 0 || !!invalidGstinReason}
-            title={invalidGstinReason ?? undefined}
-            className="w-full inline-flex items-center justify-center gap-2 py-3 px-4 text-sm font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 active:scale-[0.99] transition shadow-xs disabled:opacity-50"
-          >
-            <Download size={15} />
-            <span>{downloading ? "Building PDF..." : "Download Proposal PDF"}</span>
-          </button>
         </div>
-
-        {/* Desktop Action Bar (>= md) */}
-        <div className="hidden md:flex items-center justify-between gap-4">
-          <div>
-            {onBackToEdit ? (
-              <button
-                type="button"
-                onClick={onBackToEdit}
-                className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
-              >
-                <ArrowLeft size={14} />
-                <span>Back to Review</span>
-              </button>
-            ) : (
-              <Link
-                href={`/quotation/${quotation.id}?step=4`}
-                className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
-              >
-                <ArrowLeft size={14} />
-                <span>Back to Review</span>
-              </Link>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            {templates.length > 0 && (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-xl shadow-xs">
-                <LayoutTemplate size={14} className="text-gray-500 shrink-0" />
-                <select
-                  value={activeTemplate?.id || ""}
-                  onChange={(e) => handleSwitchTemplate(e.target.value)}
-                  className="bg-transparent text-xs font-semibold text-gray-800 border-none outline-hidden cursor-pointer"
-                  title="Choose Proposal Template"
-                >
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      Template: {t.name} {t.isDefault ? "(Default)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={handleShare}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs"
-            >
-              {copied ? <Check size={14} className="text-emerald-600" /> : <Share2 size={14} />}
-              <span>{copied ? "Copied" : "Share"}</span>
-            </button>
-
-            {quotation.id && !String(quotation.id).startsWith("draft_") && (
-              <button
-                type="button"
-                onClick={() => void handleSend()}
-                disabled={renderableRooms.length === 0 || !!invalidGstinReason}
-                title={invalidGstinReason ?? "Send this quotation by email or WhatsApp and track it"}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
-              >
-                <Mail size={14} />
-                <span>Send</span>
-              </button>
-            )}
-
-            <button
-              type="button"
-              onClick={handlePrint}
-              disabled={renderableRooms.length === 0 || !!invalidGstinReason}
-              title={invalidGstinReason ?? undefined}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 hover:border-gray-300 transition shadow-xs disabled:opacity-50"
-            >
-              <Printer size={14} />
-              <span>Print / Save as PDF</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDownloadPDF}
-              disabled={downloading || renderableRooms.length === 0 || !!invalidGstinReason}
-              title={invalidGstinReason ?? undefined}
-              className="inline-flex items-center gap-2 px-5 py-2 text-sm font-bold text-white bg-gray-950 rounded-xl hover:bg-gray-800 transition active:scale-[0.99] shadow-sm disabled:opacity-50"
-            >
-              <Download size={14} />
-              <span>{downloading ? "Building PDF..." : "Download PDF"}</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      )}
 
       {deliveryOpen && quotation.id && (
         <QuotationDeliveryModal
@@ -1601,14 +1717,26 @@ export default function StepProposalPreview({
                 ref={(el) => {
                   pageRefs.current[pageIdx] = el;
                 }}
-                className="proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8"
-                style={{ boxSizing: "border-box", transform: `scale(${previewScale})`, transformOrigin: "top left" }}
+                className={`proposal-page bg-white w-[794px] min-h-[1123px] rounded-xl p-8 sm:p-9 flex flex-col justify-between relative print:shadow-none print:border-none print:rounded-none print:m-0 print:p-8 ${templateFontClass}`}
+                style={{
+                  boxSizing: "border-box",
+                  transform: `scale(${previewScale})`,
+                  transformOrigin: "top left",
+                  ...(effectiveTemplate?.layoutSettings?.primaryColor
+                    ? { ["--primary" as string]: effectiveTemplate.layoutSettings.primaryColor }
+                    : {}),
+                  ...(effectiveTemplate?.layoutSettings?.accentColor
+                    ? {
+                        ["--accent" as string]: effectiveTemplate.layoutSettings.accentColor,
+                        ["--accent-border" as string]: effectiveTemplate.layoutSettings.accentColor + "40",
+                        ["--accent-light" as string]: effectiveTemplate.layoutSettings.accentColor + "14",
+                      }
+                    : {}),
+                }}
               >
-                {/* Brand watermark on content pages — large, extremely low-opacity "WHYTE"
-                  behind all content. Never a status/DRAFT/DUPLICATE stamp: the document's
-                  actual Draft/Sent/Approved/etc. status is shown elsewhere in the app UI,
-                  not altered here, and never rendered as a warning-style stamp on the PDF. */}
-                {!page.isFirstPage && content.showWatermark && (
+                {/* Brand watermark on content pages — large, extremely low-opacity watermark
+                  behind all content. Never a status/DRAFT/DUPLICATE stamp. */}
+                {!page.isFirstPage && showWatermark && (
                   <div
                     aria-hidden="true"
                     className="pointer-events-none absolute inset-0 flex items-center justify-center select-none"
@@ -1616,7 +1744,7 @@ export default function StepProposalPreview({
                   >
                     <span
                       style={{
-                        fontSize: Math.max(60, 150 - Math.max(0, content.watermark.length - 6) * 8),
+                        fontSize: Math.max(60, 150 - Math.max(0, (watermarkText || "").length - 6) * 8),
                         fontWeight: 900,
                         letterSpacing: "-0.02em",
                         ...watermarkStyle,
@@ -1626,7 +1754,7 @@ export default function StepProposalPreview({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {content.watermark}
+                      {watermarkText}
                     </span>
                   </div>
                 )}
@@ -1659,6 +1787,20 @@ export default function StepProposalPreview({
 
                   {/* Render Page Sections */}
                   {page.sections.map((section, sIdx) => {
+                    /* 0. DYNAMIC DOCUMENT BLOCK SECTION (Phase 4) */
+                    if (section.type === "dynamic_block_section") {
+                      return (
+                        <DynamicDocumentSectionRenderer
+                          key={section.section.id || sIdx}
+                          section={section.section}
+                          blocks={section.blocks}
+                          quotation={quotation}
+                          company={company}
+                          effectiveTemplate={effectiveTemplate}
+                        />
+                      );
+                    }
+
                     /* 1. COVER (PAGE 1) */
                     if (section.type === "cover") {
                       return (
@@ -1784,9 +1926,9 @@ export default function StepProposalPreview({
                             </div>
 
                             {/* Template Custom Fields */}
-                            {activeTemplate?.customFields && activeTemplate.customFields.length > 0 && (
+                            {effectiveTemplate?.customFields && effectiveTemplate.customFields.length > 0 && (
                               <div className="grid grid-cols-2 divide-x divide-gray-100 border-t border-gray-100 bg-gray-50/40 py-2">
-                                {activeTemplate.customFields.map((field) => {
+                                {effectiveTemplate.customFields.map((field) => {
                                   const val = quotation.customFieldValues?.[field.key] || field.defaultValue;
                                   if (!val) return null;
                                   return (
@@ -2418,7 +2560,7 @@ export default function StepProposalPreview({
                                       style={{ minHeight: PRODUCT_ROW_MIN_PX }}
                                     >
                                       {/* The product itself, straight on white: no frame, no grey tile, never cropped or stretched */}
-                                      {activeTemplate?.configurableColumns?.showProductImage !== false && (
+                                      {effectiveTemplate?.configurableColumns?.showProductImage !== false && (
                                         <div
                                           className="shrink-0 flex items-center justify-center"
                                           style={{ width: PRODUCT_IMAGE_PX, height: PRODUCT_IMAGE_PX }}
@@ -2452,23 +2594,32 @@ export default function StepProposalPreview({
                                           <p className="font-bold text-gray-950 text-[15px] leading-snug break-words min-w-0">
                                             {formattedName}
                                           </p>
+                                          {effectiveTemplate?.configurableColumns?.showProductCode !== false && item.product?.code && (
+                                            <span className="font-mono text-[11px] text-gray-400 shrink-0 mt-[3px]">
+                                              ({item.product.code})
+                                            </span>
+                                          )}
                                           {!isLocked && !room.isUnavailable && item.isUnavailable && (
                                             <UnavailabilityWarning reason={item.unavailableReason} compact />
                                           )}
                                         </div>
 
-                                        {(moduleSize || finish || color || tier || connectivity) && (
+                                        {(moduleSize || (effectiveTemplate?.configurableColumns?.showSurfaceFinish !== false && finish) || color || (effectiveTemplate?.configurableColumns?.showAutomationTier !== false && tier) || connectivity) && (
                                           <div className="flex flex-wrap items-center gap-1.5">
                                             {moduleSize && <span className={chipClass}>{moduleSize}</span>}
-                                            {finish && <span className={`${chipClass} capitalize`}>{finish}</span>}
+                                            {effectiveTemplate?.configurableColumns?.showSurfaceFinish !== false && finish && <span className={`${chipClass} capitalize`}>{finish}</span>}
                                             {color && <span className={`${chipClass} capitalize`}>{color}</span>}
-                                            {tier && (
+                                            {effectiveTemplate?.configurableColumns?.showAutomationTier !== false && tier && (
                                               <span className="text-[11px] font-semibold text-accent-foreground bg-accent-light px-2 py-0.5 rounded-full capitalize">
                                                 {tier}
                                               </span>
                                             )}
                                             {connectivity && <span className={`${chipClass} uppercase`}>{connectivity}</span>}
                                           </div>
+                                        )}
+
+                                        {effectiveTemplate?.configurableColumns?.showItemNotes !== false && item.notes && (
+                                          <p className="text-[12px] text-gray-500 italic mt-0.5">{item.notes}</p>
                                         )}
 
                                         {specs.length > 0 && (
@@ -2537,7 +2688,7 @@ export default function StepProposalPreview({
                                             </p>
                                           </div>
                                         )}
-                                        {activeTemplate?.configurableColumns?.showUnitPrice !== false && (
+                                        {effectiveTemplate?.configurableColumns?.showUnitPrice !== false && (
                                           <>
                                             <p
                                               className={`font-mono font-extrabold text-lg leading-none ${excluded ? "text-gray-400 line-through" : "text-gray-950"
@@ -2552,7 +2703,7 @@ export default function StepProposalPreview({
                                           </>
                                         )}
                                         {/* Grouped entries: the sum of each entry's own line total. */}
-                                        {isGrouped && (
+                                        {isGrouped && effectiveTemplate?.configurableColumns?.showLineTotal !== false && (
                                           <p
                                             className={`font-mono text-[13px] font-bold leading-none pt-0.5 ${excluded ? "text-gray-400 line-through" : "text-gray-700"
                                               }`}

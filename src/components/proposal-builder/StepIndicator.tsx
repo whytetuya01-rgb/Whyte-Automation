@@ -2,21 +2,30 @@
 
 import { Check } from "lucide-react";
 
-export type ProposalStep = 1 | 2 | 3 | 4 | 5;
+export type ProposalStep = number | string;
+
+export interface StepIndicatorItem {
+  id: string;
+  stepNumber: number;
+  label: string;
+  description?: string;
+  type?: "built_in_module" | "custom_form" | "builtin";
+}
 
 interface Props {
   currentStep: ProposalStep;
   completedSteps: ProposalStep[];
   onStepClick: (step: ProposalStep) => void;
   canNavigateToStep?: (step: ProposalStep) => boolean;
+  steps?: StepIndicatorItem[];
 }
 
-const STEPS = [
-  { step: 1 as ProposalStep, label: "Project", description: "Details & Location" },
-  { step: 2 as ProposalStep, label: "Spaces", description: "Select Rooms" },
-  { step: 3 as ProposalStep, label: "Products", description: "Configure Devices" },
-  { step: 4 as ProposalStep, label: "Review", description: "Summary & Pricing" },
-  { step: 5 as ProposalStep, label: "Proposal", description: "Preview & Export" },
+const DEFAULT_STEPS: StepIndicatorItem[] = [
+  { id: "project_details", stepNumber: 1, label: "Project", description: "Details & Location" },
+  { id: "space_selection", stepNumber: 2, label: "Spaces", description: "Select Rooms" },
+  { id: "product_config", stepNumber: 3, label: "Products", description: "Configure Devices" },
+  { id: "pricing_review", stepNumber: 4, label: "Review", description: "Summary & Pricing" },
+  { id: "proposal_preview", stepNumber: 5, label: "Proposal", description: "Preview & Export" },
 ];
 
 export default function StepIndicator({
@@ -24,8 +33,19 @@ export default function StepIndicator({
   completedSteps,
   onStepClick,
   canNavigateToStep = () => true,
+  steps,
 }: Props) {
-  const currentStepMeta = STEPS.find((s) => s.step === currentStep) ?? STEPS[0];
+  const displaySteps = steps && steps.length > 0 ? steps : DEFAULT_STEPS;
+
+  const currentStepMeta =
+    displaySteps.find(
+      (s) =>
+        s.id === currentStep ||
+        s.stepNumber === currentStep ||
+        String(s.stepNumber) === String(currentStep)
+    ) ?? displaySteps[0];
+
+  const currentStepNumber = currentStepMeta.stepNumber;
 
   return (
     <nav aria-label="Proposal Builder Progress" className="w-full">
@@ -34,17 +54,26 @@ export default function StepIndicator({
           {/* Connector Line behind steps */}
           <div className="absolute top-[14px] sm:top-5 left-6 right-6 -translate-y-1/2 h-0.5 bg-gray-100 -z-0" />
 
-          {STEPS.map((s) => {
-            const isCompleted = completedSteps.includes(s.step) && currentStep > s.step;
-            const isCurrent = currentStep === s.step;
-            const isClickable = canNavigateToStep(s.step);
+          {displaySteps.map((s) => {
+            const isCurrent =
+              s.id === currentStep ||
+              s.stepNumber === currentStep ||
+              String(s.stepNumber) === String(currentStep);
+
+            const isExplicitlyCompleted =
+              completedSteps.includes(s.id) ||
+              completedSteps.includes(s.stepNumber) ||
+              completedSteps.includes(String(s.stepNumber));
+
+            const isCompleted = isExplicitlyCompleted && currentStepNumber > s.stepNumber;
+            const isClickable = canNavigateToStep(s.id) || canNavigateToStep(s.stepNumber);
 
             return (
               <li
-                key={s.step}
-                className="relative z-10 flex flex-col items-center group cursor-pointer min-w-[48px] xs:min-w-[56px] sm:min-w-0"
+                key={s.id}
+                className="relative z-10 flex flex-col items-center group cursor-pointer min-w-[44px] xs:min-w-[52px] sm:min-w-0"
                 onClick={() => {
-                  if (isClickable) onStepClick(s.step);
+                  if (isClickable) onStepClick(s.id);
                 }}
               >
                 {/* Step Circle */}
@@ -62,7 +91,7 @@ export default function StepIndicator({
                   {isCompleted ? (
                     <Check size={14} strokeWidth={2.5} className="text-accent sm:w-[15px] sm:h-[15px]" />
                   ) : (
-                    <span>{s.step}</span>
+                    <span>{s.stepNumber}</span>
                   )}
                 </div>
 
@@ -79,9 +108,11 @@ export default function StepIndicator({
                   >
                     {s.label}
                   </p>
-                  <p className="hidden md:block text-[10px] text-gray-400 font-normal">
-                    {s.description}
-                  </p>
+                  {s.description && (
+                    <p className="hidden md:block text-[10px] text-gray-400 font-normal">
+                      {s.description}
+                    </p>
+                  )}
                 </div>
               </li>
             );
@@ -91,10 +122,10 @@ export default function StepIndicator({
         {/* Mobile current step indicator pill */}
         <div className="sm:hidden mt-2 pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500 px-1">
           <span className="font-mono text-[10px] uppercase tracking-wider font-semibold">
-            Step {currentStep} of 5
+            Step {currentStepNumber} of {displaySteps.length}
           </span>
           <span className="font-semibold text-gray-900 truncate ml-2">
-            {currentStepMeta.label}: {currentStepMeta.description}
+            {currentStepMeta.label}: {currentStepMeta.description || ""}
           </span>
         </div>
       </div>

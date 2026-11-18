@@ -27,6 +27,7 @@ import { redactQuotationForRole } from "@/lib/variantRedaction";
 import { dealerSnapshot, recordQuotationEvents } from "@/lib/quotationAudit";
 import { isItemUnavailable, isProtectedQuotationStatus, isRoomUnavailable } from "@/lib/quotationAvailability";
 import { resolveQuotationTemplate } from "@/lib/templateService";
+import { validateCustomFieldValues } from "@/lib/templateValidation";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,15 @@ const POPULATE_OPTIONS = [
       },
     ],
   },
+  {
+    path: "items",
+    match: { quotationRoomId: null },
+    select: "quantity unitPrice productId productVariantId",
+    populate: [
+      { path: "product", select: "isDeleted" },
+      { path: "productVariant", select: "isDeleted" },
+    ],
+  },
 ];
 
 interface QuotationListItem {
@@ -109,15 +119,28 @@ function withDerivedTotals(quotation: Record<string, unknown>): Record<string, u
     });
   });
 
-  const productsCount = eligibleItemsPerRoom.reduce(
-    (sum, items) => sum + items.reduce((itemSum, item) => itemSum + (item.quantity || 1), 0),
-    0
-  );
-  const subtotal = eligibleItemsPerRoom.reduce(
-    (sum, items) =>
-      sum + items.reduce((itemSum, item) => itemSum + (item.quantity || 1) * Number(item.unitPrice || 0), 0),
-    0
-  );
+  const eligibleDirectItems = (Array.isArray(quotation.items) ? (quotation.items as any[]) : []).filter((item) => {
+    const itemDown = isItemUnavailable(item, null);
+    if (itemDown) hasUnavailableItems = true;
+    return protected_ || !itemDown;
+  });
+
+  const productsCount =
+    eligibleItemsPerRoom.reduce(
+      (sum, items) => sum + items.reduce((itemSum, item) => itemSum + (item.quantity || 1), 0),
+      0
+    ) + eligibleDirectItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
+
+  const subtotal =
+    eligibleItemsPerRoom.reduce(
+      (sum, items) =>
+        sum + items.reduce((itemSum, item) => itemSum + (item.quantity || 1) * Number(item.unitPrice || 0), 0),
+      0
+    ) +
+    eligibleDirectItems.reduce(
+      (sum, item) => sum + (item.quantity || 1) * Number(item.unitPrice || 0),
+      0
+    );
 
   let discount = 0;
   if (quotation.discountType === "percentage") {
@@ -166,13 +189,21 @@ function withDerivedTotals(quotation: Record<string, unknown>): Record<string, u
 
 export async function GET(req: Request) {
   try {
-    return await withSession(({ role, userId, permissions }) => getQuotations(req, role, userId, permissions));
+    return await withSession(({ role, userId, permissions, companyId }) =>
+      getQuotations(req, role, userId, permissions, companyId)
+    );
   } catch (error) {
     return handleApiError(error, { logPrefix: "GET /api/quotations" });
   }
 }
 
-async function getQuotations(req: Request, role: string, userId: number, permissions: string[]) {
+async function getQuotations(
+  req: Request,
+  role: string,
+  userId: number,
+  permissions: string[],
+  companyId?: number | null
+) {
   {
     const { searchParams } = new URL(req.url);
     const isPaginated = searchParams.has("page") || searchParams.has("pageSize");
@@ -195,6 +226,13 @@ async function getQuotations(req: Request, role: string, userId: number, permiss
     const filter: Record<string, unknown> = {};
 
     const normRole = (role || "").trim().toLowerCase();
+
+    // Strict tenant isolation: scope query to authenticated company
+    if (companyId != null) {
+      filter.companyId = companyId;
+    } else if (normRole !== "super_admin") {
+      filter.companyId = -1; // Fail closed if company context is missing for tenant roles
+    }
 
     // Role-based visibility enforcement (applied in the query, never after the fact).
     if (normRole === "dealer") {
@@ -435,8 +473,22 @@ async function createQuotation(
     const createdOn = new Date();
     const year = createdOn.getFullYear();
 
-    const template = companyId ? await resolveQuotationTemplate(companyId, rest.templateId) : null;
+    const template = companyId ? await resolveQuotationTemplate(companyId, rest.templateId, rest.templateVersion) : null;
     const numberingFormat = template?.numberingFormat || null;
+
+    if (template && rest.customFieldValues && typeof rest.customFieldValues === "object") {
+      const customFormFields = (template.workflow?.steps || [])
+        .filter((s: any) => s.type === "custom_form")
+        .flatMap((s: any) => (s.sections || []).flatMap((sec: any) => sec.fields || []));
+      if (customFormFields.length > 0) {
+        const fieldValResult = validateCustomFieldValues(customFormFields, rest.customFieldValues as Record<string, any>);
+        if (!fieldValResult.isValid) {
+          throw new ApiError("VALIDATION_ERROR", `Custom field validation failed: ${Object.values(fieldValResult.errors).join("; ")}`, {
+            details: fieldValResult.errors,
+          });
+        }
+      }
+    }
 
     // One numbering service for every way of creating a quotation. If a simultaneous request took the number, the
     // whole transaction is tried again (a bounded number of times) with a fresh one.
@@ -459,6 +511,7 @@ async function createQuotation(
         _id: quotationId,
         ...rest,
         templateId: template?.id || rest.templateId || null,
+        templateVersion: template?.version ?? rest.templateVersion ?? null,
         customFieldValues: rest.customFieldValues || {},
         customerId: resolvedCustomerId,
         quotationNumber,

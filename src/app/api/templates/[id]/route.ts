@@ -1,8 +1,8 @@
-import { NextResponse } from "next/server";
 import { connectMongoDB } from "@/lib/mongodb";
 import { QuotationTemplate } from "@/models/QuotationTemplate";
 import { withSession } from "@/lib/api-auth";
 import { ApiError, apiSuccess, handleApiError, readJsonBody } from "@/lib/api-response";
+import { validateWorkflowDependencies } from "@/lib/templateValidation";
 
 export const dynamic = "force-dynamic";
 
@@ -36,14 +36,20 @@ export async function GET(_req: Request, context: RouteContext) {
 
 /**
  * PUT /api/templates/[id]
- * Updates an existing template.
+ * Updates draft definition of an existing template.
+ * Admin edits do not mutate published versions (immutable versioning).
  */
 export async function PUT(req: Request, context: RouteContext) {
   try {
     return await withSession(async (actor) => {
-      const { companyId } = actor;
+      const { companyId, role } = actor;
       if (!companyId) {
         throw new ApiError("FORBIDDEN", "An active company context is required.");
+      }
+
+      const isAuthorized = role === "super_admin" || role === "company_owner" || role === "admin";
+      if (!isAuthorized) {
+        throw new ApiError("FORBIDDEN", "Only company administrators can modify workflow templates.");
       }
 
       const { id } = await context.params;
@@ -71,6 +77,22 @@ export async function PUT(req: Request, context: RouteContext) {
         existing.name = body.name.trim();
       }
 
+      if (body.workflow !== undefined) {
+        if (body.workflow?.steps) {
+          const valResult = validateWorkflowDependencies(body.workflow.steps);
+          if (!valResult.isValid) {
+            throw new ApiError("VALIDATION_ERROR", `Invalid workflow dependencies: ${valResult.errors.join("; ")}`);
+          }
+        }
+        existing.workflow = body.workflow;
+        // Updating working draft marks it as unpublished until explicitly published
+        existing.isPublished = false;
+      }
+
+      if (body.documentLayout !== undefined) {
+        existing.documentLayout = body.documentLayout;
+        existing.isPublished = false;
+      }
       if (body.description !== undefined) existing.description = body.description?.trim() || null;
       if (body.numberingFormat !== undefined) existing.numberingFormat = body.numberingFormat;
       if (body.layoutSettings !== undefined) existing.layoutSettings = body.layoutSettings;
@@ -106,13 +128,20 @@ export async function PUT(req: Request, context: RouteContext) {
 
 /**
  * DELETE /api/templates/[id]
+ * Deleting a template does not mutate historical QuotationTemplateVersion records,
+ * ensuring existing quotations remain bound to their original version.
  */
 export async function DELETE(_req: Request, context: RouteContext) {
   try {
     return await withSession(async (actor) => {
-      const { companyId } = actor;
+      const { companyId, role } = actor;
       if (!companyId) {
         throw new ApiError("FORBIDDEN", "An active company context is required.");
+      }
+
+      const isAuthorized = role === "super_admin" || role === "company_owner" || role === "admin";
+      if (!isAuthorized) {
+        throw new ApiError("FORBIDDEN", "Only company administrators can delete workflow templates.");
       }
 
       const { id } = await context.params;

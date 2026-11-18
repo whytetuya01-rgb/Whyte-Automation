@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import {
   Palette,
-  Layout,
   Columns,
   Hash,
   Sliders,
@@ -13,53 +12,114 @@ import {
   Copy,
   Star,
   Eye,
-  RotateCcw,
   Save,
   ArrowUp,
   ArrowDown,
   Layers,
   Sparkles,
-  HelpCircle,
-  AlertCircle,
   FileText,
-  Building,
-  CheckCircle2,
-  Calendar,
-  Grid,
+  ShieldCheck,
+  History,
+  Lock,
+  Workflow,
+  Monitor,
+  Building2,
+  Home,
+  Cpu,
+  Receipt,
+  FileCheck2,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { cn } from "@/lib/utils";
 import type {
   QuotationTemplate,
-  TemplateSectionItem,
   TemplateConfigurableColumns,
-  TemplateLayoutSettings,
-  TemplateNumberingFormat,
   TemplateCustomField,
   TemplateFontFamily,
+  WorkflowStepDefinition,
+  DocumentLayoutDefinition,
 } from "@/types/template";
 import {
   DEFAULT_TEMPLATE_SECTIONS,
   DEFAULT_CONFIGURABLE_COLUMNS,
   DEFAULT_LAYOUT_SETTINGS,
   DEFAULT_NUMBERING_FORMAT,
+  DEFAULT_WORKFLOW_STEPS,
+  BLANK_WORKFLOW_STEPS,
+  CANONICAL_PROJECT_SECTIONS,
+  DEMO_DOCUMENT_LAYOUT,
 } from "@/types/template";
+import { validateWorkflowDependencies } from "@/lib/templateValidation";
+import { SAMPLE_QUOTATION } from "@/lib/sampleQuotationData";
+import StepProposalPreview from "@/components/proposal-builder/StepProposalPreview";
+import WorkflowStepDesigner from "./WorkflowStepDesigner";
+import VisualFormCanvas from "./VisualFormCanvas";
+import WorkflowLivePreview from "./WorkflowLivePreview";
+import TemplateVersionHistoryModal from "./TemplateVersionHistoryModal";
+import VisualDocumentCanvas from "./VisualDocumentCanvas";
+import TemplatePromptModal from "./TemplatePromptModal";
+import NewTemplateModal from "./NewTemplateModal";
+import { useConfirm } from "@/components/providers/ConfirmProvider";
 
-type DesignerTab = "layout" | "sections" | "columns" | "custom_fields" | "numbering";
+type StudioMode = "workflow" | "document";
+type DocumentTab = "canvas" | "layout" | "sections" | "columns" | "custom_fields" | "numbering";
+type PreviewPaneMode = "workflow" | "pdf";
+
+const COLUMN_CONFIG: Array<{
+  key: keyof TemplateConfigurableColumns;
+  label: string;
+  description: string;
+}> = [
+  { key: "showProductImage", label: "Product Thumbnail Image", description: "Display device photo in line items table" },
+  { key: "showProductCode", label: "Product SKU / Model Code", description: "Hardware model code e.g. WHYTE-MOD-4N" },
+  { key: "showSurfaceFinish", label: "Glass & Bezel Finish", description: "Matte Black, Brushed Bronze, White, etc." },
+  { key: "showAutomationTier", label: "Automation Tier", description: "Flagship, Prime, or Essential classification" },
+  { key: "showUnitPrice", label: "Unit List Price (₹)", description: "Base item rate per unit before discount" },
+  { key: "showTaxPercent", label: "GST Rate (%)", description: "Explicit GST percentage per item row" },
+  { key: "showLineTotal", label: "Line Total Amount (₹)", description: "Computed extended amount (qty × rate)" },
+  { key: "showItemNotes", label: "Technical Notes / Remarks", description: "Room notes, gang count and dimming channels" },
+];
 
 export default function TemplateDesignerStudio() {
   const [templates, setTemplates] = useState<QuotationTemplate[]>([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<DesignerTab>("layout");
+  const [showSimulator, setShowSimulator] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [showVersionModal, setShowVersionModal] = useState(false);
+  const confirm = useConfirm();
+
+  // Prompt modal state for user input (replacing window.prompt)
+  const [promptModal, setPromptModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    description?: string;
+    inputLabel?: string;
+    placeholder?: string;
+    defaultValue?: string;
+    confirmText?: string;
+    icon?: "sparkles" | "layers" | "plus" | "warning";
+    onConfirm: (val: string) => void | Promise<void>;
+  }>({
+    isOpen: false,
+    title: "",
+    onConfirm: () => {},
+  });
+
+  // New Template Starter Modal state
+  const [showNewTemplateModal, setShowNewTemplateModal] = useState(false);
+  const [isCreatingTemplate, setIsCreatingTemplate] = useState(false);
 
   // Form draft state for currently selected template
   const [draft, setDraft] = useState<QuotationTemplate | null>(null);
 
+  // Active step ID in workflow designer
+  const [activeStepId, setActiveStepId] = useState<string>("step_project");
+
   // Load templates from API
-  const fetchTemplates = async () => {
+  const fetchTemplates = useCallback(async () => {
     try {
       setLoading(true);
       const res = await fetch("/api/templates");
@@ -70,7 +130,10 @@ export default function TemplateDesignerStudio() {
 
       if (list.length > 0) {
         // Keep current selection or select default
-        const current = list.find((t) => t.id === selectedTemplateId) || list.find((t) => t.isDefault) || list[0];
+        const current =
+          list.find((t) => t.id === selectedTemplateId) ||
+          list.find((t) => t.isDefault) ||
+          list[0];
         setSelectedTemplateId(current.id);
         setDraft(JSON.parse(JSON.stringify(current)));
       }
@@ -79,16 +142,24 @@ export default function TemplateDesignerStudio() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedTemplateId]);
 
   useEffect(() => {
     fetchTemplates();
-  }, []);
+  }, [fetchTemplates]);
 
   // When switching selected template
-  const handleSelectTemplate = (tmpl: QuotationTemplate) => {
+  const handleSelectTemplate = async (tmpl: QuotationTemplate) => {
     if (isDirty) {
-      if (!confirm("You have unsaved changes. Switch template anyway?")) return;
+      const ok = await confirm({
+        title: "Unsaved Changes",
+        message: "You have unsaved changes in the current template.",
+        detail: "Switching templates now will discard your unsaved draft edits.",
+        confirmText: "Discard & Switch",
+        cancelText: "Keep Editing",
+        variant: "danger",
+      });
+      if (!ok) return;
     }
     setSelectedTemplateId(tmpl.id);
     setDraft(JSON.parse(JSON.stringify(tmpl)));
@@ -106,24 +177,148 @@ export default function TemplateDesignerStudio() {
     });
   };
 
-  // Create new template
-  const handleCreateNewTemplate = async () => {
-    const name = prompt("Enter a name for the new template:", "New Proposal Template");
-    if (!name || !name.trim()) return;
+  // Workflow steps memo
+  const currentWorkflowSteps: WorkflowStepDefinition[] = useMemo(() => {
+    if (draft?.workflow?.steps && draft.workflow.steps.length > 0) {
+      return draft.workflow.steps;
+    }
+    return DEFAULT_WORKFLOW_STEPS;
+  }, [draft?.workflow?.steps]);
 
+  // Keep activeStepId valid
+  useEffect(() => {
+    if (currentWorkflowSteps.length > 0) {
+      const exists = currentWorkflowSteps.some((s) => s.id === activeStepId);
+      if (!exists) {
+        setActiveStepId(currentWorkflowSteps[0].id);
+      }
+    }
+  }, [currentWorkflowSteps, activeStepId]);
+
+  const activeStep = useMemo(() => {
+    return (
+      currentWorkflowSteps.find((s) => s.id === activeStepId) ||
+      currentWorkflowSteps[0] ||
+      DEFAULT_WORKFLOW_STEPS[0]
+    );
+  }, [currentWorkflowSteps, activeStepId]);
+
+  // Update workflow steps from step designer
+  const handleUpdateWorkflowSteps = useCallback(
+    (newSteps: WorkflowStepDefinition[]) => {
+      setDraft((prev) => {
+        if (!prev) return prev;
+        setIsDirty(true);
+        return {
+          ...prev,
+          workflow: {
+            ...prev.workflow,
+            steps: newSteps,
+          },
+        };
+      });
+    },
+    []
+  );
+
+  // Update active step from visual form canvas
+  const handleUpdateActiveStep = useCallback(
+    (updatedStep: WorkflowStepDefinition) => {
+      handleUpdateWorkflowSteps(
+        currentWorkflowSteps.map((s) => (s.id === updatedStep.id ? updatedStep : s))
+      );
+    },
+    [currentWorkflowSteps, handleUpdateWorkflowSteps]
+  );
+
+  // Document Layout memo
+  const currentDocumentLayout: DocumentLayoutDefinition = useMemo(() => {
+    if (draft?.documentLayout && draft.documentLayout.sections) {
+      return draft.documentLayout;
+    }
+    return DEMO_DOCUMENT_LAYOUT;
+  }, [draft]);
+
+  const handleUpdateDocumentLayout = useCallback(
+    (newLayout: DocumentLayoutDefinition) => {
+      setDraft((prev) => {
+        if (!prev) return prev;
+        setIsDirty(true);
+        return {
+          ...prev,
+          documentLayout: newLayout,
+        };
+      });
+    },
+    []
+  );
+
+  // Available custom fields extracted from workflow steps and metadata for block data binding
+  const availableCustomFields = useMemo(() => {
+    const list: Array<{ key: string; label: string; type: string }> = [];
+    const seen = new Set<string>();
+
+    // 1. From workflow steps (custom form sections and fields)
+    currentWorkflowSteps.forEach((step) => {
+      step.sections?.forEach((sec) => {
+        sec.fields?.forEach((f) => {
+          if (!seen.has(f.key)) {
+            seen.add(f.key);
+            list.push({ key: f.key, label: f.label, type: f.type || "text" });
+          }
+        });
+      });
+    });
+
+    // 2. From template metadata custom fields
+    draft?.customFields?.forEach((f) => {
+      if (!seen.has(f.key)) {
+        seen.add(f.key);
+        list.push({ key: f.key, label: f.label, type: f.type || "text" });
+      }
+    });
+
+    // 3. Fallback standard demo fields
+    const standardFields = [
+      { key: "leadArchitect", label: "Lead Architect / Consultant", type: "text" },
+      { key: "projectStage", label: "Project Execution Stage", type: "select" },
+      { key: "targetHandoverDate", label: "Target Site Handover Date", type: "date" },
+      { key: "secondaryEmail", label: "Alternate Site Coordinator Email", type: "email" },
+      { key: "siteFloorPlan", label: "Architectural Floor Plan Drawing", type: "image" },
+    ];
+    standardFields.forEach((sf) => {
+      if (!seen.has(sf.key)) {
+        seen.add(sf.key);
+        list.push(sf);
+      }
+    });
+
+    return list;
+  }, [currentWorkflowSteps, draft?.customFields]);
+
+  // Open starter modal for new template
+  const handleCreateNewTemplate = () => {
+    setShowNewTemplateModal(true);
+  };
+
+  const handleExecuteCreateTemplate = async (name: string, starterType: "whyte" | "blank") => {
+    setIsCreatingTemplate(true);
     try {
+      const initialSteps = starterType === "blank" ? BLANK_WORKFLOW_STEPS : DEFAULT_WORKFLOW_STEPS;
       const res = await fetch("/api/templates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          description: "Custom quotation proposal template.",
+          description: starterType === "blank" ? "Custom blank quotation workflow." : "Standard Whyte automation quotation workflow.",
           isDefault: false,
+          workflow: { steps: initialSteps },
           numberingFormat: { ...DEFAULT_NUMBERING_FORMAT },
           layoutSettings: { ...DEFAULT_LAYOUT_SETTINGS },
           configurableColumns: { ...DEFAULT_CONFIGURABLE_COLUMNS },
           sectionOrder: [...DEFAULT_TEMPLATE_SECTIONS],
           customFields: [],
+          documentLayout: null,
         }),
       });
 
@@ -135,47 +330,61 @@ export default function TemplateDesignerStudio() {
       const json = await res.json();
       const created: QuotationTemplate = json.data;
       toast.success(`Template "${created.name}" created!`);
+      setShowNewTemplateModal(false);
       await fetchTemplates();
       setSelectedTemplateId(created.id);
       setDraft(JSON.parse(JSON.stringify(created)));
       setIsDirty(false);
     } catch (err: any) {
       toast.error(err.message || "Failed to create template");
+    } finally {
+      setIsCreatingTemplate(false);
     }
   };
 
   // Duplicate current template
-  const handleDuplicateTemplate = async () => {
+  const handleDuplicateTemplate = () => {
     if (!draft) return;
-    const name = prompt(`Duplicate "${draft.name}" as:`, `${draft.name} (Copy)`);
-    if (!name || !name.trim()) return;
+    setPromptModal({
+      isOpen: true,
+      title: "Duplicate Workflow Template",
+      description: `Create an independent copy of "${draft.name}".`,
+      inputLabel: "New Template Name",
+      placeholder: "Template name...",
+      defaultValue: `${draft.name} (Copy)`,
+      confirmText: "Duplicate",
+      icon: "layers",
+      onConfirm: async (name: string) => {
+        try {
+          const res = await fetch("/api/templates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              ...draft,
+              name: name.trim(),
+              isDefault: false,
+              workflow: { steps: currentWorkflowSteps },
+              documentLayout: draft.documentLayout ?? currentDocumentLayout,
+            }),
+          });
 
-    try {
-      const res = await fetch("/api/templates", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...draft,
-          name: name.trim(),
-          isDefault: false,
-        }),
-      });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err?.error?.message || "Failed to duplicate template");
+          }
 
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error?.message || "Failed to duplicate template");
-      }
-
-      const json = await res.json();
-      const created: QuotationTemplate = json.data;
-      toast.success(`Template duplicated as "${created.name}"`);
-      await fetchTemplates();
-      setSelectedTemplateId(created.id);
-      setDraft(JSON.parse(JSON.stringify(created)));
-      setIsDirty(false);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to duplicate template");
-    }
+          const json = await res.json();
+          const created: QuotationTemplate = json.data;
+          toast.success(`Template duplicated as "${created.name}"`);
+          await fetchTemplates();
+          setSelectedTemplateId(created.id);
+          setDraft(JSON.parse(JSON.stringify(created)));
+          setIsDirty(false);
+        } catch (err: any) {
+          toast.error(err.message || "Failed to duplicate template");
+        }
+      },
+    });
   };
 
   // Set current template as default
@@ -199,7 +408,16 @@ export default function TemplateDesignerStudio() {
       toast.error("You cannot delete the only remaining template.");
       return;
     }
-    if (!confirm(`Are you sure you want to delete template "${draft.name}"?`)) return;
+    const ok = await confirm({
+      title: `Delete Template "${draft.name}"?`,
+      message: `Are you sure you want to delete template "${draft.name}"?`,
+      detail:
+        "This will remove the template from the designer. Existing quotations bound to published snapshots will remain unaffected.",
+      confirmText: "Delete Template",
+      cancelText: "Cancel",
+      variant: "danger",
+    });
+    if (!ok) return;
 
     try {
       const res = await fetch(`/api/templates/${draft.id}`, { method: "DELETE" });
@@ -215,17 +433,33 @@ export default function TemplateDesignerStudio() {
     }
   };
 
-  // Save changes
-  const handleSave = async () => {
-    if (!draft) return;
+  // Save changes (PUT)
+  const handleSave = async (): Promise<boolean> => {
+    if (!draft) return false;
+
+    // Validate workflow dependencies before saving
+    const valResult = validateWorkflowDependencies(currentWorkflowSteps);
+    if (!valResult.isValid) {
+      toast.error(`Cannot save: ${valResult.errors.join("; ")}`);
+      return false;
+    }
+
     setSaving(true);
-    const toastId = toast.loading("Saving template changes...");
+    const toastId = toast.loading("Saving draft changes...");
 
     try {
+      const payload = {
+        ...draft,
+        workflow: {
+          steps: currentWorkflowSteps,
+        },
+        documentLayout: draft.documentLayout ?? currentDocumentLayout,
+      };
+
       const res = await fetch(`/api/templates/${draft.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
@@ -235,18 +469,76 @@ export default function TemplateDesignerStudio() {
 
       const json = await res.json();
       const updated: QuotationTemplate = json.data;
-      toast.success("Template saved successfully!", { id: toastId });
+      toast.success("Draft saved successfully!", { id: toastId });
       setIsDirty(false);
       await fetchTemplates();
       setDraft(JSON.parse(JSON.stringify(updated)));
+      return true;
     } catch (err: any) {
       toast.error(err.message || "Failed to save template", { id: toastId });
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
-  // Move section up/down in order
+  // Publish new immutable version (POST /publish)
+  const handlePublishVersion = async () => {
+    if (!draft) return;
+
+    // 1. Dependency validation
+    const valResult = validateWorkflowDependencies(currentWorkflowSteps);
+    if (!valResult.isValid) {
+      toast.error(`Cannot publish: ${valResult.errors.join("; ")}`);
+      return;
+    }
+
+    // 2. Save working draft if dirty
+    if (isDirty) {
+      const saved = await handleSave();
+      if (!saved) return;
+    }
+
+    const nextVer = (draft.version ?? 0) + 1;
+    const ok = await confirm({
+      title: `Publish Version ${nextVer}?`,
+      message: `Publish current workflow & proposal layout definition as Version ${nextVer}?`,
+      detail:
+        "This creates an immutable snapshot. Future quotations will use this version, while historical quotations remain safely bound to their original snapshots.",
+      confirmText: `Publish Version ${nextVer}`,
+      cancelText: "Cancel",
+      variant: "primary",
+    });
+    if (!ok) return;
+
+    setPublishing(true);
+    const toastId = toast.loading("Publishing immutable version...");
+
+    try {
+      const res = await fetch(`/api/templates/${draft.id}/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || "Failed to publish template version");
+      }
+
+      const json = await res.json();
+      const snapshot = json.data;
+      toast.success(`🎉 Version ${snapshot.version} published successfully!`, { id: toastId });
+      setIsDirty(false);
+      await fetchTemplates();
+    } catch (err: any) {
+      toast.error(err.message || "Failed to publish version", { id: toastId });
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  // Move section up/down in document ordering
   const moveSection = (index: number, direction: "up" | "down") => {
     if (!draft) return;
     const newIndex = direction === "up" ? index - 1 : index + 1;
@@ -261,7 +553,7 @@ export default function TemplateDesignerStudio() {
     });
   };
 
-  // Toggle section enabled
+  // Toggle document section enabled
   const toggleSection = (id: string) => {
     updateDraft((prev) => ({
       ...prev,
@@ -271,34 +563,43 @@ export default function TemplateDesignerStudio() {
     }));
   };
 
-  // Add custom field
+  // Add document custom field
   const handleAddCustomField = () => {
-    const label = prompt("Enter label for the new field (e.g. Architect Name):");
-    if (!label || !label.trim()) return;
-
-    const key = label
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]/g, "");
-
-    const newField: TemplateCustomField = {
-      id: "f_" + Date.now().toString(36),
-      key: key || "customField",
-      label: label.trim(),
-      type: "text",
+    setPromptModal({
+      isOpen: true,
+      title: "Add Document Custom Field",
+      description: "Define a metadata field to display on final proposal documents.",
+      inputLabel: "Field Label",
+      placeholder: "e.g. Lead Architect, Site Supervisor",
       defaultValue: "",
-      placeholder: `Enter ${label.trim()}...`,
-      required: false,
-      section: "metadata",
-    };
+      confirmText: "Add Field",
+      icon: "plus",
+      onConfirm: (label: string) => {
+        const key = label
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "");
 
-    updateDraft((prev) => ({
-      ...prev,
-      customFields: [...prev.customFields, newField],
-    }));
+        const newField: TemplateCustomField = {
+          id: "f_" + Date.now().toString(36),
+          key: key || "customField",
+          label: label.trim(),
+          type: "text",
+          defaultValue: "",
+          placeholder: `Enter ${label.trim()}...`,
+          required: false,
+          section: "metadata",
+        };
+
+        updateDraft((prev) => ({
+          ...prev,
+          customFields: [...prev.customFields, newField],
+        }));
+      },
+    });
   };
 
-  // Delete custom field
+  // Delete document custom field
   const handleDeleteCustomField = (id: string) => {
     updateDraft((prev) => ({
       ...prev,
@@ -309,7 +610,8 @@ export default function TemplateDesignerStudio() {
   // Simulated quotation numbering preview
   const sampleQuotationNumber = useMemo(() => {
     if (!draft) return "QT-2026-0001";
-    const { prefix, separator, includeYear, yearFormat, digitCount, suffix } = draft.numberingFormat;
+    const { prefix, separator, includeYear, yearFormat, digitCount, suffix } =
+      draft.numberingFormat;
     const year = yearFormat === "YY" ? "26" : "2026";
     const padSeq = "0001".padStart(digitCount, "0").slice(-digitCount);
 
@@ -320,7 +622,23 @@ export default function TemplateDesignerStudio() {
     if (suffix) parts.push(suffix);
 
     return parts.join(separator || "-");
-  }, [draft?.numberingFormat]);
+  }, [draft]);
+
+  const previewQuotation = useMemo(() => {
+    return {
+      ...SAMPLE_QUOTATION,
+      quotationNumber: sampleQuotationNumber,
+      templateId: draft?.id ?? null,
+      customFieldValues: {
+        ...SAMPLE_QUOTATION.customFieldValues,
+        leadArchitect: "Studio Lotus Architects (Ar. Ananya Sen)",
+        projectStage: "Pre-Wiring & Conduit Installation",
+        targetHandoverDate: "2026-12-15",
+        secondaryEmail: "coordinator.sharma@example.com",
+        siteFloorPlan: "/images/sample-floor-plan.png",
+      },
+    };
+  }, [sampleQuotationNumber, draft]);
 
   if (loading) {
     return (
@@ -333,8 +651,8 @@ export default function TemplateDesignerStudio() {
 
   return (
     <div className="space-y-6">
-      {/* Top Bar: Template Selector & Actions */}
-      <div className="bg-white border border-gray-200/80 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
+      {/* 1. TOP BAR: TEMPLATE SELECTOR, ACTIONS & PUBLISH STATUS */}
+      <div className="bg-white border border-gray-200/90 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3 flex-wrap">
           <label className="text-xs font-bold uppercase tracking-wider text-gray-500">
             Active Template:
@@ -350,7 +668,7 @@ export default function TemplateDesignerStudio() {
             >
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>
-                  {t.name} {t.isDefault ? "★ (Default)" : ""}
+                  {t.name} {t.isDefault ? "★ (Default)" : ""} {t.version ? `[v${t.version}]` : ""}
                 </option>
               ))}
             </select>
@@ -375,6 +693,35 @@ export default function TemplateDesignerStudio() {
             </button>
           </div>
 
+          {/* Version status badge */}
+          {draft && (
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border",
+                  draft.isPublished
+                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                    : "bg-amber-50 text-amber-800 border-amber-200"
+                )}
+              >
+                <Lock size={11} />
+                <span>v{draft.version ?? 1}</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider">
+                  ({draft.isPublished ? "Published" : "Draft Changes"})
+                </span>
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setShowVersionModal(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg border border-gray-200 cursor-pointer transition"
+              >
+                <History size={12} />
+                <span>History</span>
+              </button>
+            </div>
+          )}
+
           {draft?.isDefault ? (
             <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 text-xs font-semibold rounded-lg">
               <Star size={12} className="fill-amber-500 text-amber-500" /> Default for new quotations
@@ -390,6 +737,7 @@ export default function TemplateDesignerStudio() {
           )}
         </div>
 
+        {/* Right Action buttons: Delete, Save Draft, Publish */}
         <div className="flex items-center gap-2">
           {draft && !draft.isDefault && templates.length > 1 && (
             <button
@@ -407,887 +755,353 @@ export default function TemplateDesignerStudio() {
             onClick={handleSave}
             disabled={saving || !isDirty}
             className={cn(
-              "inline-flex items-center gap-2 px-5 py-2 rounded-xl text-xs font-bold transition shadow-sm cursor-pointer",
+              "inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer",
               isDirty
-                ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                : "bg-gray-100 text-gray-400 cursor-not-allowed"
+                ? "bg-slate-900 hover:bg-slate-800 text-white"
+                : "bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200"
             )}
           >
             <Save size={14} />
-            <span>{saving ? "Saving..." : isDirty ? "Save Template" : "Saved"}</span>
+            <span>{saving ? "Saving..." : isDirty ? "Save Draft" : "Draft Saved"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePublishVersion}
+            disabled={publishing}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer disabled:opacity-50"
+            title="Publish current draft as an immutable version"
+          >
+            <Sparkles size={14} />
+            <span>{publishing ? "Publishing..." : "Publish Version"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowSimulator((prev) => !prev)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition shadow-xs cursor-pointer border",
+              showSimulator
+                ? "bg-primary text-white border-primary"
+                : "bg-white text-gray-700 hover:text-gray-900 border-gray-200 hover:bg-gray-50"
+            )}
+            title="Interactive quotation workflow simulator"
+          >
+            <Monitor size={14} />
+            <span>{showSimulator ? "Exit Simulator" : "Live Simulator"}</span>
           </button>
         </div>
       </div>
 
-      {draft && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* LEFT COLUMN: Controls Studio (5 cols) */}
-          <div className="lg:col-span-5 bg-white border border-gray-200/80 rounded-2xl shadow-xs overflow-hidden flex flex-col">
-            {/* Header info */}
-            <div className="p-4 border-b border-gray-100 bg-gray-50/50">
-              <label className="block text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">
-                Template Name
-              </label>
-              <input
-                type="text"
-                value={draft.name}
-                onChange={(e) => updateDraft((d) => ({ ...d, name: e.target.value }))}
-                className="w-full px-3 py-2 bg-white border border-gray-300 rounded-xl text-sm font-semibold text-gray-900 focus:outline-hidden focus:ring-2 focus:ring-gray-900"
-              />
-              <input
-                type="text"
-                value={draft.description || ""}
-                placeholder="Optional template description (e.g. for luxury villas)..."
-                onChange={(e) => updateDraft((d) => ({ ...d, description: e.target.value }))}
-                className="w-full mt-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs text-gray-600 focus:outline-hidden focus:ring-2 focus:ring-gray-900"
-              />
+      {/* 2. FULL-SCREEN INTERACTIVE SIMULATOR (ON DEMAND) */}
+      {draft && showSimulator && (
+        <div className="space-y-4 animate-fadeIn">
+          <div className="bg-white border border-gray-200/80 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+                <Monitor size={20} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-bold text-gray-900">
+                    Live Quotation Workflow Simulator
+                  </h2>
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    Interactive Preview
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Simulating how sales reps will experience &quot;{draft.name}&quot; across {currentWorkflowSteps.length} configured steps.
+                </p>
+              </div>
             </div>
 
-            {/* Tabs */}
-            <div className="flex border-b border-gray-200 bg-gray-50/70 p-1 gap-1 overflow-x-auto text-xs font-semibold">
-              <button
-                type="button"
-                onClick={() => setActiveTab("layout")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg transition whitespace-nowrap cursor-pointer",
-                  activeTab === "layout"
-                    ? "bg-white text-gray-950 shadow-xs border border-gray-200/60"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                )}
-              >
-                <Palette size={13} />
-                <span>Layout & Style</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("sections")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg transition whitespace-nowrap cursor-pointer",
-                  activeTab === "sections"
-                    ? "bg-white text-gray-950 shadow-xs border border-gray-200/60"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                )}
-              >
-                <Layers size={13} />
-                <span>Sections</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("columns")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg transition whitespace-nowrap cursor-pointer",
-                  activeTab === "columns"
-                    ? "bg-white text-gray-950 shadow-xs border border-gray-200/60"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                )}
-              >
-                <Columns size={13} />
-                <span>Table Columns</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("custom_fields")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg transition whitespace-nowrap cursor-pointer",
-                  activeTab === "custom_fields"
-                    ? "bg-white text-gray-950 shadow-xs border border-gray-200/60"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                )}
-              >
-                <Sliders size={13} />
-                <span>Custom Fields</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab("numbering")}
-                className={cn(
-                  "flex items-center gap-1.5 px-3 py-2 rounded-lg transition whitespace-nowrap cursor-pointer",
-                  activeTab === "numbering"
-                    ? "bg-white text-gray-950 shadow-xs border border-gray-200/60"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-white/50"
-                )}
-              >
-                <Hash size={13} />
-                <span>Numbering</span>
-              </button>
-            </div>
-
-            {/* Tab Contents */}
-            <div className="p-5 space-y-5 max-h-[700px] overflow-y-auto">
-              {/* TAB 1: LAYOUT & STYLE */}
-              {activeTab === "layout" && (
-                <div className="space-y-4 text-xs">
-                  <div>
-                    <label className="block font-bold text-gray-700 mb-2">Brand Colors</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="flex items-center gap-2 p-2 border border-gray-200 rounded-xl bg-gray-50/50">
-                        <input
-                          type="color"
-                          value={draft.layoutSettings.primaryColor}
-                          onChange={(e) =>
-                            updateDraft((d) => ({
-                              ...d,
-                              layoutSettings: { ...d.layoutSettings, primaryColor: e.target.value },
-                            }))
-                          }
-                          className="w-8 h-8 rounded-lg cursor-pointer border border-gray-300"
-                        />
-                        <div>
-                          <span className="block text-[11px] font-medium text-gray-500">Primary Header</span>
-                          <span className="font-mono text-xs font-bold">{draft.layoutSettings.primaryColor}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 p-2 border border-gray-200 rounded-xl bg-gray-50/50">
-                        <input
-                          type="color"
-                          value={draft.layoutSettings.accentColor}
-                          onChange={(e) =>
-                            updateDraft((d) => ({
-                              ...d,
-                              layoutSettings: { ...d.layoutSettings, accentColor: e.target.value },
-                            }))
-                          }
-                          className="w-8 h-8 rounded-lg cursor-pointer border border-gray-300"
-                        />
-                        <div>
-                          <span className="block text-[11px] font-medium text-gray-500">Accent Color</span>
-                          <span className="font-mono text-xs font-bold">{draft.layoutSettings.accentColor}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-gray-700 mb-1.5">Typography / Font Family</label>
-                    <select
-                      value={draft.layoutSettings.fontFamily}
-                      onChange={(e) =>
-                        updateDraft((d) => ({
-                          ...d,
-                          layoutSettings: { ...d.layoutSettings, fontFamily: e.target.value as TemplateFontFamily },
-                        }))
-                      }
-                      className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900"
-                    >
-                      <option value="inter">Inter (Modern & Clean Default)</option>
-                      <option value="roboto">Roboto (Technical & Crisp)</option>
-                      <option value="outfit">Outfit (Contemporary Architectural)</option>
-                      <option value="montserrat">Montserrat (Geometric & Bold)</option>
-                      <option value="playfair">Playfair Display (Luxury Serif)</option>
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-bold text-gray-700 mb-1.5">Page Orientation</label>
-                      <select
-                        value={draft.layoutSettings.pageOrientation}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            layoutSettings: { ...d.layoutSettings, pageOrientation: e.target.value as any },
-                          }))
-                        }
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900"
-                      >
-                        <option value="portrait">Portrait (Standard A4)</option>
-                        <option value="landscape">Landscape (Wide Tables)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-gray-700 mb-1.5">Logo Position</label>
-                      <select
-                        value={draft.layoutSettings.logoPosition}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            layoutSettings: { ...d.layoutSettings, logoPosition: e.target.value as any },
-                          }))
-                        }
-                        className="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-xl text-xs font-semibold text-gray-900"
-                      >
-                        <option value="left">Left Aligned</option>
-                        <option value="center">Centered</option>
-                        <option value="right">Right Aligned</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 border-t border-gray-100 space-y-3">
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-gray-800">
-                      <input
-                        type="checkbox"
-                        checked={draft.layoutSettings.showWatermark}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            layoutSettings: { ...d.layoutSettings, showWatermark: e.target.checked },
-                          }))
-                        }
-                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                      />
-                      <span>Show Diagonal Watermark on Pages</span>
-                    </label>
-
-                    {draft.layoutSettings.showWatermark && (
-                      <input
-                        type="text"
-                        placeholder="Watermark text (e.g. DRAFT or CONFIDENTIAL)"
-                        value={draft.layoutSettings.watermarkText}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            layoutSettings: { ...d.layoutSettings, watermarkText: e.target.value },
-                          }))
-                        }
-                        className="w-full px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg text-xs"
-                      />
-                    )}
-
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-gray-800">
-                      <input
-                        type="checkbox"
-                        checked={draft.layoutSettings.showPageNumbers}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            layoutSettings: { ...d.layoutSettings, showPageNumbers: e.target.checked },
-                          }))
-                        }
-                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                      />
-                      <span>Show Page Numbers (e.g. "Page 1 of 5")</span>
-                    </label>
-
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-gray-800">
-                      <input
-                        type="checkbox"
-                        checked={draft.layoutSettings.compactSpacing}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            layoutSettings: { ...d.layoutSettings, compactSpacing: e.target.checked },
-                          }))
-                        }
-                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                      />
-                      <span>Compact Table Spacing (fits more devices per page)</span>
-                    </label>
-
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-gray-800">
-                      <input
-                        type="checkbox"
-                        checked={draft.layoutSettings.showDealerContactCard}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            layoutSettings: { ...d.layoutSettings, showDealerContactCard: e.target.checked },
-                          }))
-                        }
-                        className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                      />
-                      <span>Display Dealer Contact Information Card</span>
-                    </label>
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 2: SECTION ORDERING & TOGGLES */}
-              {activeTab === "sections" && (
-                <div className="space-y-3 text-xs">
-                  <p className="text-gray-500">
-                    Enable, disable, and order the sections of your proposal proposal. Use the arrows to reorder.
-                  </p>
-
-                  <div className="space-y-2">
-                    {draft.sectionOrder.map((section, idx) => (
-                      <div
-                        key={section.id}
-                        className={cn(
-                          "flex items-center justify-between p-2.5 rounded-xl border transition",
-                          section.enabled
-                            ? "bg-white border-gray-200 shadow-2xs"
-                            : "bg-gray-50/80 border-gray-200/60 opacity-60"
-                        )}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <input
-                            type="checkbox"
-                            checked={section.enabled}
-                            disabled={!section.canDisable}
-                            onChange={() => toggleSection(section.id)}
-                            className="rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                          />
-                          <span className="font-semibold text-gray-900">
-                            {idx + 1}. {section.name}
-                          </span>
-                        </div>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => moveSection(idx, "up")}
-                            disabled={idx === 0}
-                            className="p-1 text-gray-500 hover:text-gray-900 disabled:opacity-30 cursor-pointer"
-                            title="Move Up"
-                          >
-                            <ArrowUp size={13} />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => moveSection(idx, "down")}
-                            disabled={idx === draft.sectionOrder.length - 1}
-                            className="p-1 text-gray-500 hover:text-gray-900 disabled:opacity-30 cursor-pointer"
-                            title="Move Down"
-                          >
-                            <ArrowDown size={13} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 3: CONFIGURABLE COLUMNS */}
-              {activeTab === "columns" && (
-                <div className="space-y-4 text-xs">
-                  <p className="text-gray-500">
-                    Configure which columns appear in the Room-by-Room smart equipment breakdown tables.
-                  </p>
-
-                  <div className="grid grid-cols-1 gap-2.5">
-                    {[
-                      {
-                        key: "showProductImage",
-                        label: "Product Photograph / Thumbnail",
-                        desc: "Visual product preview",
-                      },
-                      {
-                        key: "showProductCode",
-                        label: "Product Code / SKU",
-                        desc: "Part reference (e.g. TC-4G-WHT)",
-                      },
-                      {
-                        key: "showSurfaceFinish",
-                        label: "Finish / Color Indicator",
-                        desc: "Acrylic, Glass, Matte Black, etc.",
-                      },
-                      {
-                        key: "showAutomationTier",
-                        label: "Automation Tier",
-                        desc: "Standard, Luxury, Edge, etc.",
-                      },
-                      {
-                        key: "showUnitPrice",
-                        label: "Unit Price (Per Device)",
-                        desc: "Uncheck to present package-only total pricing",
-                      },
-                      {
-                        key: "showTaxPercent",
-                        label: "GST Rate Column",
-                        desc: "Individual tax % per item",
-                      },
-                      {
-                        key: "showLineTotal",
-                        label: "Line Total Column",
-                        desc: "Quantity × Unit Price total",
-                      },
-                      {
-                        key: "showItemNotes",
-                        label: "Item Notes & Installation Details",
-                        desc: "Sub-area locations and technician notes",
-                      },
-                    ].map((col) => (
-                      <label
-                        key={col.key}
-                        className="flex items-start gap-3 p-3 bg-white border border-gray-200 rounded-xl hover:bg-gray-50/50 cursor-pointer transition shadow-2xs"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={Boolean((draft.configurableColumns as any)[col.key])}
-                          onChange={(e) =>
-                            updateDraft((d) => ({
-                              ...d,
-                              configurableColumns: {
-                                ...d.configurableColumns,
-                                [col.key]: e.target.checked,
-                              },
-                            }))
-                          }
-                          className="mt-0.5 rounded border-gray-300 text-gray-900 focus:ring-gray-900"
-                        />
-                        <div>
-                          <span className="block font-bold text-gray-900">{col.label}</span>
-                          <span className="text-[11px] text-gray-500">{col.desc}</span>
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* TAB 4: CUSTOM FIELDS */}
-              {activeTab === "custom_fields" && (
-                <div className="space-y-4 text-xs">
-                  <div className="flex items-center justify-between">
-                    <p className="text-gray-500">
-                      Define custom fields that appear in quotation headers, summaries, or metadata.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={handleAddCustomField}
-                      className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-900 text-white font-semibold rounded-lg text-xs hover:bg-gray-800 transition cursor-pointer"
-                    >
-                      <Plus size={12} />
-                      <span>Add Field</span>
-                    </button>
-                  </div>
-
-                  {draft.customFields.length === 0 ? (
-                    <div className="p-6 border border-dashed border-gray-200 rounded-xl text-center text-gray-400">
-                      No custom fields added yet. Click "Add Field" to add fields like Architect, PO Number, or Project Site Supervisor.
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {draft.customFields.map((field) => (
-                        <div
-                          key={field.id}
-                          className="p-3 bg-white border border-gray-200 rounded-xl space-y-2 shadow-2xs"
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <input
-                              type="text"
-                              value={field.label}
-                              onChange={(e) =>
-                                updateDraft((d) => ({
-                                  ...d,
-                                  customFields: d.customFields.map((f) =>
-                                    f.id === field.id ? { ...f, label: e.target.value } : f
-                                  ),
-                                }))
-                              }
-                              placeholder="Field Label"
-                              className="font-bold text-xs px-2 py-1 border border-gray-200 rounded-md w-1/2"
-                            />
-                            <div className="flex items-center gap-2">
-                              <select
-                                value={field.type}
-                                onChange={(e) =>
-                                  updateDraft((d) => ({
-                                    ...d,
-                                    customFields: d.customFields.map((f) =>
-                                      f.id === field.id ? { ...f, type: e.target.value as any } : f
-                                    ),
-                                  }))
-                                }
-                                className="text-xs px-2 py-1 border border-gray-200 rounded-md bg-gray-50"
-                              >
-                                <option value="text">Text</option>
-                                <option value="date">Date</option>
-                                <option value="number">Number</option>
-                              </select>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteCustomField(field.id)}
-                                className="text-gray-400 hover:text-rose-600 p-1 cursor-pointer"
-                              >
-                                <Trash2 size={13} />
-                              </button>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 gap-2 text-[11px]">
-                            <input
-                              type="text"
-                              placeholder="Placeholder text"
-                              value={field.placeholder || ""}
-                              onChange={(e) =>
-                                updateDraft((d) => ({
-                                  ...d,
-                                  customFields: d.customFields.map((f) =>
-                                    f.id === field.id ? { ...f, placeholder: e.target.value } : f
-                                  ),
-                                }))
-                              }
-                              className="px-2 py-1 border border-gray-200 rounded-md"
-                            />
-                            <label className="flex items-center gap-1.5 text-gray-700 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={field.required}
-                                onChange={(e) =>
-                                  updateDraft((d) => ({
-                                    ...d,
-                                    customFields: d.customFields.map((f) =>
-                                      f.id === field.id ? { ...f, required: e.target.checked } : f
-                                    ),
-                                  }))
-                                }
-                                className="rounded text-gray-900"
-                              />
-                              <span>Required field</span>
-                            </label>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* TAB 5: NUMBERING */}
-              {activeTab === "numbering" && (
-                <div className="space-y-4 text-xs">
-                  <div className="p-3 bg-gray-900 text-white rounded-xl space-y-1">
-                    <span className="text-[10px] uppercase font-bold text-gray-400">Next Quotation Number Preview:</span>
-                    <div className="text-lg font-mono font-black text-emerald-400 tracking-wider">
-                      {sampleQuotationNumber}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-bold text-gray-700 mb-1">Prefix</label>
-                      <input
-                        type="text"
-                        value={draft.numberingFormat.prefix}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            numberingFormat: { ...d.numberingFormat, prefix: e.target.value.toUpperCase() },
-                          }))
-                        }
-                        placeholder="e.g. QT or WHYTE"
-                        className="w-full px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg font-mono font-bold"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-gray-700 mb-1">Separator</label>
-                      <input
-                        type="text"
-                        value={draft.numberingFormat.separator}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            numberingFormat: { ...d.numberingFormat, separator: e.target.value },
-                          }))
-                        }
-                        placeholder="e.g. - or /"
-                        className="w-full px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg font-mono font-bold"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-bold text-gray-700 mb-1">Year Format</label>
-                      <select
-                        value={draft.numberingFormat.yearFormat}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            numberingFormat: { ...d.numberingFormat, yearFormat: e.target.value as any },
-                          }))
-                        }
-                        className="w-full px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg font-semibold"
-                      >
-                        <option value="YYYY">4-digit (2026)</option>
-                        <option value="YY">2-digit (26)</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block font-bold text-gray-700 mb-1">Sequence Digits</label>
-                      <select
-                        value={draft.numberingFormat.digitCount}
-                        onChange={(e) =>
-                          updateDraft((d) => ({
-                            ...d,
-                            numberingFormat: { ...d.numberingFormat, digitCount: Number(e.target.value) },
-                          }))
-                        }
-                        className="w-full px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg font-semibold"
-                      >
-                        <option value={3}>3 digits (001)</option>
-                        <option value={4}>4 digits (0001)</option>
-                        <option value={5}>5 digits (00001)</option>
-                        <option value={6}>6 digits (000001)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block font-bold text-gray-700 mb-1">Optional Suffix</label>
-                    <input
-                      type="text"
-                      value={draft.numberingFormat.suffix || ""}
-                      onChange={(e) =>
-                        updateDraft((d) => ({
-                          ...d,
-                          numberingFormat: { ...d.numberingFormat, suffix: e.target.value.toUpperCase() },
-                        }))
-                      }
-                      placeholder="e.g. IN or DL"
-                      className="w-full px-3 py-1.5 bg-gray-50 border border-gray-300 rounded-lg font-mono"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => setShowSimulator(false)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white rounded-xl text-xs font-bold transition cursor-pointer shadow-xs"
+            >
+              <span>← Return to Step Editor</span>
+            </button>
           </div>
 
-          {/* RIGHT COLUMN: Live Split-Screen Preview (7 cols) */}
-          <div className="lg:col-span-7 bg-gray-100/70 border border-gray-200/80 rounded-2xl p-5 shadow-xs flex flex-col space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Eye size={16} className="text-gray-700" />
-                <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                  Live Proposal Preview
-                </span>
-              </div>
-              <span className="text-[11px] font-mono text-gray-500 bg-white px-2 py-0.5 rounded border border-gray-200">
-                WYSIWYG Mode • {draft.layoutSettings.pageOrientation}
-              </span>
-            </div>
-
-            {/* A4 Paper Simulation Canvas */}
-            <div
-              className={cn(
-                "relative mx-auto bg-white rounded-xl shadow-md border border-gray-200 p-6 transition-all duration-300 overflow-hidden",
-                draft.layoutSettings.pageOrientation === "landscape" ? "w-full min-h-[460px]" : "w-full max-w-[620px] min-h-[720px]",
-                draft.layoutSettings.fontFamily === "roboto" && "font-sans",
-                draft.layoutSettings.fontFamily === "playfair" && "font-serif",
-                draft.layoutSettings.fontFamily === "outfit" && "font-sans tracking-wide"
-              )}
-              style={{
-                borderColor: draft.layoutSettings.primaryColor + "33",
-              }}
-            >
-              {/* Optional Watermark */}
-              {draft.layoutSettings.showWatermark && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10 opacity-10 rotate-[-30deg]">
-                  <span className="text-6xl font-black uppercase text-gray-900 tracking-widest">
-                    {draft.layoutSettings.watermarkText || "CONFIDENTIAL"}
-                  </span>
-                </div>
-              )}
-
-              {/* Cover / Header Section */}
-              <div
-                className="pb-5 mb-5 border-b"
-                style={{
-                  borderBottomColor: draft.layoutSettings.primaryColor + "22",
-                }}
-              >
-                <div
-                  className={cn(
-                    "flex items-start justify-between gap-4",
-                    draft.layoutSettings.logoPosition === "center" && "flex-col items-center text-center",
-                    draft.layoutSettings.logoPosition === "right" && "flex-row-reverse"
-                  )}
-                >
-                  <div>
-                    <h1
-                      className="text-xl font-black tracking-tight"
-                      style={{ color: draft.layoutSettings.primaryColor }}
-                    >
-                      Smart Automation Proposal
-                    </h1>
-                    <p className="text-xs text-gray-500 font-medium">Prepared for Mr. & Mrs. Sharma</p>
-                  </div>
-                  <div className="text-right">
-                    <span
-                      className="inline-block px-2.5 py-1 rounded-md text-xs font-mono font-bold text-white shadow-2xs"
-                      style={{ backgroundColor: draft.layoutSettings.accentColor }}
-                    >
-                      {sampleQuotationNumber}
-                    </span>
-                    <span className="block text-[10px] text-gray-400 mt-1">Date: 17 Nov 2026</span>
-                  </div>
-                </div>
-
-                {/* Custom fields in metadata if any */}
-                {draft.customFields.length > 0 && (
-                  <div className="mt-4 pt-3 border-t border-gray-100 grid grid-cols-2 gap-2 text-[11px]">
-                    {draft.customFields.map((f) => (
-                      <div key={f.id} className="flex items-center gap-1.5">
-                        <span className="font-semibold text-gray-600">{f.label}:</span>
-                        <span className="text-gray-900">{f.defaultValue || f.placeholder || "—"}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Simulated Sections Preview */}
-              <div className="space-y-4">
-                {/* Active Section Checklist Indicator */}
-                <div className="p-3 bg-gray-50 rounded-lg border border-gray-100 text-[11px] space-y-1">
-                  <span className="font-bold text-gray-600 uppercase tracking-wider text-[10px] block">
-                    Document Sections in Proposal:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {draft.sectionOrder
-                      .filter((s) => s.enabled)
-                      .map((s, idx) => (
-                        <span
-                          key={s.id}
-                          className="px-2 py-0.5 rounded text-[10px] font-semibold bg-white border border-gray-200 text-gray-700 shadow-2xs"
-                        >
-                          {idx + 1}. {s.name}
-                        </span>
-                      ))}
-                  </div>
-                </div>
-
-                {/* Simulated Equipment Table Preview */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span
-                      className="text-xs font-bold uppercase tracking-wider"
-                      style={{ color: draft.layoutSettings.accentColor }}
-                    >
-                      Living Room • 4 Devices
-                    </span>
-                    <span className="text-xs font-bold text-gray-900">₹ 42,500</span>
-                  </div>
-
-                  <div className="border border-gray-200 rounded-xl overflow-hidden text-[11px]">
-                    <table className="w-full text-left">
-                      <thead
-                        className="text-white text-[10px] uppercase font-bold"
-                        style={{ backgroundColor: draft.layoutSettings.primaryColor }}
-                      >
-                        <tr>
-                          {draft.configurableColumns.showProductImage && <th className="p-2 w-10">Photo</th>}
-                          <th className="p-2">Item Description</th>
-                          {draft.configurableColumns.showProductCode && <th className="p-2">Code</th>}
-                          {draft.configurableColumns.showSurfaceFinish && <th className="p-2">Finish</th>}
-                          {draft.configurableColumns.showAutomationTier && <th className="p-2">Tier</th>}
-                          <th className="p-2 text-center w-12">Qty</th>
-                          {draft.configurableColumns.showUnitPrice && <th className="p-2 text-right">Unit Rate</th>}
-                          {draft.configurableColumns.showTaxPercent && <th className="p-2 text-center">GST %</th>}
-                          {draft.configurableColumns.showLineTotal && <th className="p-2 text-right">Total</th>}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        <tr className="hover:bg-gray-50/50">
-                          {draft.configurableColumns.showProductImage && (
-                            <td className="p-2">
-                              <div className="w-8 h-8 rounded bg-gray-100 border border-gray-200 flex items-center justify-center text-[9px] text-gray-400">
-                                4G
-                              </div>
-                            </td>
-                          )}
-                          <td className="p-2 font-semibold text-gray-900">
-                            Tactus 4-Gang Touch Panel
-                            {draft.configurableColumns.showItemNotes && (
-                              <span className="block text-[10px] text-gray-500 font-normal">
-                                Near Main Entrance
-                              </span>
-                            )}
-                          </td>
-                          {draft.configurableColumns.showProductCode && (
-                            <td className="p-2 font-mono text-gray-500">TC-04G-ACR</td>
-                          )}
-                          {draft.configurableColumns.showSurfaceFinish && (
-                            <td className="p-2 text-gray-600">Acrylic White</td>
-                          )}
-                          {draft.configurableColumns.showAutomationTier && (
-                            <td className="p-2">
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                Luxury
-                              </span>
-                            </td>
-                          )}
-                          <td className="p-2 text-center font-bold">2</td>
-                          {draft.configurableColumns.showUnitPrice && (
-                            <td className="p-2 text-right text-gray-600">₹ 8,500</td>
-                          )}
-                          {draft.configurableColumns.showTaxPercent && (
-                            <td className="p-2 text-center text-gray-500">18%</td>
-                          )}
-                          {draft.configurableColumns.showLineTotal && (
-                            <td className="p-2 text-right font-bold text-gray-900">₹ 17,000</td>
-                          )}
-                        </tr>
-
-                        <tr className="hover:bg-gray-50/50">
-                          {draft.configurableColumns.showProductImage && (
-                            <td className="p-2">
-                              <div className="w-8 h-8 rounded bg-gray-100 border border-gray-200 flex items-center justify-center text-[9px] text-gray-400">
-                                CUR
-                              </div>
-                            </td>
-                          )}
-                          <td className="p-2 font-semibold text-gray-900">
-                            Smart Motorized Curtain Controller
-                            {draft.configurableColumns.showItemNotes && (
-                              <span className="block text-[10px] text-gray-500 font-normal">
-                                Balcony French Windows
-                              </span>
-                            )}
-                          </td>
-                          {draft.configurableColumns.showProductCode && (
-                            <td className="p-2 font-mono text-gray-500">CUR-MOT-ZIG</td>
-                          )}
-                          {draft.configurableColumns.showSurfaceFinish && (
-                            <td className="p-2 text-gray-600">Matte Black</td>
-                          )}
-                          {draft.configurableColumns.showAutomationTier && (
-                            <td className="p-2">
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-50 text-sky-800 border border-sky-200">
-                                Edge
-                              </span>
-                            </td>
-                          )}
-                          <td className="p-2 text-center font-bold">1</td>
-                          {draft.configurableColumns.showUnitPrice && (
-                            <td className="p-2 text-right text-gray-600">₹ 12,000</td>
-                          )}
-                          {draft.configurableColumns.showTaxPercent && (
-                            <td className="p-2 text-center text-gray-500">18%</td>
-                          )}
-                          {draft.configurableColumns.showLineTotal && (
-                            <td className="p-2 text-right font-bold text-gray-900">₹ 12,000</td>
-                          )}
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Simulated Pricing Footer */}
-                <div className="pt-3 border-t border-gray-200 flex justify-between items-center text-xs">
-                  <span className="font-semibold text-gray-500">Total Investment (Incl. GST):</span>
-                  <span
-                    className="text-base font-black tracking-tight"
-                    style={{ color: draft.layoutSettings.primaryColor }}
-                  >
-                    ₹ 1,84,500
-                  </span>
-                </div>
-              </div>
-
-              {/* Page Numbering Simulation */}
-              {draft.layoutSettings.showPageNumbers && (
-                <div className="mt-8 pt-3 border-t border-gray-100 flex justify-between text-[10px] text-gray-400">
-                  <span>Smart Home Automation Proposal</span>
-                  <span>Page 1 of 4</span>
-                </div>
-              )}
-            </div>
+          <div className="bg-white border border-gray-200/80 rounded-2xl shadow-xs overflow-hidden p-6">
+            <WorkflowLivePreview
+              steps={currentWorkflowSteps}
+              templateName={draft.name}
+              activeDesignerStepId={activeStepId}
+              onStepSelect={(id) => setActiveStepId(id)}
+            />
           </div>
         </div>
       )}
+
+      {/* 3. MASTER-DETAIL WORKFLOW & FORM DESIGNER */}
+      {draft && !showSimulator && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* LEFT 4 COLS: STEPS LIST & MANAGER */}
+          <div className="lg:col-span-4 sticky top-6">
+            <WorkflowStepDesigner
+              steps={currentWorkflowSteps}
+              activeStepId={activeStepId}
+              onSelectStep={(id) => setActiveStepId(id)}
+              onUpdateSteps={handleUpdateWorkflowSteps}
+            />
+          </div>
+
+          {/* RIGHT 8 COLS: ACTIVE STEP CANVAS & FIELDS */}
+          <div className="lg:col-span-8 space-y-4">
+            {/* Active Step Header Bar */}
+            <div className="bg-white border border-gray-200/80 rounded-2xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-sm">
+                  {currentWorkflowSteps.findIndex((s) => s.id === activeStep.id) + 1}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-gray-900">{activeStep.title}</h2>
+                    {activeStep.builtinModule ? (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-gray-100 text-gray-700">
+                        Built-in Module
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-primary/10 text-primary">
+                        Custom Form
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {activeStep.description || activeStep.subtitle || "Configure form fields and sections for this step"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-2 text-xs font-medium text-gray-600 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-xl cursor-pointer hover:bg-gray-100 transition">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(activeStep.isOptional)}
+                    onChange={(e) => {
+                      const isOpt = e.target.checked;
+                      handleUpdateActiveStep({
+                        ...activeStep,
+                        isOptional: isOpt,
+                        canSkip: isOpt,
+                      });
+                    }}
+                    className="rounded text-primary focus:ring-primary"
+                  />
+                  <span>Optional Step</span>
+                </label>
+              </div>
+            </div>
+
+            {/* Form Canvas or Builtin Module Guide Card */}
+            {activeStep.builtinModule && (!activeStep.sections || activeStep.sections.length === 0) ? (
+              <BuiltinStepGuideCard
+                moduleType={activeStep.builtinModule}
+                title={activeStep.title}
+                onOpenPreview={() => setShowSimulator(true)}
+                onCustomizeFields={() => {
+                  if (activeStep.builtinModule === "project_details") {
+                    handleUpdateActiveStep({
+                      ...activeStep,
+                      sections: JSON.parse(JSON.stringify(CANONICAL_PROJECT_SECTIONS)),
+                    });
+                  } else {
+                    handleUpdateActiveStep({
+                      ...activeStep,
+                      sections: [
+                        {
+                          id: "sec_" + Date.now().toString(36),
+                          title: activeStep.title + " Additional Specifications",
+                          description: "Custom specifications and fields for this step",
+                          layout: "two_column",
+                          spacing: "normal",
+                          sortOrder: 1,
+                          fields: [],
+                        },
+                      ],
+                    });
+                  }
+                }}
+              />
+            ) : (
+              <VisualFormCanvas
+                key={activeStep.id}
+                step={
+                  activeStep.builtinModule === "project_details" && (!activeStep.sections || activeStep.sections.length === 0)
+                    ? { ...activeStep, sections: JSON.parse(JSON.stringify(CANONICAL_PROJECT_SECTIONS)) }
+                    : activeStep
+                }
+                onUpdateStep={handleUpdateActiveStep}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* VERSION HISTORY MODAL */}
+      {draft && (
+        <TemplateVersionHistoryModal
+          template={draft}
+          isOpen={showVersionModal}
+          onClose={() => setShowVersionModal(false)}
+          onPublishNewVersion={handlePublishVersion}
+          isPublishing={publishing}
+        />
+      )}
+
+      {/* PROMPT INPUT MODAL */}
+      <TemplatePromptModal
+        isOpen={promptModal.isOpen}
+        title={promptModal.title}
+        description={promptModal.description}
+        inputLabel={promptModal.inputLabel}
+        placeholder={promptModal.placeholder}
+        defaultValue={promptModal.defaultValue}
+        confirmText={promptModal.confirmText}
+        icon={promptModal.icon}
+        onConfirm={promptModal.onConfirm}
+        onClose={() => setPromptModal((prev) => ({ ...prev, isOpen: false }))}
+      />
+
+      {/* NEW TEMPLATE STARTER MODAL */}
+      <NewTemplateModal
+        isOpen={showNewTemplateModal}
+        onClose={() => setShowNewTemplateModal(false)}
+        onCreate={handleExecuteCreateTemplate}
+        isCreating={isCreatingTemplate}
+      />
+    </div>
+  );
+}
+
+// BUILT-IN STEP GUIDE CARD FOR CENTER COLUMN
+interface BuiltinStepGuideCardProps {
+  moduleType: string;
+  title: string;
+  onOpenPreview: () => void;
+  onCustomizeFields?: () => void;
+}
+
+function BuiltinStepGuideCard({
+  moduleType,
+  title,
+  onOpenPreview,
+  onCustomizeFields,
+}: BuiltinStepGuideCardProps) {
+  const meta: Record<
+    string,
+    {
+      description: string;
+      rules: string;
+      icon: React.ComponentType<{ size?: number; className?: string }>;
+    }
+  > = {
+    project_details: {
+      description:
+        "Captures customer identity, billing address, site location, architect reference, property configuration, and currency specifications.",
+      rules:
+        "Must be the first core module in the quotation journey. Custom form steps can be placed before or after this module.",
+      icon: Building2,
+    },
+    space_selection: {
+      description:
+        "Manages rooms and spaces (Living Room, Master Suite, Foyer, Balcony, etc.), area sq.ft., and smart room templates.",
+      rules:
+        "Requires Project Details to be completed. Populates rooms for device assignment.",
+      icon: Home,
+    },
+    product_config: {
+      description:
+        "Core device configuration matrix. Assigns smart switches, drivers, sensors, and curtain motors per space with real-time pricing and variant selection.",
+      rules:
+        "Depends on Space Selection. Feeds device bills-of-materials directly into the commercial calculation engine.",
+      icon: Cpu,
+    },
+    pricing_review: {
+      description:
+        "Calculates hardware totals, installation charges, dealer margins, custom discounts, and GST (18%) breakdowns.",
+      rules:
+        "Depends on Product Configuration. Enforces minimum floor pricing and authorized discount ceilings.",
+      icon: Receipt,
+    },
+    proposal_preview: {
+      description:
+        "Generates final quotation PDF, renders company branding, terms & conditions, bank details, and locks revision snapshots upon issuing.",
+      rules:
+        "Must be the final step in the quotation workflow sequence.",
+      icon: FileCheck2,
+    },
+  };
+
+  const currentMeta = meta[moduleType] || {
+    description: "Core Whyte Quotation system module.",
+    rules: "Managed by the system calculation engine.",
+    icon: Building2,
+  };
+
+  const IconComp = currentMeta.icon;
+
+  return (
+    <div className="bg-white border border-gray-200/80 rounded-2xl p-6 shadow-xs space-y-5">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+            <IconComp size={24} />
+          </div>
+          <div>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-primary">
+              Core System Module
+            </span>
+            <h3 className="text-base font-bold text-gray-900">{title}</h3>
+          </div>
+        </div>
+
+        <span className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg flex items-center gap-1">
+          <Check size={12} /> System Managed
+        </span>
+      </div>
+
+      <div className="space-y-3 text-xs text-gray-600">
+        <p className="leading-relaxed">{currentMeta.description}</p>
+        <div className="p-3.5 bg-blue-50/60 border border-blue-200/80 rounded-xl space-y-1 text-blue-900">
+          <span className="font-bold flex items-center gap-1 text-[11px] uppercase tracking-wider">
+            <ShieldCheck size={13} className="text-blue-600" /> Sequence & Dependency Rules
+          </span>
+          <p className="text-[11px] text-blue-800 leading-relaxed">{currentMeta.rules}</p>
+        </div>
+      </div>
+
+      <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-xs">
+          <span className="font-bold text-gray-900 block">Configure or Preview Step</span>
+          <span className="text-gray-500 text-[11px]">
+            Add custom form fields to this step or test interactive simulation.
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {onCustomizeFields && (
+            <button
+              type="button"
+              onClick={onCustomizeFields}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs font-semibold rounded-lg transition cursor-pointer shadow-xs"
+            >
+              <Plus size={12} />
+              <span>Configure Form Fields</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onOpenPreview}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-semibold rounded-lg transition cursor-pointer"
+          >
+            <Monitor size={12} />
+            <span>Open Simulator</span>
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

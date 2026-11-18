@@ -25,6 +25,9 @@ import StepProductConfig from "./StepProductConfig";
 import StepReview from "./StepReview";
 import StepProposalPreview from "./StepProposalPreview";
 import QuotationOwnership from "./QuotationOwnership";
+import DynamicFormStep from "./DynamicFormStep";
+import { useWorkflowEngine } from "./workflow/useWorkflowEngine";
+import type { QuotationTemplate } from "@/types/template";
 import LoadingSpinner from "@/components/shared/LoadingSpinner";
 import StatusBadge from "@/components/shared/StatusBadge";
 import {
@@ -67,6 +70,7 @@ interface Props {
   initialStep?: ProposalStep;
   isOfflineDraft?: boolean;
   initialOfflineDraft?: OfflineQuotationDraft | null;
+  initialTemplate?: QuotationTemplate | null;
 }
 
 export default function ProposalBuilder({
@@ -79,15 +83,12 @@ export default function ProposalBuilder({
   initialStep = 1,
   isOfflineDraft = false,
   initialOfflineDraft = null,
+  initialTemplate = null,
 }: Props) {
   const searchParams = useSearchParams();
 
   // Resolve step from URL query or initialStep
   const stepParam = searchParams.get("step");
-  const parsedStep = stepParam ? (parseInt(stepParam, 10) as ProposalStep) : initialStep;
-  const [currentStep, setCurrentStep] = useState<ProposalStep>(
-    parsedStep >= 1 && parsedStep <= 5 ? parsedStep : 1
-  );
 
   // Products skipped while cloning this quotation (unavailable — soft-deleted
   // product/variant/room type) — carried here via a query param on the
@@ -209,20 +210,6 @@ export default function ProposalBuilder({
     return [...labels];
   }, [quotation?.rooms]);
 
-  // Browser Back/Forward navigation synchronization
-  useEffect(() => {
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const s = params.get("step");
-      if (s) {
-        const p = parseInt(s, 10) as ProposalStep;
-        if (p >= 1 && p <= 5) setCurrentStep(p);
-      }
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
-  }, []);
-
   // Offline Draft & Autosave state
   const [offlineDraft, setOfflineDraft] = useState<OfflineQuotationDraft | null>(initialOfflineDraft);
 
@@ -240,6 +227,49 @@ export default function ProposalBuilder({
       toast.error(`Local save error: ${err}`);
     },
   });
+
+  // Dynamic Workflow Engine
+  const engine = useWorkflowEngine({
+    quotation,
+    initialTemplate,
+    initialStepParam: stepParam || initialStep,
+    isOfflineDraft,
+    onNavigateUrl: (stepId) => {
+      if (isOfflineDraft && (offlineDraft?.id || quotationId)) {
+        flushDraftAutosave();
+        window.history.pushState(null, "", `/quotation/draft/${offlineDraft?.id || quotationId}?step=${stepId}`);
+      } else if (quotationId) {
+        window.history.pushState(null, "", `/quotation/${quotationId}?step=${stepId}`);
+      }
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    },
+  });
+
+  const {
+    currentStep,
+    currentStepId,
+    currentStepNumber,
+    workflowSteps,
+    stepIndicatorItems,
+    completedStepIds,
+    canNavigateToStep,
+    navigateToStep,
+    goToNextStep,
+    goToPrevStep,
+  } = engine;
+
+  // Browser Back/Forward navigation synchronization
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const s = params.get("step");
+      if (s) {
+        engine.navigateToStep(s);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [engine]);
 
   // Network connectivity status for offline drafts
   const [isOnline, setIsOnline] = useState(() => (typeof navigator !== "undefined" ? navigator.onLine : true));
@@ -318,27 +348,12 @@ export default function ProposalBuilder({
 
       toast.success(`Quotation ${createdQuote.quotationNumber || ""} synced to cloud!`, { id: toastId });
 
-      window.location.href = `/quotation/${createdQuote.id}?step=${currentStep}`;
+      window.location.href = `/quotation/${createdQuote.id}?step=${currentStepId}`;
     } catch (err: any) {
       toast.error(err?.message || "Failed to sync draft to cloud", { id: toastId });
       setIsSyncingToCloud(false);
     }
   };
-
-  // Keep URL updated with current step
-  const navigateToStep = useCallback(
-    (step: ProposalStep) => {
-      setCurrentStep(step);
-      if (isOfflineDraft && (offlineDraft?.id || quotationId)) {
-        flushDraftAutosave();
-        window.history.pushState(null, "", `/quotation/draft/${offlineDraft?.id || quotationId}?step=${step}`);
-      } else if (quotationId) {
-        window.history.pushState(null, "", `/quotation/${quotationId}?step=${step}`);
-      }
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    },
-    [quotationId, isOfflineDraft, offlineDraft?.id, flushDraftAutosave]
-  );
 
   // Refetch latest quotation data from API
   const refreshQuotation = useCallback(async () => {
@@ -391,33 +406,44 @@ export default function ProposalBuilder({
     setQuotation((prev) => {
       if (!prev) return prev;
       let rooms = [...(prev.rooms || [])];
+      let directItems = [...(prev.items || [])];
 
       for (const raw of incomingItems) {
         const item = normalizeQuotationItem(raw);
-        const targetRoomId = Number(item.quotationRoomId);
+        const targetRoomId = item.quotationRoomId != null ? Number(item.quotationRoomId) : null;
         let replaced = false;
 
-        rooms = rooms.map((room) => {
-          const items = room.items || [];
-          const idx = items.findIndex((it) => Number(it.id ?? (it as any)._id) === Number(item.id));
-          if (idx === -1) return room;
-          replaced = true;
-          const nextItems = [...items];
-          nextItems[idx] = item;
-          return { ...room, items: nextItems };
-        });
-
-        if (!replaced) {
-          // Not found anywhere: a new item, appended to its target room.
+        if (targetRoomId) {
           rooms = rooms.map((room) => {
-            const roomId = Number(room.id ?? (room as any)._id);
-            if (roomId !== targetRoomId) return room;
-            return { ...room, items: [...(room.items || []), item] };
+            const items = room.items || [];
+            const idx = items.findIndex((it) => Number(it.id ?? (it as any)._id) === Number(item.id));
+            if (idx === -1) return room;
+            replaced = true;
+            const nextItems = [...items];
+            nextItems[idx] = item;
+            return { ...room, items: nextItems };
           });
+
+          if (!replaced) {
+            // Not found in any existing room: append to target room
+            rooms = rooms.map((room) => {
+              const roomId = Number(room.id ?? (room as any)._id);
+              if (roomId !== targetRoomId) return room;
+              return { ...room, items: [...(room.items || []), item] };
+            });
+          }
+        } else {
+          // Direct quotation item (room-less)
+          const idx = directItems.findIndex((it) => Number(it.id ?? (it as any)._id) === Number(item.id));
+          if (idx !== -1) {
+            directItems[idx] = item;
+          } else {
+            directItems.push(item);
+          }
         }
       }
 
-      return { ...prev, rooms };
+      return { ...prev, rooms, items: directItems };
     });
   }, []);
 
@@ -428,7 +454,8 @@ export default function ProposalBuilder({
         ...room,
         items: (room.items || []).filter((it) => Number(it.id ?? (it as any)._id) !== Number(itemId)),
       }));
-      return { ...prev, rooms };
+      const items = (prev.items || []).filter((it) => Number(it.id ?? (it as any)._id) !== Number(itemId));
+      return { ...prev, rooms, items };
     });
   }, []);
 
@@ -475,7 +502,7 @@ export default function ProposalBuilder({
     }
 
     // 2. Heavy product catalog (products ~330KB + categories) - defer until Step 2+ or when Step 3 is needed
-    if (currentStep >= 2 || parsedStep >= 2) {
+    if (currentStepNumber >= 2) {
       if (products.length === 0 && !fetchStatusRef.current.products) {
         fetchStatusRef.current.products = true;
         fetch("/api/products?editor=true")
@@ -514,8 +541,8 @@ export default function ProposalBuilder({
       }
     }
 
-    // 3. Company details - load for Step 4+ (Review and PDF preview)
-    if (currentStep >= 3) {
+    // 3. Company details - load for Step 3+ (Review and PDF preview)
+    if (currentStepNumber >= 3) {
       if (!company && !fetchStatusRef.current.company) {
         fetchStatusRef.current.company = true;
         fetch("/api/company")
@@ -524,7 +551,7 @@ export default function ProposalBuilder({
           .catch(() => setCompany(null));
       }
     }
-  }, [currentStep, parsedStep, houseTypes.length, roomTypes.length, products.length, categories.length, company]);
+  }, [currentStepNumber, houseTypes.length, roomTypes.length, products.length, categories.length, company]);
 
   // Step 1: Save & Continue Handler
   const handleSaveProjectDetails = async (formData: ProjectFormData) => {
@@ -561,7 +588,7 @@ export default function ProposalBuilder({
         await saveOfflineDraft(nextDraft);
         setSaveStatus("saved");
         toast.success("Project details saved locally");
-        navigateToStep(2);
+        goToNextStep();
         return;
       }
 
@@ -606,14 +633,11 @@ export default function ProposalBuilder({
         }
         setSaveStatus("saved");
 
-        // Seamless navigation to Step 2:
-        // 1. Replace current '/quotation/new' history entry with '/quotation/[id]?step=1' so Browser Back lands on Step 1
-        // 2. Push '/quotation/[id]?step=2' so URL bar is fully synchronised for refresh and bookmarking
-        // 3. Update currentStep in-place, eliminating Next.js Server Component reload and ProposalBuilder remount
-        window.history.replaceState(null, "", `/quotation/${normalized.id}?step=1`);
-        window.history.pushState(null, "", `/quotation/${normalized.id}?step=2`);
-        setCurrentStep(2);
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        // Seamless navigation to next step:
+        // 1. Replace current '/quotation/new' history entry with '/quotation/[id]?step=project_details'
+        // 2. Advance to next step in workflow
+        window.history.replaceState(null, "", `/quotation/${normalized.id}?step=project_details`);
+        goToNextStep();
       } else {
         // Update existing quotation via PATCH /api/quotations/[id]
         const res = await fetch(`/api/quotations/${quotation.id}`, {
@@ -673,10 +697,150 @@ export default function ProposalBuilder({
         }
         setSaveStatus("saved");
         toast.success("Project details saved");
-        navigateToStep(2);
+        goToNextStep();
       }
     } catch (err: any) {
       toast.error(extractErrorMessage(err, "Failed to save project details"));
+      setSaveStatus("unsaved");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Custom Form Step Save Handler (Supports workflow-independent quotation initialization)
+  const handleSaveCustomFormStep = async (newValues: Record<string, any>) => {
+    if (isSaving || isQuotationLocked) return;
+    setIsSaving(true);
+    setSaveStatus("saving");
+
+    try {
+      const mergedValues = {
+        ...((quotation?.customFieldValues as Record<string, any>) || {}),
+        ...newValues,
+      };
+
+      // Extract system-bound fields from newValues using currentStep field definitions
+      let clientName = newValues.clientName || "";
+      let clientPhone = newValues.clientPhone || undefined;
+      let clientEmail = newValues.clientEmail || undefined;
+      let clientAddress = newValues.clientAddress || newValues.siteAddress || newValues.location || undefined;
+      let clientGstNumber = newValues.clientGstNumber || undefined;
+      let premisesName = newValues.premisesName || undefined;
+      let notes = newValues.notes || undefined;
+      let customerId = newValues.customerId || undefined;
+      let leadId = newValues.leadId || undefined;
+
+      // Inspect sections and fields for explicit systemBinding mappings
+      for (const sec of currentStep.sections || []) {
+        for (const f of sec.fields || []) {
+          const val = newValues[f.key];
+          if (val !== undefined && val !== null && val !== "") {
+            if (f.systemBinding === "clientName") clientName = String(val).trim();
+            else if (f.systemBinding === "clientPhone") clientPhone = String(val).trim();
+            else if (f.systemBinding === "clientEmail") clientEmail = String(val).trim();
+            else if (f.systemBinding === "clientAddress") clientAddress = String(val).trim();
+            else if (f.systemBinding === "clientGstNumber") clientGstNumber = String(val).trim();
+            else if (f.systemBinding === "premisesName") premisesName = String(val).trim();
+            else if (f.systemBinding === "notes") notes = String(val).trim();
+            else if (f.systemBinding === "customerId") customerId = Number(val) || undefined;
+            else if (f.systemBinding === "leadId") leadId = String(val).trim();
+          }
+        }
+      }
+
+      if (isOfflineDraft && offlineDraft) {
+        const nextQuote = {
+          ...(quotation || {}),
+          ...(clientName ? { clientName } : {}),
+          ...(clientAddress ? { clientAddress } : {}),
+          ...(clientPhone ? { clientPhone } : {}),
+          ...(clientEmail ? { clientEmail } : {}),
+          customFieldValues: mergedValues,
+        };
+        const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
+        setOfflineDraft(nextDraft);
+        const norm = offlineDraftToQuotation(nextDraft, products, roomTypes);
+        setQuotation(norm);
+        await saveOfflineDraft(nextDraft);
+        setSaveStatus("saved");
+        toast.success("Step saved locally");
+        goToNextStep();
+        return;
+      }
+
+      if (!quotation?.id) {
+        // Workflow-independent creation: Step 1 is a custom form initializing the quotation record
+        const templateId = engine.template?.id || undefined;
+        const templateVersion = engine.template?.version || 1;
+
+        const res = await fetch("/api/quotations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clientName: clientName || "Valued Client",
+            clientPhone: clientPhone || null,
+            clientEmail: clientEmail || null,
+            clientAddress: clientAddress || null,
+            clientGstNumber: clientGstNumber || null,
+            premisesName: premisesName || null,
+            notes: notes || null,
+            customerId: customerId || null,
+            leadId: leadId || null,
+            templateId,
+            templateVersion,
+            customFieldValues: mergedValues,
+          }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(extractErrorMessage(err, "Failed to initialize quotation"));
+        }
+
+        const resJson = await res.json();
+        const newQuote = resJson?.data ?? resJson;
+        const normalized = normalizeQuotation(newQuote);
+        setQuotation(normalized);
+        if (normalized.rooms?.length > 0) {
+          setActiveRoomId(normalized.rooms[0].id);
+        }
+        setSaveStatus("saved");
+        toast.success("Quotation initialized!");
+
+        window.history.replaceState(null, "", `/quotation/${normalized.id}?step=${currentStepId}`);
+        goToNextStep();
+      } else {
+        // Update existing quotation step values
+        const patchBody: Record<string, any> = {
+          customFieldValues: mergedValues,
+        };
+        if (clientName) patchBody.clientName = clientName;
+        if (clientPhone !== undefined) patchBody.clientPhone = clientPhone;
+        if (clientEmail !== undefined) patchBody.clientEmail = clientEmail;
+        if (clientAddress !== undefined) patchBody.clientAddress = clientAddress;
+        if (clientGstNumber !== undefined) patchBody.clientGstNumber = clientGstNumber;
+        if (premisesName !== undefined) patchBody.premisesName = premisesName;
+        if (notes !== undefined) patchBody.notes = notes;
+
+        const res = await fetch(`/api/quotations/${quotation.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patchBody),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(extractErrorMessage(err, "Failed to save step"));
+        }
+
+        const body = await res.json();
+        setQuotation(normalizeQuotation(body?.data ?? body));
+        setSaveStatus("saved");
+        toast.success("Step saved");
+        goToNextStep();
+      }
+    } catch (e: any) {
+      toast.error(extractErrorMessage(e, "Failed to save step"));
       setSaveStatus("unsaved");
     } finally {
       setIsSaving(false);
@@ -888,8 +1052,9 @@ export default function ProposalBuilder({
     quantity: number = 1
   ): Promise<boolean> => {
     if (!quotation?.id) return false;
-    const targetRoomId = Number(roomId || activeRoomId || quotation.rooms?.[0]?.id);
-    if (!targetRoomId) {
+    const hasRooms = (quotation.rooms?.length ?? 0) > 0;
+    const targetRoomId = hasRooms ? Number(roomId || activeRoomId || quotation.rooms?.[0]?.id) : null;
+    if (hasRooms && !targetRoomId) {
       toast.error("Please select a space before adding devices");
       return false;
     }
@@ -900,9 +1065,10 @@ export default function ProposalBuilder({
       const unitPrice = variant?.price ? String(variant.price) : String(prod?.price || 0);
 
       // Every Add is its own entry, so the new id must differ from every item already in the quotation.
-      const takenItemIds = new Set(
-        (quotation.rooms || []).flatMap((room) => (room.items || []).map((existing) => Number(existing.id ?? (existing as any)._id)))
-      );
+      const takenItemIds = new Set([
+        ...(quotation.rooms || []).flatMap((room) => (room.items || []).map((existing) => Number(existing.id ?? (existing as any)._id))),
+        ...(quotation.items || []).map((existing) => Number(existing.id ?? (existing as any)._id)),
+      ]);
       let newItemId = Date.now() + Math.floor(Math.random() * 1000);
       while (takenItemIds.has(newItemId)) newItemId += 1;
       const newItem: any = {
@@ -923,17 +1089,22 @@ export default function ProposalBuilder({
         sortOrder: 0,
       };
 
-      const nextRooms = (quotation.rooms || []).map((room) => {
-        if (Number(room.id ?? (room as any)._id) !== targetRoomId) return room;
-        return { ...room, items: [...(room.items || []), newItem] };
-      });
+      let nextQuote = { ...quotation };
+      if (targetRoomId) {
+        const nextRooms = (quotation.rooms || []).map((room) => {
+          if (Number(room.id ?? (room as any)._id) !== targetRoomId) return room;
+          return { ...room, items: [...(room.items || []), newItem] };
+        });
+        nextQuote.rooms = nextRooms;
+      } else {
+        nextQuote.items = [...(quotation.items || []), newItem];
+      }
 
-      const nextQuote = { ...quotation, rooms: nextRooms };
       const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
       setOfflineDraft(nextDraft);
       setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
       triggerAutosave();
-      toast.success(quantity > 1 ? `${quantity} devices added to space` : "Device added to space");
+      toast.success(quantity > 1 ? `${quantity} items added` : "Item added to quotation");
       return true;
     }
 
@@ -944,7 +1115,7 @@ export default function ProposalBuilder({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          quotationRoomId: targetRoomId,
+          quotationRoomId: targetRoomId ?? undefined,
           productId,
           productVariantId: productVariantId ?? undefined,
           variantConfig: variantConfig ?? undefined,
@@ -960,10 +1131,10 @@ export default function ProposalBuilder({
       const body = await res.json();
       upsertItemLocally(body?.data ?? body);
       setSaveStatus("saved");
-      toast.success(quantity > 1 ? `${quantity} devices added to space` : "Device added to space");
+      toast.success(quantity > 1 ? `${quantity} items added` : "Item added to quotation");
       return true;
     } catch (e: any) {
-      toast.error(extractErrorMessage(e, "Failed to add device"));
+      toast.error(extractErrorMessage(e, "Failed to add item"));
       setSaveStatus("unsaved");
       return false;
     }
@@ -1145,12 +1316,13 @@ export default function ProposalBuilder({
         ...room,
         items: (room.items || []).filter((i) => Number(i.id ?? (i as any)._id) !== Number(itemId)),
       }));
-      const nextQuote = { ...quotation, rooms: nextRooms };
+      const nextItems = (quotation.items || []).filter((i) => Number(i.id ?? (i as any)._id) !== Number(itemId));
+      const nextQuote = { ...quotation, rooms: nextRooms, items: nextItems };
       const nextDraft = quotationToOfflineDraft(nextQuote, offlineDraft);
       setOfflineDraft(nextDraft);
       setQuotation(offlineDraftToQuotation(nextDraft, products, roomTypes));
       triggerAutosave();
-      toast.success("Device removed");
+      toast.success("Item removed");
       return;
     }
 
@@ -1325,47 +1497,37 @@ export default function ProposalBuilder({
     }
   };
 
-  // A quotation only has a real product once some room item carries a positive quantity.
+  // A quotation only has a real product once some room item or direct item carries a positive quantity.
   const hasAnyItems = useMemo(
     () =>
       (quotation?.rooms ?? []).some((r) =>
         (r.items ?? []).some((i) => (Number(i.quantity) || 0) > 0)
-      ),
+      ) ||
+      (quotation?.items ?? []).some((i) => (Number(i.quantity) || 0) > 0),
     [quotation]
   );
-
-  // Determine which steps are completed
-  const completedSteps = useMemo(() => {
-    const list: ProposalStep[] = [];
-    if (quotation?.clientName) list.push(1);
-    if ((quotation?.rooms?.length ?? 0) > 0) list.push(2);
-    if (hasAnyItems) list.push(3);
-    if (hasAnyItems) list.push(4);
-    return list;
-  }, [quotation, hasAnyItems]);
-
-  const canNavigateToStep = (step: ProposalStep) => {
-    if (step === 1) return true;
-    if (step === 2) return Boolean(quotation?.id);
-    if (step === 3) return Boolean(quotation?.id && (quotation?.rooms?.length ?? 0) > 0);
-    // Review & Proposal require at least one product added somewhere in the quotation.
-    if (step >= 4) return Boolean(quotation?.id && hasAnyItems);
-    return false;
-  };
 
   // Guard against landing on Review/Proposal with no products via a direct URL,
   // a stale bookmark, or browser back/forward — snap back to the furthest valid step.
   useEffect(() => {
     if (!quotation) return;
-    if (canNavigateToStep(currentStep)) return;
+    if (canNavigateToStep(currentStepId)) return;
     const hasRooms = (quotation.rooms?.length ?? 0) > 0;
-    const fallback: ProposalStep = currentStep >= 4 && hasRooms ? 3 : hasRooms ? 2 : 1;
+    const fallback: ProposalStep = hasRooms
+      ? "space_selection"
+      : workflowSteps.find((s) => s.id === "product_config" || s.moduleRef === "product_config")
+      ? "product_config"
+      : ((workflowSteps[0]?.id as ProposalStep) || "project_details");
     navigateToStep(fallback);
-    if (currentStep >= 4 && !hasAnyItems) {
+    if (
+      currentStep.type === "built_in_module" &&
+      (currentStep.moduleRef === "pricing_review" || currentStep.moduleRef === "proposal_preview") &&
+      !hasAnyItems
+    ) {
       toast.error("Add at least one product before continuing to Review.");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [quotation?.id, currentStep, hasAnyItems]);
+  }, [quotation?.id, currentStepId, hasAnyItems]);
 
   return (
     <div className="space-y-6 pb-20">
@@ -1583,26 +1745,41 @@ export default function ProposalBuilder({
 
       {/* Step Indicator Progress Bar */}
       <StepIndicator
-        currentStep={currentStep}
-        completedSteps={completedSteps}
+        currentStep={currentStepId}
+        completedSteps={completedStepIds}
         onStepClick={navigateToStep}
         canNavigateToStep={canNavigateToStep}
+        steps={stepIndicatorItems}
       />
 
       {quotation && <QuotationOwnership quotation={quotation} />}
 
       {/* Dynamic Step View Rendering */}
       <div>
-        {currentStep === 1 && (
+        {currentStep.type === "custom_form" && (
+          <DynamicFormStep
+            key={currentStep.id}
+            step={currentStep}
+            initialValues={quotation?.customFieldValues || {}}
+            onSaveAndContinue={handleSaveCustomFormStep}
+            onBack={goToPrevStep}
+            onSkip={goToNextStep}
+            isSaving={isSaving}
+            isLocked={isQuotationLocked}
+          />
+        )}
+
+        {currentStep.type === "built_in_module" && currentStep.moduleRef === "project_details" && (
           <StepProjectDetails
             initialData={quotation ?? undefined}
             houseTypes={houseTypes}
             onSaveAndContinue={handleSaveProjectDetails}
             isSaving={isSaving}
+            step={currentStep}
           />
         )}
 
-        {currentStep === 2 && quotation && (
+        {currentStep.type === "built_in_module" && currentStep.moduleRef === "space_selection" && quotation && (
           <StepSelectSpaces
             quotation={quotation}
             roomTypes={roomTypes}
@@ -1610,13 +1787,13 @@ export default function ProposalBuilder({
             onAddRoom={handleAddRoom}
             onUpdateRoom={handleUpdateRoom}
             onDeleteRoom={handleDeleteRoom}
-            onContinue={() => navigateToStep(3)}
-            onBack={() => navigateToStep(1)}
+            onContinue={goToNextStep}
+            onBack={goToPrevStep}
             isLoading={isSaving}
           />
         )}
 
-        {currentStep === 3 && quotation && (
+        {currentStep.type === "built_in_module" && currentStep.moduleRef === "product_config" && quotation && (
           <StepProductConfig
             quotation={quotation}
             products={products}
@@ -1631,19 +1808,19 @@ export default function ProposalBuilder({
             onReplaceItem={handleReplaceItem}
             onUpdateRoom={handleUpdateRoom}
             onUpdateRoomNotes={handleUpdateRoomNotes}
-            onContinue={() => navigateToStep(4)}
-            onBack={() => navigateToStep(2)}
+            onContinue={goToNextStep}
+            onBack={goToPrevStep}
           />
         )}
 
-        {currentStep === 4 && quotation && !hasAnyItems && (
+        {currentStep.type === "built_in_module" && currentStep.moduleRef === "pricing_review" && quotation && !hasAnyItems && (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-gray-400">
             <LoadingSpinner size="md" />
             <p className="text-sm font-medium">Add a product before reviewing — redirecting…</p>
           </div>
         )}
 
-        {currentStep === 4 && quotation && hasAnyItems && (
+        {currentStep.type === "built_in_module" && currentStep.moduleRef === "pricing_review" && quotation && hasAnyItems && (
           <StepReview
             quotation={quotation}
             products={products}
@@ -1655,23 +1832,24 @@ export default function ProposalBuilder({
             onDeleteItem={handleDeleteItem}
             onUpdateDiscount={handleUpdateDiscount}
             onUpdateRoom={handleUpdateRoom}
-            onContinue={() => navigateToStep(5)}
-            onBack={() => navigateToStep(3)}
+            onContinue={goToNextStep}
+            onBack={goToPrevStep}
           />
         )}
 
-        {currentStep === 5 && quotation && !hasAnyItems && (
+        {currentStep.type === "built_in_module" && currentStep.moduleRef === "proposal_preview" && quotation && !hasAnyItems && (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-gray-400">
             <LoadingSpinner size="md" />
             <p className="text-sm font-medium">Add a product before exporting — redirecting…</p>
           </div>
         )}
 
-        {currentStep === 5 && quotation && hasAnyItems && (
+        {currentStep.type === "built_in_module" && currentStep.moduleRef === "proposal_preview" && quotation && hasAnyItems && (
           <StepProposalPreview
             quotation={quotation}
             company={company}
-            onBackToEdit={() => navigateToStep(4)}
+            onBackToEdit={goToPrevStep}
+            activeTemplateOverride={engine.template}
           />
         )}
       </div>

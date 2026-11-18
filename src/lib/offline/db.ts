@@ -29,9 +29,9 @@ export type OfflineDraftStatus =
 export interface OfflineQuotationDraftItem {
   id: string; // "item_" + uuid
   draftId: string;
-  roomId: string;
-  productId: number;
-  variantId: number;
+  roomId?: string | null;
+  productId?: number | null;
+  variantId?: number | null;
   productName: string;
   variantName?: string;
   code?: string;
@@ -46,6 +46,8 @@ export interface OfflineQuotationDraftItem {
   lineTotal: string;
   notes?: string;
   sortOrder: number;
+  title?: string | null;
+  itemType?: "product" | "service" | "custom" | null;
 }
 
 export interface OfflineQuotationDraftRoom {
@@ -94,12 +96,16 @@ export interface OfflineQuotationDraft {
   houseTypeName?: string;
   projectName?: string;
   notes?: string;
+  templateId?: string | null;
+  templateVersion?: number | null;
+  customFieldValues?: Record<string, any> | null;
   catalogVersion: string;
   revision: number;
   status: OfflineDraftStatus;
   createdAt: string;
   updatedAt: string;
   rooms: OfflineQuotationDraftRoom[];
+  items?: OfflineQuotationDraftItem[];
   calculation: OfflineCalculationSnapshot;
   roomCount: number;
   deviceCount: number;

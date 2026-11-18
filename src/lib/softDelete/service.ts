@@ -262,6 +262,65 @@ export async function softDeleteOne<T extends { _id: number | string }>(
   return { record: announced as unknown as T, deletionGroupId, cascade: cascadeCounts };
 }
 
+export interface SoftDeleteManyParams<T> {
+  model: Model<T>;
+  entityType: SoftDeleteEntityType;
+  filter: Record<string, unknown>;
+  actor: DeletionActor;
+  reason?: string | null;
+  session?: ClientSession;
+}
+
+/**
+ * Soft-deletes multiple records matching a filter in one operation,
+ * stamps audit fields, and records the batch deletion in the audit trail.
+ */
+export async function softDeleteMany<T>(params: SoftDeleteManyParams<T>): Promise<number> {
+  const { model, entityType, filter, actor, session } = params;
+  const reason = normalizeReason(params.reason);
+  const deletionGroupId = newDeletionGroupId();
+
+  await connectMongoDB();
+
+  const result = await model
+    .updateMany(
+      { ...filter, isDeleted: { $ne: true } } as Record<string, unknown>,
+      {
+        $set: {
+          isDeleted: true,
+          deletedAt: new Date(),
+          deletedBy: actor.id,
+          deletionReason: reason,
+          deletionGroupId,
+        },
+      },
+      { session: session ?? undefined, [WRITE_OPTION]: true } as any
+    )
+    .exec();
+
+  const count = result.modifiedCount ?? 0;
+  if (count > 0) {
+    await writeAuditEvent(
+      {
+        action: "soft_deleted",
+        entityType,
+        entityId: "batch",
+        entityLabel: `Batch soft delete (${count} records)`,
+        deletionGroupId,
+        cascade: [],
+        reason,
+        performedBy: actor.id,
+        performedByName: null,
+        performedByRole: actor.role,
+        metadata: { filter: JSON.parse(JSON.stringify(filter)) },
+      },
+      session
+    );
+  }
+
+  return count;
+}
+
 /**
  * Restores one soft-deleted record and the children that were cascaded with
  * it (matched by `deletionGroupId`, so a child independently soft-deleted
